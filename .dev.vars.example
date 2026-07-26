@@ -2,10 +2,12 @@
 CONTACT_EMAIL=admin@spechawk.ai
 POSTING_ENABLED=false
 
-# --- PR-2 (Telegram approval queue) ---
-# TELEGRAM_BOT_TOKEN=
-# TELEGRAM_CHAT_ID=
-# TELEGRAM_WEBHOOK_SECRET=
+# --- Telegram approval queue (PR-2) ---
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+TELEGRAM_WEBHOOK_SECRET=
+# Hours before an unapproved draft expires (default 6).
+QUEUE_TTL_HOURS=6
 
 # --- P2 (Threads poster) ---
 # THREADS_USER_ID=
