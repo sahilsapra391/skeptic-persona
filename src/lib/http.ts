@@ -37,6 +37,11 @@ export function buildUserAgent(contactEmail: string): string {
   return `Skeptic Wire ${contactEmail}`;
 }
 
+// Error contract: politeFetch RETURNS non-2xx responses (callers check .ok /
+// .status — a BLS 403 is data, not an exception) but THROWS on network
+// failures and timeouts (AbortSignal.timeout). Ingesters wrap calls in
+// try/catch and count failures in source_state.
+
 export async function politeFetch(url: string, opts: PoliteOptions): Promise<PoliteResponse> {
   const headers: Record<string, string> = {
     "User-Agent": opts.userAgent,
