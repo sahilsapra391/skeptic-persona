@@ -1,0 +1,29 @@
+# Skeptic Wire — single Worker, single cron trigger (free plan allows 5/account).
+# Deploy prerequisites (owner, one-time):
+#   wrangler d1 create skeptic-wire        -> paste database_id below
+#   wrangler kv namespace create STATE     -> paste id below
+# Secrets are set with `wrangler secret put <NAME>` and are never committed.
+
+name = "skeptic-persona"
+main = "src/index.ts"
+# Highest date supported by the pinned workerd (keeps local tests == deploy semantics).
+compatibility_date = "2025-09-06"
+workers_dev = true
+
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "skeptic-wire"
+database_id = "00000000-0000-0000-0000-000000000000" # placeholder — set after `wrangler d1 create`
+
+[[kv_namespaces]]
+binding = "KV"
+id = "0000000000000000000000000000000000" # placeholder — set after `wrangler kv namespace create`
+
+[vars]
+# Goes into the User-Agent for polite polling (SEC/BLS require a declared contact).
+CONTACT_EMAIL = "admin@spechawk.ai"
+# Master gate for the poster (P2+). The dispatcher also honors the KV kill_switch key.
+POSTING_ENABLED = "false"
