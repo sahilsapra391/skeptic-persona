@@ -52,6 +52,177 @@ export async function insertItem(
   return { outcome: "inserted", id: res.meta.last_row_id ?? null };
 }
 
+// ---------------------------------------------------------------------------
+// Approval queue state machine (PR-2). All transitions are guarded UPDATEs
+// (`WHERE state = 'pending'`) so double-taps and races resolve to exactly one
+// decision; meta.changes tells the caller whether their transition won.
+// item status mirrors the queue decision so ingesters can query items alone.
+
+export type QueueDecision = "approved" | "rejected";
+
+export interface QueueEntry {
+  id: number;
+  itemId: number;
+  archetype: string;
+  draftText: string;
+  telegramMessageId: number | null;
+  state: string;
+  editedText: string | null;
+  editPromptMessageId: number | null;
+}
+
+export async function createQueueEntry(
+  db: D1Database,
+  itemId: number,
+  archetype: string,
+  draftText: string,
+  now: Date = new Date(),
+): Promise<number> {
+  // db.batch = one subrequest + an implicit transaction: the queue row and
+  // the items mirror can never diverge on a mid-write failure.
+  const [ins] = await db.batch([
+    db
+      .prepare(`INSERT INTO queue (item_id, archetype, draft_text, created_at) VALUES (?1, ?2, ?3, ?4)`)
+      .bind(itemId, archetype, draftText, iso(now)),
+    db.prepare(`UPDATE items SET status = 'queued' WHERE id = ?1`).bind(itemId),
+  ]);
+  return ins?.meta.last_row_id ?? 0;
+}
+
+export async function getQueueEntry(db: D1Database, id: number): Promise<QueueEntry | null> {
+  const row = await db.prepare(`SELECT * FROM queue WHERE id = ?1`).bind(id).first<Record<string, unknown>>();
+  if (!row) return null;
+  return {
+    id: row.id as number,
+    itemId: row.item_id as number,
+    archetype: row.archetype as string,
+    draftText: row.draft_text as string,
+    telegramMessageId: (row.telegram_message_id as number | null) ?? null,
+    state: row.state as string,
+    editedText: (row.edited_text as string | null) ?? null,
+    editPromptMessageId: (row.edit_prompt_message_id as number | null) ?? null,
+  };
+}
+
+export async function setQueueTelegramMessageId(db: D1Database, id: number, messageId: number): Promise<void> {
+  await db.prepare(`UPDATE queue SET telegram_message_id = ?1 WHERE id = ?2`).bind(messageId, id).run();
+}
+
+/** Approve or reject; returns false if the entry was already decided (idempotent double-tap). */
+export async function decideQueueEntry(
+  db: D1Database,
+  id: number,
+  decision: QueueDecision,
+  now: Date = new Date(),
+): Promise<boolean> {
+  // Atomic batch; the mirror statement re-checks that the queue row actually
+  // reached the target state (batch statements run unconditionally) and only
+  // upgrades items still 'queued' so it can never stomp later statuses.
+  const [flip] = await db.batch([
+    db
+      .prepare(`UPDATE queue SET state = ?1, decided_at = ?2 WHERE id = ?3 AND state = 'pending'`)
+      .bind(decision, iso(now), id),
+    db
+      .prepare(
+        `UPDATE items SET status = ?1
+         WHERE status = 'queued' AND id = (SELECT item_id FROM queue WHERE id = ?2 AND state = ?1)`,
+      )
+      .bind(decision, id),
+  ]);
+  return (flip?.meta.changes ?? 0) > 0;
+}
+
+/** Record the force-reply prompt message the Edit button produced. */
+export async function markEditPrompt(db: D1Database, id: number, promptMessageId: number): Promise<boolean> {
+  const res = await db
+    .prepare(`UPDATE queue SET edit_prompt_message_id = ?1 WHERE id = ?2 AND state = 'pending'`)
+    .bind(promptMessageId, id)
+    .run();
+  return res.meta.changes > 0;
+}
+
+/** Owner replied to an edit prompt: store corrected text, state -> edited (approved-with-changes). */
+export async function applyEditReply(
+  db: D1Database,
+  promptMessageId: number,
+  editedText: string,
+  now: Date = new Date(),
+): Promise<number | null> {
+  const [flip] = await db.batch([
+    db
+      .prepare(
+        `UPDATE queue SET state = 'edited', edited_text = ?1, decided_at = ?2
+         WHERE edit_prompt_message_id = ?3 AND state = 'pending'
+         RETURNING id, item_id`,
+      )
+      .bind(editedText, iso(now), promptMessageId),
+    db
+      .prepare(
+        `UPDATE items SET status = 'approved'
+         WHERE status = 'queued'
+           AND id IN (SELECT item_id FROM queue WHERE edit_prompt_message_id = ?1 AND state = 'edited')`,
+      )
+      .bind(promptMessageId),
+  ]);
+  const row = (flip?.results as Array<{ id: number; item_id: number }> | undefined)?.[0];
+  return row?.id ?? null;
+}
+
+/** Look up a queue entry by its edit-prompt message id, regardless of state (late-reply feedback). */
+export async function getQueueEntryByEditPrompt(
+  db: D1Database,
+  promptMessageId: number,
+): Promise<{ id: number; state: string } | null> {
+  const row = await db
+    .prepare(`SELECT id, state FROM queue WHERE edit_prompt_message_id = ?1`)
+    .bind(promptMessageId)
+    .first<{ id: number; state: string }>();
+  return row ?? null;
+}
+
+/** Expire stale pending entries; returns the expired rows for best-effort Telegram message updates. */
+/** Per-sweep cap: keeps one expiry run bounded against the 50-subrequest tick budget. */
+export const EXPIRY_SWEEP_LIMIT = 25;
+
+export async function expirePendingBefore(
+  db: D1Database,
+  cutoff: Date,
+  now: Date = new Date(),
+): Promise<
+  Array<{ id: number; telegramMessageId: number | null; draftText: string; editPromptMessageId: number | null }>
+> {
+  // Atomic batch: bounded flip + a SELF-HEALING mirror that also repairs any
+  // items stranded 'queued' by a past partial failure (mirror keys on the
+  // queue's expired set, not just this sweep's rows).
+  const [flip] = await db.batch([
+    db
+      .prepare(
+        `UPDATE queue SET state = 'expired', decided_at = ?1
+         WHERE id IN (SELECT id FROM queue WHERE state = 'pending' AND created_at <= ?2 ORDER BY id LIMIT ${EXPIRY_SWEEP_LIMIT})
+         RETURNING id, item_id, telegram_message_id, draft_text, edit_prompt_message_id`,
+      )
+      .bind(iso(now), iso(cutoff)),
+    db.prepare(
+      `UPDATE items SET status = 'expired'
+       WHERE status = 'queued' AND id IN (SELECT item_id FROM queue WHERE state = 'expired')`,
+    ),
+  ]);
+  const rows =
+    (flip?.results as Array<{
+      id: number;
+      item_id: number;
+      telegram_message_id: number | null;
+      draft_text: string;
+      edit_prompt_message_id: number | null;
+    }>) ?? [];
+  return rows.map((r) => ({
+    id: r.id,
+    telegramMessageId: r.telegram_message_id,
+    draftText: r.draft_text,
+    editPromptMessageId: r.edit_prompt_message_id,
+  }));
+}
+
 export interface SourceState {
   source: string;
   etag: string | null;

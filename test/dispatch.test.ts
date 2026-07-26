@@ -1,6 +1,12 @@
 import { env } from "cloudflare:test";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { KILL_SWITCH_KEY, MAX_JOBS_PER_TICK, registry, tick } from "../src/dispatch";
+
+// These tests own the jobs table; clear migration-seeded jobs (queue_expiry)
+// so synthetic fixtures alone determine what each tick sees.
+beforeEach(async () => {
+  await env.DB.prepare("DELETE FROM jobs").run();
+});
 
 const NOW = new Date("2026-07-22T14:00:00Z"); // Wed 10:00 EDT
 
