@@ -1,0 +1,12 @@
+# Copy to .dev.vars for local `wrangler dev`. Never commit .dev.vars.
+CONTACT_EMAIL=admin@spechawk.ai
+POSTING_ENABLED=false
+
+# --- PR-2 (Telegram approval queue) ---
+# TELEGRAM_BOT_TOKEN=
+# TELEGRAM_CHAT_ID=
+# TELEGRAM_WEBHOOK_SECRET=
+
+# --- P2 (Threads poster) ---
+# THREADS_USER_ID=
+# THREADS_ACCESS_TOKEN=
