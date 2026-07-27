@@ -166,10 +166,41 @@ export function draftHalt(e: HaltEvent): string {
   return `HALT: ${e.symbol}${name}. ${e.reasonText}, ${hhmm} ET`;
 }
 
+/** Window in which repeat halts on the same symbol are treated as one story. */
+export const REPEAT_HALT_WINDOW_HOURS = 24;
+
+/**
+ * How many times this symbol has ALREADY been halted for the same reason
+ * inside the window. A stock in a volatility spiral trips LUDP every few
+ * minutes (WLDS: 8 times in one hour on 2026-07-27, two of which posted ten
+ * seconds apart). Posting each one is a ticker feed, not a wire — the pattern
+ * is the story, so repeats drop to log-only and the count feeds the
+ * escalation beat.
+ */
+async function priorHaltCount(env: Env, symbol: string, reasonCode: string | null, now: Date): Promise<number> {
+  const since = iso(new Date(now.getTime() - REPEAT_HALT_WINDOW_HOURS * 3_600_000));
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM items
+     WHERE source = ?1 AND event_at >= ?2
+       AND json_extract(payload, '$.symbol') = ?3
+       AND json_extract(payload, '$.reasonCode') IS ?4`,
+  )
+    .bind(SOURCE, since, symbol, reasonCode)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
 async function ingestHalts(env: Env, events: HaltEvent[], sourceUrl: string, now: Date): Promise<number> {
   let inserted = 0;
   for (const e of events) {
     if (!e.eventIso) continue;
+
+    // Same symbol + same reason inside the window: the first is news, the
+    // rest are one story repeating. They still land in the lake.
+    const priorCount = await priorHaltCount(env, e.symbol, e.reasonCode, now);
+    const isRepeat = priorCount > 0;
+    const score = isRepeat ? SCORE_LOG_ONLY : e.score;
+
     const result = await insertItem(
       env.DB,
       {
@@ -186,13 +217,23 @@ async function ingestHalts(env: Env, events: HaltEvent[], sourceUrl: string, now
           reasonText: e.reasonText,
           haltTimeEt: `${e.haltDate} ${e.haltTime}`,
           haltTimeEtShort: e.haltTime.slice(0, 5),
+          // 1-based position of this halt in the window; unlocks the
+          // "Nth halt today" escalation beat.
+          haltCountToday: priorCount + 1,
         },
-        score: e.score,
-        status: e.score >= SCORE_POSTABLE && isFreshAtIngest(e.eventIso, now) ? "new" : "logged",
+        score,
+        status: score >= SCORE_POSTABLE && isFreshAtIngest(e.eventIso, now) ? "new" : "logged",
       },
       now,
     );
     if (result.outcome === "inserted") inserted += 1;
+    if (isRepeat && result.outcome === "inserted") {
+      log("info", "repeat halt suppressed to lake", {
+        symbol: e.symbol,
+        reasonCode: e.reasonCode,
+        occurrence: priorCount + 1,
+      });
+    }
   }
   return inserted;
 }
