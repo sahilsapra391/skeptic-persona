@@ -191,6 +191,58 @@ describe("polls end-to-end", () => {
     expect(afterBoth).toBeGreaterThan(25);
   });
 
+  it("halts: a symbol halted repeatedly is ONE story, not eight", async () => {
+    // WLDS tripped LUDP 8 times in an hour on 2026-07-27 and two of them
+    // posted ten seconds apart. Repeats now drop to the lake.
+    const feed = (time: string) => `<rss><channel><item>
+      <ndaq:IssueSymbol>RPT</ndaq:IssueSymbol>
+      <ndaq:IssueName>Repeat Corp</ndaq:IssueName>
+      <ndaq:HaltDate>07/24/2026</ndaq:HaltDate>
+      <ndaq:HaltTime>${time}</ndaq:HaltTime>
+      <ndaq:Market>NASDAQ</ndaq:Market>
+      <ndaq:ReasonCode>LUDP</ndaq:ReasonCode>
+    </item></channel></rss>`;
+
+    for (const t of ["19:00:00.000", "19:07:00.000", "19:14:00.000"]) {
+      fetchMock.get(NQ).intercept({ path: "/rss.aspx?feed=tradehalts" }).reply(200, feed(t));
+      await pollNasdaqHalts(env, HALT_NOW);
+    }
+
+    const rows = await env.DB.prepare(
+      "SELECT external_id, score, status, json_extract(payload,'$.haltCountToday') AS n FROM items WHERE source='halt' AND json_extract(payload,'$.symbol')='RPT' ORDER BY event_at",
+    ).all<{ external_id: string; score: number; status: string; n: number }>();
+    expect(rows.results.length).toBe(3);
+    // First is news; the rest are the same story repeating.
+    // First is news (postable, drained to the queue); repeats stay in the lake.
+    expect(rows.results[0]).toMatchObject({ score: 2, n: 1 });
+    expect(rows.results[0]?.status).not.toBe("logged");
+    expect(rows.results[1]).toMatchObject({ score: 1, status: "logged", n: 2 });
+    expect(rows.results[2]).toMatchObject({ score: 1, status: "logged", n: 3 });
+  });
+
+  it("halts: a DIFFERENT reason code on the same symbol is a new story", async () => {
+    const feed = (code: string, time: string) => `<rss><channel><item>
+      <ndaq:IssueSymbol>TWO</ndaq:IssueSymbol>
+      <ndaq:IssueName>Two Reasons Inc</ndaq:IssueName>
+      <ndaq:HaltDate>07/24/2026</ndaq:HaltDate>
+      <ndaq:HaltTime>${time}</ndaq:HaltTime>
+      <ndaq:Market>NASDAQ</ndaq:Market>
+      <ndaq:ReasonCode>${code}</ndaq:ReasonCode>
+    </item></channel></rss>`;
+    fetchMock.get(NQ).intercept({ path: "/rss.aspx?feed=tradehalts" }).reply(200, feed("LUDP", "18:00:00.000"));
+    await pollNasdaqHalts(env, HALT_NOW);
+    fetchMock.get(NQ).intercept({ path: "/rss.aspx?feed=tradehalts" }).reply(200, feed("T1", "18:20:00.000"));
+    await pollNasdaqHalts(env, HALT_NOW);
+
+    const rows = await env.DB.prepare(
+      "SELECT score, status FROM items WHERE source='halt' AND json_extract(payload,'$.symbol')='TWO' ORDER BY event_at",
+    ).all<{ score: number; status: string }>();
+    // A volatility pause then a news-pending halt: BOTH are real news, so
+    // neither is suppressed to the lake.
+    expect(rows.results.map((r) => r.score)).toEqual([2, 3]);
+    for (const r of rows.results) expect(r.status).not.toBe("logged");
+  });
+
   it("halts: an HTML challenge page (zero events) is unhealthy and stores no validators", async () => {
     fetchMock.get(NQ).intercept({ path: "/rss.aspx?feed=tradehalts" }).reply(200, "<html>challenge</html>", { headers: { etag: '"junk"' } });
     await pollNasdaqHalts(env, HALT_NOW);

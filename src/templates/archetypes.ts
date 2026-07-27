@@ -392,6 +392,14 @@ const halt: Archetype = {
     },
     { id: "halt.codeStory", text: "The code is the whole story so far.", tier: "base", when: { op: "has", field: "reasonCode" } },
     { id: "halt.guessing", text: "Past this line it would be guessing.", tier: "base", when: { op: "has", field: "reasonCode" } },
+    // Escalation: a symbol tripping the band repeatedly is the story. The
+    // count is a lookback over our own lake, not an inference.
+    {
+      id: "halt.nthToday",
+      text: "Halt number {haltCountToday} for this symbol today.",
+      tier: "escalation",
+      when: { op: "gte", field: "haltCountToday", value: 3 },
+    },
   ],
 };
 
@@ -402,7 +410,6 @@ const halt: Archetype = {
 export const PENDING_BEATS: readonly PendingBeat[] = [
   { id: "8k.secondNonReliance", text: "Second non-reliance this year.", requires: ["d1_issuer_lookback"] },
   { id: "8k.sameItem", text: "Same item, new quarter.", requires: ["d1_issuer_lookback"] },
-  { id: "halt.thirdThisMonth", text: "Third halt this month.", requires: ["d1_symbol_lookback"] },
   { id: "tape.casino", text: "The casino is the market now.", requires: ["tape_join"] },
   // Statement-diff family: needs the P3 FOMC diff engine.
   { id: "fed.editIsNews", text: "The edit is the entire news.", requires: ["statement_diff"] },

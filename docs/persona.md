@@ -151,7 +151,11 @@ headline with no beat until then.
 - `Past this line it would be guessing.`
 
 **Escalation tier:**
-- `Third halt this month.` [REQUIRES lookback query in our lake]
+- `Halt number {n} for this symbol today.` [≥3 halts on the symbol with the
+  same reason code inside 24h, counted from our own lake. Repeats below that
+  bar are suppressed to log-only: a stock tripping LUDP every few minutes is
+  ONE story, not eight (WLDS halted 8x in an hour on 2026-07-27 and the
+  account posted two of them ten seconds apart).]
 
 ### TAPE CHECK (our own data; cited "per Skeptic's tape")
 - `Shelf life measured in hours.` [0DTE share elevated]
