@@ -8,9 +8,14 @@ import { log } from "./lib/log";
 // plan allows 5 cron expressions per ACCOUNT, so schedules live in the D1
 // jobs table and this dispatcher fans out to due jobs each minute.
 
-/** Cap per tick keeps a single invocation inside the CPU / 50-subrequest
- * budget; anything left over runs next minute. */
-export const MAX_JOBS_PER_TICK = 4;
+/**
+ * Jobs started per tick. Raised 4 -> 12 for the paid tier and the source
+ * expansion: at ~40 jobs, four per tick means a fully-due backlog takes ten
+ * minutes to drain, which silently defeats the release-second watchers that
+ * are the entire point of the scheduled-print archetype. TICK_TIME_BUDGET_MS
+ * remains the real governor.
+ */
+export const MAX_JOBS_PER_TICK = 12;
 
 /**
  * Per-tick TIME budget (wall clock, not CPU — performance.now() measures
@@ -26,7 +31,7 @@ export const MAX_JOBS_PER_TICK = 4;
  *
  * A deferred job runs next minute; a job killed halfway leaves partial state.
  */
-export const TICK_TIME_BUDGET_MS = 60_000;
+export const TICK_TIME_BUDGET_MS = 45_000;
 
 function elapsedMs(startedAt: number): number {
   return performance.now() - startedAt;
@@ -43,6 +48,7 @@ interface JobRow {
   name: string;
   cadence_profile: string;
   due_at: string;
+  priority: number;
 }
 
 export async function tick(env: Env, now: Date = new Date()): Promise<void> {
@@ -51,10 +57,13 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
     return;
   }
 
+  // ORDER BY priority THEN due_at: a watcher due exactly at T must pre-empt
+  // stale ingester backlog, and the poster (priority 0) must never queue
+  // behind 40 feed polls. Pure due_at ordering cannot express that.
   const due = await env.DB.prepare(
-    `SELECT name, cadence_profile, due_at FROM jobs
+    `SELECT name, cadence_profile, due_at, priority FROM jobs
      WHERE enabled = 1 AND due_at <= ?1
-     ORDER BY due_at
+     ORDER BY priority, due_at
      LIMIT ?2`,
   )
     .bind(iso(now), MAX_JOBS_PER_TICK)
@@ -98,8 +107,22 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
     }
     try {
       await handler(env, now, budget);
+      await env.DB.prepare(
+        `UPDATE jobs SET last_ok_at = ?1, consecutive_failures = 0 WHERE name = ?2`,
+      )
+        .bind(iso(now), row.name)
+        .run();
     } catch (e) {
       log("error", "job failed", { job: row.name, error: String(e) });
+      // Job-level health: source_state tracks whether a SOURCE answers;
+      // this tracks whether the JOB itself completes, so a handler that
+      // throws before ever touching the network is still visible.
+      await env.DB.prepare(
+        `UPDATE jobs SET consecutive_failures = consecutive_failures + 1 WHERE name = ?1`,
+      )
+        .bind(row.name)
+        .run()
+        .catch(() => {});
     }
     ran += 1;
   }
