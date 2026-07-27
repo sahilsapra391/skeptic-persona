@@ -14,4 +14,11 @@ export interface Env {
   /** BLS watcher tight-poll tuning (defaults 2500 / 90000; tests shrink them). */
   BLS_POLL_INTERVAL_MS?: string;
   BLS_POLL_DEADLINE_MS?: string;
+  // Threads poster (P2). App credentials are secrets; the live long-lived
+  // token lives in KV (the Worker refreshes it weekly and can't update
+  // its own secrets).
+  THREADS_APP_ID?: string;
+  THREADS_APP_SECRET?: string;
+  /** Editorial posts/day cap (default 25) — our budget, far under Threads' 250. */
+  POST_DAILY_CAP?: string;
 }
