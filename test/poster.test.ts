@@ -39,7 +39,7 @@ async function seedApproved(externalId: string, draft: string, edited?: string):
     payload: {},
     score: SCORE_POSTABLE,
   });
-  const queueId = await createQueueEntry(env.DB, item.id ?? 0, "FILING_ALERT", draft, NOW);
+  const queueId = await createQueueEntry(env.DB, item.id ?? 0, "HALT", draft, NOW);
   await setQueueTelegramMessageId(env.DB, queueId, 500 + queueId);
   await decideQueueEntry(env.DB, queueId, "approved", NOW);
   if (edited) {
@@ -69,14 +69,14 @@ describe("clampThreadsText", () => {
 describe("runPoster", () => {
   it("does nothing while POSTING_ENABLED is false (the shipped default)", async () => {
     await connectThreads();
-    await seedApproved("P-off", "draft");
+    await seedApproved("P-off", "draft, per Nasdaq");
     await runPoster(env, NOW); // real env: POSTING_ENABLED="false"
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM post_log").first<{ n: number }>())?.n).toBe(0);
   });
 
   it("posts an approved draft with the source as link_attachment, logs it, badges Telegram", async () => {
     await connectThreads();
-    const { itemId, queueId } = await seedApproved("P-1", "8-K: ACME CORP\nItem 4.02 — Non-Reliance");
+    const { itemId, queueId } = await seedApproved("P-1", "HALT: ACME. News Pending, 09:31 ET, per Nasdaq");
     mockQuota();
     let sent: URLSearchParams | null = null;
     fetchMock
@@ -91,12 +91,12 @@ describe("runPoster", () => {
 
     expect(sent!.get("media_type")).toBe("TEXT");
     expect(sent!.get("auto_publish_text")).toBe("true");
-    expect(sent!.get("text")).toContain("8-K: ACME CORP");
+    expect(sent!.get("text")).toContain("HALT: ACME");
     expect(sent!.get("link_attachment")).toBe("https://www.sec.gov/Archives/P-1");
     expect(sent!.get("access_token")).toBe("LONGTOKEN");
 
     const logRow = await env.DB.prepare("SELECT * FROM post_log WHERE queue_id = ?1").bind(queueId).first<Record<string, unknown>>();
-    expect(logRow).toMatchObject({ platform_post_id: "THREADS_POST_9", archetype: "FILING_ALERT", category: "filing" });
+    expect(logRow).toMatchObject({ platform_post_id: "THREADS_POST_9", archetype: "HALT", category: "filing" });
     expect(
       (await env.DB.prepare("SELECT status FROM items WHERE id = ?1").bind(itemId).first<{ status: string }>())?.status,
     ).toBe("posted");
@@ -110,7 +110,7 @@ describe("runPoster", () => {
 
   it("what posts is exactly what was approved: edited_text wins, draft never leaks", async () => {
     await connectThreads();
-    await seedApproved("P-2", "ORIGINAL DRAFT", "the corrected text");
+    await seedApproved("P-2", "ORIGINAL DRAFT, per Nasdaq", "the corrected text, per Nasdaq");
     mockQuota();
     let sent: URLSearchParams | null = null;
     fetchMock
@@ -121,7 +121,7 @@ describe("runPoster", () => {
         return JSON.stringify({ id: "T2" });
       });
     await runPoster(postingEnv(), NOW);
-    expect(sent!.get("text")).toBe("the corrected text");
+    expect(sent!.get("text")).toBe("the corrected text, per Nasdaq");
     expect(sent!.get("text")).not.toContain("ORIGINAL DRAFT");
   });
 
@@ -133,14 +133,14 @@ describe("runPoster", () => {
         .bind(`old-${i}`, iso(new Date(NOW.getTime() - 3_600_000)))
         .run();
     }
-    await seedApproved("P-3", "held back");
+    await seedApproved("P-3", "held back, per Nasdaq");
     await runPoster(postingEnv(), NOW); // no quota/publish mocks: any fetch would throw -> logged as failure
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM post_log WHERE queue_id IS NOT NULL").first<{ n: number }>())?.n).toBe(0);
   });
 
   it("platform quota near exhaustion holds posts", async () => {
     await connectThreads();
-    await seedApproved("P-4", "quota hold");
+    await seedApproved("P-4", "quota hold, per Nasdaq");
     mockQuota(249);
     await runPoster(postingEnv(), NOW);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM post_log").first<{ n: number }>())?.n).toBe(0);
@@ -148,7 +148,7 @@ describe("runPoster", () => {
 
   it("token-invalid (HTTP 500 + code 190, the verified quirk) pauses and alerts ONCE", async () => {
     await connectThreads();
-    await seedApproved("P-5", "will not post");
+    await seedApproved("P-5", "will not post, per Nasdaq");
     const t0 = TGRAM.calls.filter((c) => c.path === "sendMessage").length;
     fetchMock
       .get(TG)
@@ -165,7 +165,7 @@ describe("runPoster", () => {
   });
   it("a crash between publish and confirmation NEVER double-posts (pre-claim)", async () => {
     await connectThreads();
-    await seedApproved("P-crash", "one approval, one post");
+    await seedApproved("P-crash", "one approval, one post, per Nasdaq");
     mockQuota();
     let publishes = 0;
     fetchMock
@@ -196,15 +196,48 @@ describe("runPoster", () => {
 
   it("rejected and expired rows are never posted", async () => {
     await connectThreads();
-    const { queueId: rej } = await seedApproved("P-rej", "rejected draft");
+    const { queueId: rej } = await seedApproved("P-rej", "rejected draft, per Nasdaq");
     await env.DB.prepare("UPDATE queue SET state = 'rejected' WHERE id = ?1").bind(rej).run();
-    const { queueId: exp } = await seedApproved("P-exp", "expired draft");
+    const { queueId: exp } = await seedApproved("P-exp", "expired draft, per Nasdaq");
     await env.DB.prepare("UPDATE queue SET state = 'expired' WHERE id = ?1").bind(exp).run();
 
     // No publish interceptor: a publish attempt would throw and be visible
     // as a failed post; assert nothing was even claimed.
     await runPoster(postingEnv(), NOW);
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM post_log").first<{ n: number }>())?.n).toBe(0);
+  });
+});
+
+describe("register guard at publish time", () => {
+  it("blocks a hand-edited draft that fails the register and never publishes it", async () => {
+    await connectThreads();
+    const { queueId } = await seedApproved("P-na", "HALT: YYAI. Volatility Trading Pause, 10:16 ET, per Nasdaq", "na");
+    mockQuota();
+    const t0 = TGRAM.calls.filter((c) => c.path === "sendMessage").length;
+
+    // No publish interceptor: any attempt to post would throw and be visible.
+    await runPoster(postingEnv(), NOW);
+
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM post_log").first<{ n: number }>())?.n).toBe(0);
+    const row = await env.DB.prepare("SELECT state FROM queue WHERE id = ?1").bind(queueId).first<{ state: string }>();
+    expect(row?.state).toBe("rejected");
+    const alerts = TGRAM.calls.filter((c) => c.path === "sendMessage").slice(t0);
+    expect(String(alerts.at(-1)?.body.text)).toContain("Blocked");
+  });
+
+  it("a clean engine-rendered draft passes the guard", async () => {
+    await connectThreads();
+    await seedApproved("P-clean", "HALT: STKH. News Pending, 19:50 ET, per Nasdaq");
+    mockQuota();
+    fetchMock
+      .get(TG)
+      .intercept({ path: "/v1.0/77/threads", method: "POST" })
+      .reply(200, JSON.stringify({ id: "T-clean" }));
+    await runPoster(postingEnv(), NOW);
+    const logged = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM post_log WHERE platform_post_id IS NOT NULL",
+    ).first<{ n: number }>();
+    expect(logged?.n).toBe(1);
   });
 });
 
