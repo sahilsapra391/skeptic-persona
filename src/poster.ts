@@ -2,6 +2,8 @@ import type { Env } from "./env";
 import { newTickBudget, type TickBudget } from "./lib/budget";
 import { getThreadsAuth, getPublishingQuota, KV_TOKEN_ALERTED, publishTextPost, refreshLongLived, storeThreadsAuth, ThreadsError } from "./lib/threads";
 import { editMessageText, sendMessage } from "./lib/telegram";
+import { checkRegister } from "./templates/validate";
+import type { ArchetypeId } from "./templates/types";
 import { iso } from "./lib/time";
 import { log } from "./lib/log";
 
@@ -90,6 +92,35 @@ export async function runPoster(env: Env, now: Date, budget: TickBudget = newTic
 
   for (const row of rows.results) {
     if (!budget.take(1)) break;
+
+    // LAST GATE BEFORE THE WORLD. The engine guarantees doctrine for text it
+    // rendered, but `edited_text` is hand-typed and bypasses it entirely —
+    // and an edit made before the edit-time validation shipped (or while
+    // posting was disabled) would otherwise sail straight through. A real
+    // near-miss: an edit reply of "na" sat approved-and-ready in the queue.
+    const issues = checkRegister(row.text, row.archetype as ArchetypeId);
+    if (issues.length > 0) {
+      log("error", "post blocked by register check", {
+        queueId: row.queue_id,
+        issues: issues.map((i) => i.rule).join(","),
+      });
+      await env.DB.prepare(`UPDATE queue SET state = 'rejected', decided_at = ?1 WHERE id = ?2 AND state IN ('approved','edited')`)
+        .bind(iso(now), row.queue_id)
+        .run()
+        .catch(() => {});
+      if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID && budget.take(1)) {
+        try {
+          await sendMessage(
+            env.TELEGRAM_BOT_TOKEN,
+            env.TELEGRAM_CHAT_ID,
+            `Blocked #${row.queue_id} before posting: ${issues.map((i) => i.detail).join("; ")}. Nothing was published.`,
+          );
+        } catch (e) {
+          log("warn", "block alert failed", { queueId: row.queue_id, error: String(e) });
+        }
+      }
+      continue;
+    }
 
     // PRE-CLAIM before publishing. If the isolate dies between the publish
     // call and the id write, the claim row (platform_post_id NULL) still
