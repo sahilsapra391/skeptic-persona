@@ -211,3 +211,14 @@ prose reasons), `bls.ics.fixture` (313 VEVENTs; `DTSTART;TZID=US-Eastern`),
 `cpi-nr0.fixture` (USDL-26-1191, June 2026 print). Note: release prose wraps
 at ~110 chars, so **inter-word gaps in the CPI sentences can be newlines** —
 the parser's regexes use `\s+` between words for exactly this reason.
+
+## P2 PR-7 note (2026-07-27)
+
+The Threads client is built strictly against the 2026-07-26 verification
+(auto_publish_text single-call TEXT posts, link_attachment, publishing-limit
+endpoint, HTTP-500/code-190 token quirk, th_exchange_token / th_refresh_token
+lifecycle). Actual PUBLISHING cannot be verified without the owner's token
+(documented then as "unverifiable without a developer login") — the live
+verification round is the owner's onboarding: first the OAuth round-trip,
+then a smoke post with POSTING_ENABLED still false elsewhere (approve a
+smoke-test draft after enabling), before any real print goes out.

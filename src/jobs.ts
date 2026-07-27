@@ -7,6 +7,7 @@ import { pollForm4 } from "./ingesters/form4";
 import { pollNasdaqHalts, pollNyseHalts } from "./ingesters/halts";
 import { pollHousePtr } from "./ingesters/housePtr";
 import { pollSenatePtr } from "./ingesters/senatePtr";
+import { refreshThreadsToken, runPoster } from "./poster";
 import { newTickBudget, type TickBudget } from "./lib/budget";
 import { expirePendingBefore } from "./lib/db";
 import { editMessageText } from "./lib/telegram";
@@ -83,4 +84,6 @@ export function registerJobs(): void {
   registry["halts_nyse"] = pollNyseHalts;
   registry["bls_calendar"] = syncBlsCalendar;
   registry["bls_watch"] = watchBls;
+  registry["poster"] = runPoster;
+  registry["threads_token_refresh"] = refreshThreadsToken;
 }
