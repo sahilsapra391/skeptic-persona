@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" xmlns:cb="http://www.cbwiki.net/wiki/index.php/Specification_1.2/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" version="2.0">
+  <channel>
+    <atom:link href="https://www.snb.ch/public/rss/en/interestRates" rel="self" type="application/rss+xml" />
+    <title>Current interest rates</title>
+    <link>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</link>
+    <description>Swiss National Bank (SNB): CHF interest rates at the end of the day</description>
+    <pubDate>Mon, 27 Jul 2026 11:10:10 GMT</pubDate>
+    <dc:date>2026-07-27T11:10:10Z</dc:date>
+    <dcterms:created>2026-07-27T22:25:04Z</dcterms:created>
+    <dcterms:license>https://www.snb.ch/en/srv/disclaimer</dcterms:license>
+    <dc:publisher>SNB</dc:publisher>
+    <dc:date>2026-07-27T22:25:04Z</dc:date>
+    <dc:rights>Copyright © Swiss National Bank, Zurich (Switzerland) 2026</dc:rights>
+    <item>
+      <title>CH: 0.492 R10 2026-07-27 SNB Yield on Swiss Confederation bonds</title>
+      <link>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</link>
+      <description>Yield on Swiss Confederation bonds / Spot interest rate for 10-year maturities (2026-07-27T13:10:10+02:00)</description>
+      <pubDate>Mon, 27 Jul 2026 11:10:10 GMT</pubDate>
+      <guid>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</guid>
+      <dc:date>2026-07-27T11:10:10Z</dc:date>
+      <dc:language>en</dc:language>
+      <cb:statistics rdf:parseType="Resource">
+        <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Statistics" />
+        <cb:country>CH</cb:country>
+        <cb:institutionAbbrev>SNB</cb:institutionAbbrev>
+        <cb:interestRate rdf:parseType="Resource">
+          <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#InterestRate" />
+          <cb:observation rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Observation" />
+            <cb:value>0.492</cb:value>
+            <cb:unit>percent</cb:unit>
+            <cb:decimals>3</cb:decimals>
+          </cb:observation>
+          <cb:rateName>R10</cb:rateName>
+          <cb:rateType>Yield on Swiss Confederation bonds / Spot interest rate for 10-year maturities</cb:rateType>
+          <cb:observationPeriod rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#ObservationPeriod" />
+            <cb:frequency>daily</cb:frequency>
+            <cb:period>2026-07-27</cb:period>
+          </cb:observationPeriod>
+        </cb:interestRate>
+      </cb:statistics>
+    </ite
