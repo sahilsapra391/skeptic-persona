@@ -117,6 +117,20 @@ export function parse8kFeed(xml: string): Edgar8kEntry[] {
   return out;
 }
 
+/**
+ * Item codes that reach the approval queue. Everything else lands in the lake.
+ *
+ * WHY THIS IS A SHORT LIST (owner call 2026-07-27): the queue hit 102 pending
+ * drafts, 84 of them 8-Ks and 42 of THOSE earnings releases. Two independent
+ * findings say earnings are the wrong volume to carry: they underperform in
+ * every competitor account measured (unusual_whales runs them at 0.49x, one
+ * of its three worst formats), and we cannot post the beat/miss comparison
+ * that makes an earnings item work at all, because consensus estimates have
+ * no free primary source. persona.md §7: selection is where the worldview
+ * lives, so the wire queues the filings it exists for and logs the rest.
+ */
+export const QUEUEABLE_ITEMS = new Set(["1.03", "1.05", "4.02", "5.01", "5.02", "3.01", "2.04", "2.06"]);
+
 export function scoreEntry(entry: Edgar8kEntry): number {
   // No parsed items -> we can't say what the filing claims; log-only.
   if (entry.items.length === 0) return SCORE_LOG_ONLY;
@@ -130,6 +144,13 @@ export function scoreEntry(entry: Edgar8kEntry): number {
     } else {
       score = Math.max(score, s);
     }
+  }
+  // SELECTION GATE: a filing whose items are all outside the queueable set
+  // is lake-only regardless of its grade. This is editorial, not technical —
+  // the data is still captured, it just does not ask for the owner's
+  // attention or a slot on the account.
+  if (!entry.items.some((i) => QUEUEABLE_ITEMS.has(i.code))) {
+    score = Math.min(score, SCORE_LOG_ONLY);
   }
   // Company/CIK failed to parse (e.g. an 8-K12x family title): fields that
   // didn't parse are never claimed in a draft.

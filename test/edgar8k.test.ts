@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import RAW_FIXTURE from "./fixtures/edgar-8k-current.atom.xml?raw";
 import {
   draftFor,
+  QUEUEABLE_ITEMS,
   EDGAR_8K_FEED,
   EDGAR_8K_FEED_PAGE2,
   type Edgar8kEntry,
@@ -84,10 +85,30 @@ describe("parse8kFeed (live fixture)", () => {
 });
 
 describe("scoreEntry", () => {
+  it("SELECTION: routine filings are lake-only however high their grade", () => {
+    // The queue hit 102 pending, half of it earnings. persona §7: selection is
+    // the editorial act, so 2.02 and friends are captured but never queued.
+    expect(scoreEntry(entry({ items: [{ code: "2.02", title: "Results of Operations" }] }))).toBe(1);
+    expect(scoreEntry(entry({ items: [{ code: "4.01", title: "Changes in Registrant Certifying Accountant" }] }))).toBe(1);
+    expect(scoreEntry(entry({ items: [{ code: "1.01", title: "Entry into a Material Definitive Agreement" }] }))).toBe(1);
+    // ...and the filings the wire exists for still reach the queue.
+    expect(scoreEntry(entry({ items: [{ code: "4.02", title: "Non-Reliance" }] }))).toBe(3);
+    expect(scoreEntry(entry({ items: [{ code: "1.03", title: "Bankruptcy" }] }))).toBe(3);
+    expect(scoreEntry(entry({ items: [{ code: "5.02", title: "Departure of Directors" }] }))).toBe(3);
+    expect(scoreEntry(entry({ items: [{ code: "3.01", title: "Notice of Delisting" }] }))).toBe(2);
+  });
+
+  it("a queueable item anywhere in the filing keeps it queueable", () => {
+    // Mixed filings are common: 2.02 alone is lake-only, 2.02 + 4.02 is news.
+    expect(
+      scoreEntry(entry({ items: [{ code: "2.02", title: "Results" }, { code: "4.02", title: "Non-Reliance" }] })),
+    ).toBe(3);
+  });
+
   it("scores by the highest-grade item", () => {
     expect(scoreEntry(entry({ items: [{ code: "4.02", title: "t" }] }))).toBe(3);
     expect(scoreEntry(entry({ items: [{ code: "5.02", title: "t" }, { code: "9.01", title: "t" }] }))).toBe(3);
-    expect(scoreEntry(entry({ items: [{ code: "2.02", title: "t" }, { code: "9.01", title: "t" }] }))).toBe(2);
+    expect(scoreEntry(entry({ items: [{ code: "2.04", title: "t" }, { code: "9.01", title: "t" }] }))).toBe(2);
     expect(scoreEntry(entry({ items: [{ code: "7.01", title: "t" }] }))).toBe(1);
     expect(scoreEntry(entry({ items: [{ code: "9.01", title: "t" }] }))).toBe(0);
   });
@@ -265,8 +286,13 @@ describe("pollEdgar8k end-to-end", () => {
     const state = await getSourceState(env.DB, "edgar_8k");
     expect(state.etag).toBe('"cond-v1"');
     expect(state.consecutiveFailures).toBe(0);
-    // The 304 path still drains leftover postables (10 remained after poll 1).
-    expect(SEND.calls.length).toBe(drainedSoFar + MAX_ENQUEUES_PER_RUN);
+    // THE POINT OF THIS TEST: a 304 short-circuits the FETCH but must not
+    // short-circuit the DRAIN. Asserted as a delta because SEND is a
+    // file-level counter, and bounded by the cap rather than pinned to a
+    // fixture count that the selection gate can legitimately change.
+    const drainedByThe304 = SEND.calls.length - drainedSoFar;
+    expect(drainedByThe304).toBeGreaterThan(0);
+    expect(drainedByThe304).toBeLessThanOrEqual(MAX_ENQUEUES_PER_RUN);
   });
 
   it("zero entries on a 200 is treated as unhealthy, not as a quiet feed", async () => {
