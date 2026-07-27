@@ -205,7 +205,8 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{superlative\}/g, "")
         .replace(/\{haltCountToday\}/g, "{n}")
         .replace(/\{pctOfOutstanding\}/g, "{n}")
-        .replace(/\{securitiesClass\}/g, "{class}");
+        .replace(/\{securitiesClass\}/g, "{class}")
+        .replace(/\{sameItemOccurrence\}/g, "{n}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -226,7 +227,7 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
     // A beat that can never fire is a lie in the library. Payload shapes here
     // mirror what the ingesters actually store (see the rewiring in PR-8).
     const producible: Record<string, string[]> = {
-      FILING_8K: ["itemCodes", "company", "formType", "items"],
+      FILING_8K: ["itemCodes", "company", "formType", "items", "sameItemOccurrence", "priorSameItemThisYear", "lookbackCoverageDays"],
       FILING_FORM4: ["primaryCode", "lagDays", "stakePrinted", "factLine", "who", "actionLine", "isAmendment"],
       INSIDER_NOTICE: [
         "aggregateMarketValue",
