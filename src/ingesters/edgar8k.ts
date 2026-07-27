@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
 import { decodeEntities, extractAll, extractAttr, extractFirst, stripBom } from "../lib/xml";
 import {
@@ -150,19 +151,8 @@ export function draftFor(entry: Edgar8kEntry): string {
 /** Cap Telegram notifications per run: external fetches share the 50/invocation budget. */
 export const MAX_ENQUEUES_PER_RUN = 10;
 
-/**
- * Stale-at-ingest cutoff. A wire is only worth notifying about while it is
- * news: anything older than this at FIRST SIGHT (first-deploy backfill,
- * outage recovery, overflow page-2 catch-ups) goes to the data lake as
- * 'logged' instead of spamming the approval queue with old filings.
- */
-export const STALE_AT_INGEST_HOURS = 24;
-
-export function isFreshAtIngest(filedIso: string, now: Date): boolean {
-  if (!filedIso) return false; // no parsed timestamp -> can't claim freshness
-  const age = now.getTime() - new Date(filedIso).getTime();
-  return age <= STALE_AT_INGEST_HOURS * 3_600_000;
-}
+export { isFreshAtIngest, STALE_AT_INGEST_HOURS } from "./shared";
+import { isFreshAtIngest } from "./shared";
 
 async function ingestEntries(env: Env, entries: Edgar8kEntry[], now: Date): Promise<number> {
   let inserted = 0;
@@ -196,7 +186,7 @@ async function ingestEntries(env: Env, entries: Edgar8kEntry[], now: Date): Prom
 }
 
 /** Notify postable items ('new' = not yet queued), paced for Telegram flood control. */
-async function drainPostables(env: Env, now: Date): Promise<number> {
+async function drainPostables(env: Env, now: Date, budget: TickBudget): Promise<number> {
   const pending = await env.DB.prepare(
     `SELECT id, source_url, payload FROM items
      WHERE source = ?1 AND status = 'new' AND score >= ?2
@@ -210,6 +200,10 @@ async function drainPostables(env: Env, now: Date): Promise<number> {
 
   let sent = 0;
   for (const row of pending.results) {
+    if (!budget.take(1)) {
+      log("warn", "tick budget exhausted; deferring remaining notifications", { remaining: pending.results.length - sent });
+      break;
+    }
     const payload = JSON.parse(row.payload) as {
       company: string;
       cik: string;
@@ -238,11 +232,15 @@ async function markUnhealthy(env: Env, state: SourceState, reason: string, field
   log("warn", reason, { ...fields, failures: state.consecutiveFailures });
 }
 
-export async function pollEdgar8k(env: Env, now: Date): Promise<void> {
+export async function pollEdgar8k(env: Env, now: Date, budget: TickBudget = newTickBudget()): Promise<void> {
   const state = await getSourceState(env.DB, SOURCE);
   state.lastPolledAt = iso(now);
   const userAgent = buildUserAgent(env.CONTACT_EMAIL);
 
+  if (!budget.take(1)) {
+    log("warn", "tick budget exhausted before edgar_8k feed fetch; deferring poll");
+    return;
+  }
   let res;
   try {
     res = await politeFetch(EDGAR_8K_FEED, {
@@ -261,7 +259,7 @@ export async function pollEdgar8k(env: Env, now: Date): Promise<void> {
       state.lastOkAt = iso(now);
       await putSourceState(env.DB, state);
       // Leftover postables from a capped earlier run still deserve notifying.
-      await drainPostables(env, now);
+      await drainPostables(env, now, budget);
       return;
     }
     if (!res.ok) {
@@ -290,15 +288,17 @@ export async function pollEdgar8k(env: Env, now: Date): Promise<void> {
     // verified live 2026-07-27T02:26Z).
     if (state.cursor && inserted === entries.length && !entries.some((e) => e.accession === state.cursor)) {
       log("error", "edgar_8k possible window overflow; fetching page 2", { cursor: state.cursor, pageSize: entries.length });
-      try {
-        const page2 = await politeFetch(EDGAR_8K_FEED_PAGE2, { userAgent, timeoutMs: 20_000 });
-        if (page2.ok) inserted += await ingestEntries(env, parse8kFeed(page2.body), now);
-      } catch (e) {
-        log("warn", "edgar_8k page 2 fetch failed", { error: String(e) });
+      if (budget.take(1)) {
+        try {
+          const page2 = await politeFetch(EDGAR_8K_FEED_PAGE2, { userAgent, timeoutMs: 20_000 });
+          if (page2.ok) inserted += await ingestEntries(env, parse8kFeed(page2.body), now);
+        } catch (e) {
+          log("warn", "edgar_8k page 2 fetch failed", { error: String(e) });
+        }
       }
     }
 
-    const enqueued = await drainPostables(env, now);
+    const enqueued = await drainPostables(env, now, budget);
 
     state.etag = res.etag;
     state.lastModified = res.lastModified;

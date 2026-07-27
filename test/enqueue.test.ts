@@ -4,6 +4,7 @@ import { getQueueEntry, insertItem, SCORE_POSTABLE } from "../src/lib/db";
 import { enqueueForApproval } from "../src/pipeline/enqueue";
 import { registry, tick } from "../src/dispatch";
 import { registerJobs } from "../src/jobs";
+import { newTickBudget } from "../src/lib/budget";
 import { clampText, TG_TEXT_LIMIT } from "../src/lib/telegram";
 
 const TG = "https://api.telegram.org";
@@ -122,7 +123,7 @@ describe("queue_expiry job", () => {
 
     // "-1" would make the cutoff land in the future and expire everything.
     const hostile = Object.assign(Object.create(Object.getPrototypeOf(env)), env, { QUEUE_TTL_HOURS: "-1" });
-    await registry["queue_expiry"]?.(hostile, new Date());
+    await registry["queue_expiry"]?.(hostile, new Date(), newTickBudget());
 
     expect((await getQueueEntry(env.DB, queueId))?.state).toBe("pending");
     delete registry["queue_expiry"];

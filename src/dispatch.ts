@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { nextDue } from "./cadence";
+import { newTickBudget, type TickBudget } from "./lib/budget";
 import { iso } from "./lib/time";
 import { log } from "./lib/log";
 
@@ -11,7 +12,7 @@ import { log } from "./lib/log";
  * subrequest free-tier budget; anything left over runs next minute. */
 export const MAX_JOBS_PER_TICK = 4;
 
-export type JobHandler = (env: Env, now: Date) => Promise<void>;
+export type JobHandler = (env: Env, now: Date, budget: TickBudget) => Promise<void>;
 
 // Ingester PRs register handlers here and seed their jobs row in a migration.
 export const registry: Record<string, JobHandler> = {};
@@ -39,6 +40,11 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
     .bind(iso(now), MAX_JOBS_PER_TICK)
     .all<JobRow>();
 
+  // One EXTERNAL-fetch budget shared by every job this tick (50/invocation
+  // platform cap; D1/KV are a separate 1,000 budget). Handlers defer work
+  // they can't afford to the next tick.
+  const budget = newTickBudget();
+
   for (const row of due.results) {
     // Atomic claim + reschedule BEFORE running. The compare-and-set on the
     // observed due_at means overlapping cron invocations (Cloudflare does
@@ -57,7 +63,7 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
       continue;
     }
     try {
-      await handler(env, now);
+      await handler(env, now, budget);
     } catch (e) {
       log("error", "job failed", { job: row.name, error: String(e) });
     }
