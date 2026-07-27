@@ -40,6 +40,15 @@ here.
   `*_us_0600_2200` cadence window.
 
 ### SEC EDGAR Form 4 — works
+- **PR-4 re-verification (2026-07-27T03:04–03:06Z):** live fixtures captured —
+  `test/fixtures/form4-current.atom.xml` (40 entries: 38 `4` + 2 `4/A`),
+  `form4-dir-index.json` (single filer-named ownership XML, exactly as the
+  2026-07-26 check found), `form4-derivative-only.xml` (Doximity/Tangney,
+  CEO award, empty nonDerivativeTable), `form4-nonderivative.xml`
+  (Loop/Sams, director, absent isOfficer/officerTitle elements). Fixtures
+  are the parse contract. `count=100` + `start=100&count=100` paging
+  verified live for `type=4` (100+100 entries). Cluster source-link pattern
+  `action=getcompany&CIK=<cik>&type=4` verified 200.
 - `...action=getcurrent&type=4&output=atom` → 200. Each filing appears ≥2×
   per page (one entry per reporting owner + issuer) — dedup on accession from
   `<id>`. `type=4` also returns 4/A (distinguishable via `<category term>`).
