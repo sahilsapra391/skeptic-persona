@@ -44,6 +44,10 @@ docs/ here as needed).
   text limit (TEXT posts only).
 - SEC: declared User-Agent mandatory, ≤10 req/s, content-type headers lie.
 - BLS: 403s default UAs; no cache headers on release pages (content-diff).
+- Telegram: secret arrives in `X-Telegram-Bot-Api-Secret-Token`; non-2xx
+  webhook responses trigger redelivery (dedupe on update_id EQUALITY);
+  callback_data ≤64 bytes; text ≤4096 chars; NO parse_mode (MarkdownV2
+  rejects unescaped `.`/`-`/`(` — every numeric draft would 400).
 
 ## Voice
 
