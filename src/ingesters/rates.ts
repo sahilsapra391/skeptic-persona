@@ -33,10 +33,33 @@ export interface RateSource {
   /** What the number IS, in the issuer's own words where possible. */
   label: string;
   attribution: string;
-  url: string;
+  /** Static endpoint, or omit and supply buildUrl for a dated window. */
+  url?: string;
+  /** Endpoints that require a date range compute it at poll time. */
+  buildUrl?: (now: Date) => string;
   /** Human-facing page carried as the post's source link. */
   sourceUrl: string;
   parse: (body: string) => RateObservation[];
+}
+
+export function urlFor(src: RateSource, now: Date): string {
+  return src.buildUrl ? src.buildUrl(now) : (src.url ?? "");
+}
+
+const BOE_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Bank of England's IADB wants DD/Mon/YYYY. */
+export function boeDate(d: Date): string {
+  return `${String(d.getUTCDate()).padStart(2, "0")}/${BOE_MONTHS[d.getUTCMonth()]}/${d.getUTCFullYear()}`;
+}
+
+/** "02 Jan 2026" -> ISO. The IADB CSV serves this format. */
+export function boeDateToIso(v: string): string | null {
+  const m = /^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})$/.exec(v.trim());
+  if (!m) return null;
+  const mo = BOE_MONTHS.indexOf(m[2]!);
+  if (mo < 0) return null;
+  return `${m[3]}-${String(mo + 1).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
 }
 
 const num = (v: unknown): number | null => {
@@ -121,6 +144,61 @@ export const RATE_SOURCES: readonly RateSource[] = [
     },
   },
   {
+    id: "rate_boe",
+    country: "United Kingdom",
+    label: "Bank Rate",
+    attribution: "per Bank of England",
+    // IADB requires an explicit window; a rolling year keeps the CSV small
+    // while still carrying enough history to see the previous level.
+    buildUrl: (now) => {
+      const from = new Date(now.getTime() - 365 * 86_400_000);
+      return (
+        "https://www.bankofengland.co.uk/boeapps/iadb/fromshowcolumns.asp?csv.x=yes" +
+        `&Datefrom=${boeDate(from)}&Dateto=${boeDate(now)}` +
+        "&SeriesCodes=IUDBEDR&CSVF=TN&UsingCodes=Y&VPD=Y&VFD=N"
+      );
+    },
+    sourceUrl: "https://www.bankofengland.co.uk/monetary-policy/the-interest-rate-bank-rate",
+    parse: (body) => {
+      const out: RateObservation[] = [];
+      for (const line of stripBom(body).split("\n").slice(1)) {
+        const [rawDate, rawValue] = line.split(",");
+        if (!rawDate || rawValue === undefined) continue;
+        const date = boeDateToIso(rawDate);
+        const value = num(rawValue);
+        if (date && value !== null) out.push({ date, value });
+      }
+      return out;
+    },
+  },
+  {
+    id: "rate_ecb",
+    country: "Euro area",
+    label: "Main refinancing operations rate",
+    attribution: "per European Central Bank",
+    // SDMX-CSV: flat header + one row per observation. csvdata is far cheaper
+    // to parse than the JSON variant's nested structure blocks.
+    url:
+      "https://data-api.ecb.europa.eu/service/data/FM/D.U2.EUR.4F.KR.MRR_FR.LEV" +
+      "?format=csvdata&lastNObservations=40",
+    sourceUrl: "https://www.ecb.europa.eu/stats/policy_and_exchange_rates/key_ecb_interest_rates/html/index.en.html",
+    parse: (body) => {
+      const lines = stripBom(body).split("\n").filter((l) => l.trim() !== "");
+      const header = (lines[0] ?? "").split(",");
+      const iTime = header.indexOf("TIME_PERIOD");
+      const iValue = header.indexOf("OBS_VALUE");
+      if (iTime < 0 || iValue < 0) return [];
+      const out: RateObservation[] = [];
+      for (const line of lines.slice(1)) {
+        const cells = line.split(",");
+        const date = (cells[iTime] ?? "").trim();
+        const value = num(cells[iValue]);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(date) && value !== null) out.push({ date, value });
+      }
+      return out;
+    },
+  },
+  {
     id: "rate_snb",
     country: "Switzerland",
     label: "SNB policy rate",
@@ -201,7 +279,7 @@ export function makeRateHandler(src: RateSource) {
     if (!budget.take(1)) return;
     const state = await getSourceState(env.DB, src.id);
     try {
-      const res = await politeFetch(src.url, { userAgent: buildUserAgent(env.CONTACT_EMAIL), timeoutMs: 20_000 });
+      const res = await politeFetch(urlFor(src, now), { userAgent: buildUserAgent(env.CONTACT_EMAIL), timeoutMs: 20_000 });
       if (!res.ok) throw new Error(`${src.id} ${res.status}`);
       const obs = src.parse(res.body);
       if (obs.length === 0) throw new Error("parsed to zero observations");
