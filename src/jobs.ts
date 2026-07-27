@@ -1,7 +1,10 @@
 import type { Env } from "./env";
 import { registry } from "./dispatch";
+import { syncBlsCalendar, watchBls } from "./ingesters/bls";
 import { pollEdgar8k } from "./ingesters/edgar8k";
+import { pollFedPress } from "./ingesters/fedPress";
 import { pollForm4 } from "./ingesters/form4";
+import { pollNasdaqHalts, pollNyseHalts } from "./ingesters/halts";
 import { pollHousePtr } from "./ingesters/housePtr";
 import { pollSenatePtr } from "./ingesters/senatePtr";
 import { newTickBudget, type TickBudget } from "./lib/budget";
@@ -75,4 +78,9 @@ export function registerJobs(): void {
   registry["edgar_form4"] = pollForm4;
   registry["senate_ptr"] = pollSenatePtr;
   registry["house_ptr"] = pollHousePtr;
+  registry["fed_press"] = pollFedPress;
+  registry["halts_nasdaq"] = pollNasdaqHalts;
+  registry["halts_nyse"] = pollNyseHalts;
+  registry["bls_calendar"] = syncBlsCalendar;
+  registry["bls_watch"] = watchBls;
 }

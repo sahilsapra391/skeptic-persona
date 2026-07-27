@@ -11,4 +11,7 @@ export interface Env {
   QUEUE_TTL_HOURS?: string;
   /** Ms between batched queue notifications (Telegram asks ≤1 msg/s per chat). Default 1100; tests use 0. */
   QUEUE_NOTIFY_SPACING_MS?: string;
+  /** BLS watcher tight-poll tuning (defaults 2500 / 90000; tests shrink them). */
+  BLS_POLL_INTERVAL_MS?: string;
+  BLS_POLL_DEADLINE_MS?: string;
 }
