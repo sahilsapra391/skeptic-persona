@@ -12,6 +12,20 @@ export function isFreshAtIngest(eventIso: string, now: Date): boolean {
   return age <= STALE_AT_INGEST_HOURS * 3_600_000;
 }
 
+/**
+ * Freshness for DATE-ONLY sources (congressional filings carry no
+ * time-of-day). Anchoring a date at UTC midnight and applying the 24h gate
+ * would expire filings at ~20:00 ET of their own filing day — evening
+ * disclosures would silently self-suppress. Date-only precision gets a
+ * whole-day allowance instead: fresh through 48h after the UTC-midnight
+ * anchor (i.e. the filing date and the day after).
+ */
+export function isFreshDateOnly(dateOnlyIso: string, now: Date): boolean {
+  if (!dateOnlyIso) return false;
+  const age = now.getTime() - new Date(dateOnlyIso).getTime();
+  return age <= 2 * STALE_AT_INGEST_HOURS * 3_600_000;
+}
+
 /** Compact money formatting for drafts ($950, $617K, $1.2M) — display of parsed numbers. */
 export function fmtUsd(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
