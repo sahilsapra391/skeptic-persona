@@ -206,7 +206,11 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{haltCountToday\}/g, "{n}")
         .replace(/\{pctOfOutstanding\}/g, "{n}")
         .replace(/\{securitiesClass\}/g, "{class}")
-        .replace(/\{sameItemOccurrence\}/g, "{n}");
+        .replace(/\{sameItemOccurrence\}/g, "{n}")
+        .replace(/\{changeBps\}/g, "{n}")
+        .replace(/\{priorValue\}/g, "{x}")
+        .replace(/\{priorDate\}/g, "{date}")
+        .replace(/\{observedDate\}/g, "{date}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -246,6 +250,7 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       MACRO_PRINT: ["momSigned", "coreSigned", "yoyPct", "partialParse", "superlative", "factLine", "releaseName", "refMonth", "momText"],
       FED_PRESS: ["title", "category"],
       HALT: ["reasonCode", "symbol", "name", "reasonText", "haltTimeEtShort", "haltCountToday"],
+      RATE_DECISION: ["changeBps", "priorValue", "priorDate", "observedDate", "factLine", "country", "label", "value", "direction"],
     };
     for (const a of ALL) {
       for (const beat of a.beats) {
@@ -387,6 +392,17 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       yoyPct: 3.5,
     },
     FED_PRESS: { title: "Agencies issue joint statement", category: "Banking and Consumer Regulatory Policy" },
+    RATE_DECISION: {
+      factLine: "Canada: Target for the overnight rate lowered to 2.25% from 2.5%, effective 2026-07-26",
+      country: "Canada",
+      label: "Target for the overnight rate",
+      value: 2.25,
+      priorValue: 2.5,
+      priorDate: "2026-06-04",
+      observedDate: "2026-07-26",
+      changeBps: 25,
+      direction: "lowered",
+    },
     HALT: {
       symbol: "STKH",
       name: "Steakholder Foods Ltd. ADS",

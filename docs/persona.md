@@ -165,6 +165,19 @@ headline with no beat until then.
 - `Punctuation counts here too.` [punctuation-level change]
 - `Adjectives are load bearing in this document.`
 
+### RATE DECISION (a central bank's policy rate moved)
+- `{n} basis points.` [change computed from two parsed levels]
+- `The level had held at {x}% since {date}.` [prior level and date parsed]
+- `Effective {date}, in the bank's own series.` [observation date parsed]
+
+**Escalation tier:**
+- `{n} basis points in one step.` [≥50bp]
+
+A rate that did not move is not news: these series reprint the same number
+every business day, so the wire posts only an observed CHANGE, and the first
+observation of a series establishes a baseline and posts nothing. We cannot
+claim a change we did not witness.
+
 ### HALT
 - `Pending is the whole disclosure.` [T1]
 - `The band did what the band does.` [LUDP/LUDS]

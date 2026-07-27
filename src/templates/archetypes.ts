@@ -454,6 +454,71 @@ const fedPress: Archetype = {
 };
 
 // ---------------------------------------------------------------------------
+// RATE_DECISION (central bank policy rate moved)
+
+const rateDecision: Archetype = {
+  id: "RATE_DECISION",
+  // Per-source attribution ("per Bank of Canada") rides in the payload; the
+  // renderer needs one string, so the generic form names the issuer type and
+  // the fact line already names the country.
+  attribution: "per the central bank",
+  skeletons: [
+    {
+      id: "rate.change",
+      build: (p) => {
+        const line = str(p, "factLine");
+        return line ? { lines: [line] } : null;
+      },
+    },
+    {
+      id: "rate.countryFirst",
+      build: (p) => {
+        const country = str(p, "country");
+        const label = str(p, "label");
+        const value = num(p, "value");
+        const prior = num(p, "priorValue");
+        const dir = str(p, "direction");
+        if (!country || !label || value === null || prior === null || !dir) return null;
+        return { lines: [`${country} ${dir} its ${label} to ${value}% from ${prior}%`] };
+      },
+    },
+  ],
+  beats: [
+    {
+      id: "rate.bps",
+      text: "{changeBps} basis points.",
+      tier: "base",
+      when: { op: "gte", field: "changeBps", value: 1 },
+    },
+    {
+      id: "rate.priorLevel",
+      text: "The level had held at {priorValue}% since {priorDate}.",
+      tier: "base",
+      when: {
+        op: "all",
+        of: [
+          { op: "has", field: "priorValue" },
+          { op: "has", field: "priorDate" },
+        ],
+      },
+    },
+    {
+      id: "rate.effective",
+      text: "Effective {observedDate}, in the bank's own series.",
+      tier: "base",
+      when: { op: "has", field: "observedDate" },
+    },
+    // Escalation: a large move, measured from two parsed values.
+    {
+      id: "rate.jumbo",
+      text: "{changeBps} basis points in one step.",
+      tier: "escalation",
+      when: { op: "gte", field: "changeBps", value: 50 },
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // HALT
 
 const halt: Archetype = {
@@ -527,5 +592,6 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   CONGRESS_PTR: congressPtr,
   MACRO_PRINT: macroPrint,
   FED_PRESS: fedPress,
+  RATE_DECISION: rateDecision,
   HALT: halt,
 };
