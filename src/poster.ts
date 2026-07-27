@@ -1,6 +1,15 @@
 import type { Env } from "./env";
 import { newTickBudget, type TickBudget } from "./lib/budget";
-import { getThreadsAuth, getPublishingQuota, KV_TOKEN_ALERTED, publishTextPost, refreshLongLived, storeThreadsAuth, ThreadsError } from "./lib/threads";
+import {
+  getThreadsAuth,
+  getPublishingQuota,
+  KV_TOKEN_ALERTED,
+  listRecentPosts,
+  publishTextPost,
+  refreshLongLived,
+  storeThreadsAuth,
+  ThreadsError,
+} from "./lib/threads";
 import { editMessageText, sendMessage } from "./lib/telegram";
 import { checkRegister } from "./templates/validate";
 import type { ArchetypeId } from "./templates/types";
@@ -46,16 +55,12 @@ export async function runPoster(env: Env, now: Date, budget: TickBudget = newTic
     return;
   }
 
-  // A claim with no post id, older than a few minutes, means a publish
-  // survived but its confirmation didn't — visible, never silent.
-  const orphans = await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM post_log WHERE platform_post_id IS NULL AND posted_at < ?1`,
-  )
-    .bind(iso(new Date(now.getTime() - 300_000)))
-    .first<{ n: number }>();
-  if ((orphans?.n ?? 0) > 0) {
-    log("error", "unconfirmed post claims present (published but id not recorded)", { count: orphans?.n });
-  }
+  // Reconcile stranded claims BEFORE selecting new work. A claim with no
+  // post id means the invocation died between claiming and confirming (the
+  // CPU ceiling does exactly this). The claim correctly blocks a re-post,
+  // but left alone it blocks that row FOREVER — so ask Threads what actually
+  // happened and either confirm the claim or release it.
+  if (budget.remaining() > 2) await reconcileClaims(env, auth, now, budget);
 
   const rows = await env.DB.prepare(
     `SELECT q.id AS queue_id, q.item_id, q.archetype,
@@ -184,6 +189,57 @@ export async function runPoster(env: Env, now: Date, budget: TickBudget = newTic
       } catch (e) {
         log("warn", "post badge failed", { queueId: row.queue_id, error: String(e) });
       }
+    }
+  }
+}
+
+/**
+ * Ground truth for stranded claims: the account's own recent posts. If our
+ * draft text is there, the publish DID land and we just lost the id — record
+ * it. If it isn't, nothing was published — release the claim so the approval
+ * can be retried.
+ */
+async function reconcileClaims(
+  env: Env,
+  auth: { token: string; userId: string },
+  now: Date,
+  budget: TickBudget,
+): Promise<void> {
+  const stale = await env.DB.prepare(
+    `SELECT p.id, p.queue_id, COALESCE(q.edited_text, q.draft_text) AS text
+     FROM post_log p JOIN queue q ON q.id = p.queue_id
+     WHERE p.platform_post_id IS NULL AND p.posted_at < ?1
+     ORDER BY p.id LIMIT 5`,
+  )
+    .bind(iso(new Date(now.getTime() - 120_000)))
+    .all<{ id: number; queue_id: number; text: string }>();
+  if (stale.results.length === 0) return;
+
+  if (!budget.take(1)) return;
+  let recent;
+  try {
+    recent = await listRecentPosts(auth.token, auth.userId, 25);
+  } catch (e) {
+    log("warn", "claim reconciliation could not read recent posts", { error: String(e) });
+    return;
+  }
+
+  for (const claim of stale.results) {
+    // Compare on the fact block's first line: Threads may render the text
+    // with its own whitespace handling, but the head line is stable.
+    const head = (claim.text ?? "").split("\n")[0]?.trim() ?? "";
+    const match = head === "" ? undefined : recent.find((p) => (p.text ?? "").includes(head));
+    if (match) {
+      await env.DB.prepare(`UPDATE post_log SET platform_post_id = ?1 WHERE id = ?2 AND platform_post_id IS NULL`)
+        .bind(match.id, claim.id)
+        .run();
+      await env.DB.prepare(`UPDATE items SET status = 'posted' WHERE id = (SELECT item_id FROM queue WHERE id = ?1)`)
+        .bind(claim.queue_id)
+        .run();
+      log("info", "stranded claim confirmed against the account", { queueId: claim.queue_id, postId: match.id });
+    } else {
+      await env.DB.prepare(`DELETE FROM post_log WHERE id = ?1 AND platform_post_id IS NULL`).bind(claim.id).run();
+      log("warn", "stranded claim released; publish never landed", { queueId: claim.queue_id });
     }
   }
 }
