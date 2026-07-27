@@ -8,9 +8,29 @@ import { log } from "./lib/log";
 // plan allows 5 cron expressions per ACCOUNT, so schedules live in the D1
 // jobs table and this dispatcher fans out to due jobs each minute.
 
-/** Cap per tick keeps a single invocation well inside the 10 ms CPU / 50
- * subrequest free-tier budget; anything left over runs next minute. */
+/** Cap per tick keeps a single invocation inside the CPU / 50-subrequest
+ * budget; anything left over runs next minute. */
 export const MAX_JOBS_PER_TICK = 4;
+
+/**
+ * Per-tick TIME budget (wall clock, not CPU — performance.now() measures
+ * elapsed time, and a tick's wall time runs ~500x its CPU time because these
+ * jobs are fetch-bound: production ticks showed wallTime 4982 ms against
+ * cpuTime 10 ms).
+ *
+ * Why it exists: Cloudflare kills an over-budget invocation MID-JOB, which is
+ * how a poster claim got stranded on 2026-07-27 (CPU ceiling on the free
+ * plan). We're on Workers Paid now — 30 s CPU and 15 min wall for crons — so
+ * this is a backstop against pathological ticks, not a routine limiter. It
+ * must stay well under the wall ceiling while never deferring normal work.
+ *
+ * A deferred job runs next minute; a job killed halfway leaves partial state.
+ */
+export const TICK_TIME_BUDGET_MS = 60_000;
+
+function elapsedMs(startedAt: number): number {
+  return performance.now() - startedAt;
+}
 
 export type JobHandler = (env: Env, now: Date, budget: TickBudget) => Promise<void>;
 
@@ -44,8 +64,22 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
   // platform cap; D1/KV are a separate 1,000 budget). Handlers defer work
   // they can't afford to the next tick.
   const budget = newTickBudget();
+  const startedAt = performance.now();
+  const timeBudgetMs = Number(env.TICK_TIME_BUDGET_MS ?? TICK_TIME_BUDGET_MS) || TICK_TIME_BUDGET_MS;
 
+  let ran = 0;
   for (const row of due.results) {
+    // Don't START a job we probably can't finish: a killed invocation leaves
+    // partial state (a claimed-but-unpublished post, a half-written ledger).
+    // The first job always runs, or nothing would ever make progress.
+    if (ran > 0 && elapsedMs(startedAt) >= timeBudgetMs) {
+      log("warn", "tick time budget spent; deferring remaining jobs to the next tick", {
+        ranThisTick: ran,
+        deferred: due.results.length - ran,
+        elapsedMs: Math.round(elapsedMs(startedAt)),
+      });
+      break;
+    }
     // Atomic claim + reschedule BEFORE running. The compare-and-set on the
     // observed due_at means overlapping cron invocations (Cloudflare does
     // not serialize them; a stalled tick can outlive the next cron fire)
@@ -67,5 +101,6 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
     } catch (e) {
       log("error", "job failed", { job: row.name, error: String(e) });
     }
+    ran += 1;
   }
 }

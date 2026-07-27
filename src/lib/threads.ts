@@ -123,6 +123,18 @@ export async function refreshLongLived(token: string): Promise<{ access_token: s
   );
 }
 
+/** Recent posts on the account. Used to reconcile stranded publish claims. */
+export async function listRecentPosts(
+  token: string,
+  userId: string,
+  limit = 25,
+): Promise<Array<{ id: string; text?: string }>> {
+  const body = await thFetch<{ data?: Array<{ id: string; text?: string }> }>(
+    `${THREADS_GRAPH}/${userId}/threads?fields=id,text&limit=${limit}&access_token=${encodeURIComponent(token)}`,
+  );
+  return body.data ?? [];
+}
+
 export async function getMe(token: string): Promise<{ id: string; username?: string }> {
   return thFetch<{ id: string; username?: string }>(
     `${THREADS_GRAPH}/me?fields=id,username&access_token=${encodeURIComponent(token)}`,
