@@ -11,6 +11,7 @@ import {
   type SourceState,
 } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
+import { lookbackFieldsFor, recordFacts } from "../lookback";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -183,6 +184,23 @@ async function ingestEntries(env: Env, entries: Edgar8kEntry[], now: Date): Prom
       now,
     );
     if (result.outcome === "inserted") inserted += 1;
+
+    // Record one fact per item code so "second non-reliance this year" is a
+    // QUERY, never an assumption. Keyed on CIK: company names vary by filing
+    // agent, CIKs do not. Unparsed CIK -> no facts, so the beat cannot fire.
+    if (result.outcome === "inserted" && result.id !== null && entry.cik && entry.filedIso) {
+      await recordFacts(
+        env.DB,
+        entry.items.map((i) => ({
+          itemId: result.id as number,
+          source: SOURCE,
+          entity: entry.cik,
+          metric: `8k.item.${i.code}`,
+          occurredAt: entry.filedIso,
+        })),
+        now,
+      );
+    }
   }
   return inserted;
 }
@@ -207,6 +225,27 @@ async function drainPostables(env: Env, now: Date, budget: TickBudget): Promise<
       break;
     }
     const payload = JSON.parse(row.payload) as Record<string, unknown>;
+
+    // Lookback fields are computed at ENQUEUE time against the lake as it
+    // stands, so an approved draft's claim matches what was true when the
+    // owner saw it.
+    const cik = typeof payload.cik === "string" ? payload.cik : "";
+    const codes = Array.isArray(payload.itemCodes) ? (payload.itemCodes as string[]) : [];
+    const headline = codes.find((c) => c === "4.02") ?? codes.find((c) => c !== "9.01") ?? null;
+    if (cik && headline) {
+      const yearStart = `${now.getUTCFullYear()}-01-01T00:00:00.000Z`;
+      const fields = await lookbackFieldsFor(env.DB, {
+        source: SOURCE,
+        entity: cik,
+        metric: `8k.item.${headline}`,
+        since: yearStart,
+        itemId: row.id,
+      });
+      payload.priorSameItemThisYear = fields.priorCount;
+      payload.sameItemOccurrence = fields.occurrence;
+      payload.lookbackCoverageDays = fields.coverageDays;
+    }
+
     const result = await enqueueForApproval(env, row.id, "FILING_8K", payload, row.source_url, now);
     sent += 1;
     if (result.retryAfter !== null) {

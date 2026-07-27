@@ -90,7 +90,28 @@ const filing8k: Archetype = {
       tier: "base",
       when: { op: "includes", field: "itemCodes", value: "1.03" },
     },
+    {
+      id: "8k.secondNonReliance",
+      text: "Second non-reliance filing from this issuer this year.",
+      tier: "escalation",
+      // Requires a REAL prior in our lake, not an assumption.
+      when: {
+        op: "all",
+        of: [
+          { op: "includes", field: "itemCodes", value: "4.02" },
+          { op: "eq", field: "sameItemOccurrence", value: 2 },
+        ],
+      },
+    },
+    {
+      id: "8k.sameItemAgain",
+      text: "Filing number {sameItemOccurrence} of this item from this issuer this year.",
+      tier: "escalation",
+      when: { op: "gte", field: "sameItemOccurrence", value: 3 },
+    },
   ],
+  // Escalation: the pattern across filings, now that the lookback can prove
+  // it. These were PENDING until this query layer existed.
   guards: [
     // persona §11: never a beat on an amendment.
     { id: "8k.notAmendment", ok: (p) => !(str(p, "formType") ?? "").endsWith("/A") },
@@ -486,8 +507,6 @@ const halt: Archetype = {
 // the parity test; unreachable by type (no `when`, branded).
 
 export const PENDING_BEATS: readonly PendingBeat[] = [
-  { id: "8k.secondNonReliance", text: "Second non-reliance this year.", requires: ["d1_issuer_lookback"] },
-  { id: "8k.sameItem", text: "Same item, new quarter.", requires: ["d1_issuer_lookback"] },
   { id: "tape.casino", text: "The casino is the market now.", requires: ["tape_join"] },
   // Statement-diff family: needs the P3 FOMC diff engine.
   { id: "fed.editIsNews", text: "The edit is the entire news.", requires: ["statement_diff"] },
