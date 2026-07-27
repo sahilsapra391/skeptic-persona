@@ -212,7 +212,10 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{priorDate\}/g, "{date}")
         .replace(/\{observedDate\}/g, "{date}")
         .replace(/\{indirectPct\}/g, "{n}")
-        .replace(/\{allocationPercentage\}/g, "{n}");
+        .replace(/\{allocationPercentage\}/g, "{n}")
+        .replace(/\{initiatedIso\}/g, "{d1}")
+        .replace(/\{reportedIso\}/g, "{d2}")
+        .replace(/\{disclosureLagDays\}/g, "{n}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -253,6 +256,17 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       FED_PRESS: ["title", "category"],
       HALT: ["reasonCode", "symbol", "name", "reasonText", "haltTimeEtShort", "haltCountToday"],
       RATE_DECISION: ["changeBps", "priorValue", "priorDate", "observedDate", "factLine", "country", "label", "value", "direction"],
+      PRODUCT_RECALL: [
+        "initiatedIso",
+        "reportedIso",
+        "classification",
+        "voluntaryIsFirmInitiated",
+        "status",
+        "disclosureLagDays",
+        "factLine",
+        "firm",
+        "reason",
+      ],
       TREASURY_AUCTION: ["indirectPct", "allocationPercentage", "bidToCoverRatio", "factLine", "securityTerm", "securityType", "highYield"],
     };
     for (const a of ALL) {
@@ -395,6 +409,17 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       yoyPct: 3.5,
     },
     FED_PRESS: { title: "Agencies issue joint statement", category: "Banking and Consumer Regulatory Policy" },
+    PRODUCT_RECALL: {
+      factLine: "FDA Class II recall: Chiesi USA, Inc. CLEVIPREX. Reason: Lack of Assurance of Sterility",
+      firm: "Chiesi USA, Inc.",
+      classification: "Class II",
+      reason: "Lack of Assurance of Sterility",
+      status: "Ongoing",
+      initiatedIso: "2026-07-06",
+      reportedIso: "2026-07-22",
+      disclosureLagDays: 16,
+      voluntaryIsFirmInitiated: true,
+    },
     TREASURY_AUCTION: {
       factLine: "US Treasury 2-Year Note auction 2026-07-27: high yield 4.315%, bid-to-cover 2.66, $69.0B offered",
       securityTerm: "2-Year",

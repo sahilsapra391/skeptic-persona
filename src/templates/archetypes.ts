@@ -576,6 +576,75 @@ const treasuryAuction: Archetype = {
 };
 
 // ---------------------------------------------------------------------------
+// PRODUCT_RECALL (FDA drug enforcement)
+
+const productRecall: Archetype = {
+  id: "PRODUCT_RECALL",
+  attribution: "per FDA",
+  skeletons: [
+    {
+      id: "recall.full",
+      build: (p) => {
+        const line = str(p, "factLine");
+        return line ? { lines: [line] } : null;
+      },
+    },
+    {
+      id: "recall.firmFirst",
+      build: (p) => {
+        const firm = str(p, "firm");
+        const cls = str(p, "classification");
+        const reason = str(p, "reason");
+        if (!firm || !cls || !reason) return null;
+        return { lines: [`${firm} is recalling product. ${cls}, reason: ${reason}`] };
+      },
+    },
+  ],
+  beats: [
+    // The signature move: the gap between the firm acting and the public
+    // finding out, both dates parsed from the record.
+    {
+      id: "recall.lag",
+      text: "Initiated {initiatedIso}. Published {reportedIso}.",
+      tier: "base",
+      when: {
+        op: "all",
+        of: [
+          { op: "has", field: "initiatedIso" },
+          { op: "has", field: "reportedIso" },
+        ],
+      },
+    },
+    {
+      id: "recall.classIsFdas",
+      text: "The class is the FDA's grading, not ours.",
+      tier: "base",
+      when: { op: "has", field: "classification" },
+    },
+    {
+      id: "recall.voluntary",
+      text: "Firm-initiated, in the agency's own words.",
+      tier: "base",
+      // Only when FDA's field says so.
+      when: { op: "eq", field: "voluntaryIsFirmInitiated", value: true },
+    },
+    {
+      id: "recall.stillOngoing",
+      text: "Status: ongoing.",
+      tier: "base",
+      when: { op: "eq", field: "status", value: "Ongoing" },
+    },
+    // Escalation: a long gap between action and disclosure.
+    {
+      id: "recall.slowDisclosure",
+      text: "{disclosureLagDays} days from the firm acting to the public knowing.",
+      tier: "escalation",
+      when: { op: "gte", field: "disclosureLagDays", value: 30 },
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // HALT
 
 const halt: Archetype = {
@@ -651,5 +720,6 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   FED_PRESS: fedPress,
   RATE_DECISION: rateDecision,
   TREASURY_AUCTION: treasuryAuction,
+  PRODUCT_RECALL: productRecall,
   HALT: halt,
 };
