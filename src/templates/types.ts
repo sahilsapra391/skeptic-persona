@@ -21,6 +21,7 @@ export type ArchetypeId =
   | "RATE_DECISION"
   | "TREASURY_AUCTION"
   | "PRODUCT_RECALL"
+  | "POLICY_ACTION"
   | "HALT";
 
 /** Beat tiers. `signature` is deliberately outside normal rotation

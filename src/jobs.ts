@@ -8,6 +8,7 @@ import { pollForm144 } from "./ingesters/form144";
 import { makeRateHandler, RATE_SOURCES } from "./ingesters/rates";
 import { pollTreasury } from "./ingesters/treasury";
 import { pollFdaRecalls } from "./ingesters/fdaRecalls";
+import { pollFederalRegister } from "./ingesters/federalRegister";
 import { pollNasdaqHalts, pollNyseHalts } from "./ingesters/halts";
 import { pollHousePtr } from "./ingesters/housePtr";
 import { pollSenatePtr } from "./ingesters/senatePtr";
@@ -86,6 +87,7 @@ export function registerJobs(): void {
   for (const src of RATE_SOURCES) registry[src.id] = makeRateHandler(src);
   registry["treasury_auction"] = pollTreasury;
   registry["fda_drug_recall"] = pollFdaRecalls;
+  registry["federal_register"] = pollFederalRegister;
   registry["senate_ptr"] = pollSenatePtr;
   registry["house_ptr"] = pollHousePtr;
   registry["fed_press"] = pollFedPress;
