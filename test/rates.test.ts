@@ -4,7 +4,11 @@ import BOC from "./fixtures/rate-boc.json?raw";
 import RIKSBANK from "./fixtures/rate-riksbank.json?raw";
 import BCB from "./fixtures/rate-bcb.json?raw";
 import SARB from "./fixtures/rate-sarb.json?raw";
+import BOE from "./fixtures/rate-boe.csv.fixture?raw";
+import ECB from "./fixtures/rate-ecb.csv.fixture?raw";
 import {
+  boeDate,
+  boeDateToIso,
   brDateToIso,
   detectChange,
   draftRate,
@@ -14,6 +18,7 @@ import {
   type RateObservation,
 } from "../src/ingesters/rates";
 import { newTickBudget } from "../src/lib/budget";
+import { urlFor } from "../src/ingesters/rates";
 import { getSourceState } from "../src/lib/db";
 import { ARCHETYPES } from "../src/templates/archetypes";
 import { pickBeat, renderPost } from "../src/templates/render";
@@ -48,15 +53,49 @@ describe("parsers (live fixtures)", () => {
     expect(JSON.parse(SARB).some((r: { Name: string }) => r.Name === "Sabor")).toBe(true);
   });
 
+  it("Bank of England IADB: 'DD Mon YYYY' CSV", () => {
+    const obs = byId("rate_boe").parse(BOE);
+    expect(obs.length).toBeGreaterThan(100);
+    expect(obs[0]).toEqual({ date: "2026-01-02", value: 3.75 });
+    expect(obs.at(-1)).toEqual({ date: "2026-07-24", value: 3.75 });
+  });
+
+  it("ECB SDMX-CSV: columns located by NAME, never by position", () => {
+    const obs = byId("rate_ecb").parse(ECB);
+    expect(obs.at(-1)).toEqual({ date: "2026-07-27", value: 2.4 });
+    // SDMX emits ~30 columns; a positional parser would break on any
+    // upstream column addition.
+    expect(ECB.split("\n")[0]!.split(",").length).toBeGreaterThan(20);
+  });
+
   it("every source parses its own fixture to at least one observation", () => {
     for (const [id, body] of [
       ["rate_boc", BOC],
       ["rate_riksbank", RIKSBANK],
       ["rate_bcb", BCB],
       ["rate_sarb", SARB],
+      ["rate_boe", BOE],
+      ["rate_ecb", ECB],
     ] as const) {
       expect(byId(id).parse(body).length, id).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("boeDateToIso / boeDate", () => {
+  it("round-trips the Bank of England's two date formats", () => {
+    expect(boeDateToIso("02 Jan 2026")).toBe("2026-01-02");
+    expect(boeDateToIso("24 Jul 2026")).toBe("2026-07-24");
+    expect(boeDateToIso("2026-07-24")).toBeNull();
+    expect(boeDateToIso("32 Xxx 2026")).toBeNull();
+    // The request format differs from the response format.
+    expect(boeDate(new Date("2026-07-27T00:00:00Z"))).toBe("27/Jul/2026");
+  });
+
+  it("builds a rolling one-year window so the URL never goes stale", () => {
+    const url = urlFor(byId("rate_boe"), new Date("2026-07-27T00:00:00Z"));
+    expect(url).toContain("Datefrom=27/Jul/2025");
+    expect(url).toContain("Dateto=27/Jul/2026");
   });
 });
 
@@ -177,7 +216,7 @@ describe("poll end-to-end", () => {
 
   it("the FIRST sighting of a series establishes a baseline and posts nothing", async () => {
     const src = byId("rate_riksbank");
-    const u = new URL(src.url);
+    const u = new URL(urlFor(src, NOW));
     fetchMock.get(u.origin).intercept({ path: u.pathname + u.search }).reply(200, RIKSBANK);
 
     await makeRateHandler(src)(env, NOW, newTickBudget(20));
@@ -193,7 +232,7 @@ describe("poll end-to-end", () => {
 
   it("a failing endpoint counts a failure and posts nothing", async () => {
     const src = byId("rate_sarb");
-    const u = new URL(src.url);
+    const u = new URL(urlFor(src, NOW));
     fetchMock.get(u.origin).intercept({ path: u.pathname + u.search }).reply(503, "down");
 
     await makeRateHandler(src)(env, NOW, newTickBudget(20));
