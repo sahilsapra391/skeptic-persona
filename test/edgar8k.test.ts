@@ -7,6 +7,7 @@ import {
   EDGAR_8K_FEED,
   EDGAR_8K_FEED_PAGE2,
   type Edgar8kEntry,
+  isFreshAtIngest,
   MAX_ENQUEUES_PER_RUN,
   parse8kFeed,
   pollEdgar8k,
@@ -122,6 +123,17 @@ describe("scoreEntry", () => {
   });
 });
 
+describe("isFreshAtIngest", () => {
+  const now = new Date("2026-07-27T12:00:00Z");
+  it("accepts items inside the window and rejects backfill", () => {
+    expect(isFreshAtIngest("2026-07-27T10:00:00.000Z", now)).toBe(true);
+    expect(isFreshAtIngest("2026-07-24T21:30:36.000Z", now)).toBe(false); // Friday filing seen Monday
+  });
+  it("no parsed timestamp -> not claimable as fresh", () => {
+    expect(isFreshAtIngest("", now)).toBe(false);
+  });
+});
+
 describe("draftFor", () => {
   it("head uses the PARSED form type, never a hardcoded label", () => {
     const d = draftFor(
@@ -160,7 +172,9 @@ describe("pollEdgar8k end-to-end", () => {
   const SEC = "https://www.sec.gov";
   const FEED_PATH = EDGAR_8K_FEED.replace(SEC, "");
   const PAGE2_PATH = EDGAR_8K_FEED_PAGE2.replace(SEC, "");
-  const NOW = new Date("2026-07-27T01:00:00Z");
+  // Within STALE_AT_INGEST_HOURS of every fixture entry (filed Fri 20:51-21:30Z),
+  // so the freshness gate sees them all as live news.
+  const NOW = new Date("2026-07-25T06:00:00Z");
 
   // File-level persistent Telegram counter (see webhook.test.ts for why
   // counters, not pending-interceptor checks, are used for negative proofs).
@@ -187,7 +201,7 @@ describe("pollEdgar8k end-to-end", () => {
 
   it("ingests, dedups, drains through the cap with distinct items, and marks sub-postables 'logged'", async () => {
     const parsed = parse8kFeed(FIXTURE);
-    const postable = parsed.filter((e) => scoreEntry(e) >= SCORE_POSTABLE).length;
+    const postable = parsed.filter((e) => scoreEntry(e) >= SCORE_POSTABLE && isFreshAtIngest(e.filedIso, NOW)).length;
     // Contract guard for future fixture re-captures: the cap/drain assertions
     // below are vacuous unless the fixture holds more postables than the cap.
     expect(postable).toBeGreaterThan(MAX_ENQUEUES_PER_RUN);
