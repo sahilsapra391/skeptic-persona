@@ -52,9 +52,12 @@ export function buildUserAgent(contactEmail: string): string {
 // try/catch and count failures in source_state.
 
 export async function politeFetch(url: string, opts: PoliteOptions): Promise<PoliteResponse> {
+  // NOTE: no manual Accept-Encoding. Setting it explicitly tells the Workers
+  // runtime we intend to handle content-coding ourselves, which can hand back
+  // an undecoded body; the runtime negotiates and decompresses transparently
+  // when we stay out of the way.
   const headers: Record<string, string> = {
     "User-Agent": opts.userAgent,
-    "Accept-Encoding": "gzip, deflate",
     ...opts.headers,
   };
   if (opts.validators?.etag) headers["If-None-Match"] = opts.validators.etag;

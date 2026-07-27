@@ -14,6 +14,7 @@ import {
   parseNyseHalts,
   pollNasdaqHalts,
   pollNyseHalts,
+  HALT_CODES,
 } from "../src/ingesters/halts";
 import { draftCpi, parseBlsIcs, parseCpiRelease, RELEASES, releaseUrl, syncBlsCalendar, watchBls } from "../src/ingesters/bls";
 import { getSourceState } from "../src/lib/db";
@@ -189,6 +190,18 @@ describe("polls end-to-end", () => {
     const nyseCount = parseNyseHalts(NYSE_FIXTURE).length;
     expect(afterBoth).toBeLessThan(25 + nyseCount);
     expect(afterBoth).toBeGreaterThan(25);
+  });
+
+  it("halts: codes seen in production are known, with Nasdaq's own meanings", () => {
+    // Production logged "M" and "T3" as unknown, so they were silently
+    // clamped to log-only. Meanings verbatim from Nasdaq's legend.
+    expect(HALT_CODES["M"]).toMatchObject({ meaning: "Volatility Trading Pause" });
+    expect(HALT_CODES["T3"]?.meaning).toBe("News and Resumption Times");
+    // T3 announces resumption after a halt we already posted: lake-only, or
+    // the same event posts twice.
+    expect(HALT_CODES["T3"]?.score).toBe(1);
+    expect(HALT_CODES["MWC0"]?.score).toBe(3);
+    expect(HALT_CODES["D"]).toBeTruthy();
   });
 
   it("halts: a symbol halted repeatedly is ONE story, not eight", async () => {
