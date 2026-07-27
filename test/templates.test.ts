@@ -202,7 +202,8 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{memberCount\}/g, "{n}")
         .replace(/\{tradeDate\}/g, "{d1}")
         .replace(/\{filedDate\}/g, "{d2}")
-        .replace(/\{superlative\}/g, "");
+        .replace(/\{superlative\}/g, "")
+        .replace(/\{haltCountToday\}/g, "{n}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -229,7 +230,7 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       CONGRESS_PTR: ["lagDays", "amountBand", "tradeDate", "filedDate", "singleTxn", "bandWidthUsd", "factLine", "who", "tradeLine"],
       MACRO_PRINT: ["momSigned", "coreSigned", "yoyPct", "partialParse", "superlative", "factLine", "releaseName", "refMonth", "momText"],
       FED_PRESS: ["title", "category"],
-      HALT: ["reasonCode", "symbol", "name", "reasonText", "haltTimeEtShort"],
+      HALT: ["reasonCode", "symbol", "name", "reasonText", "haltTimeEtShort", "haltCountToday"],
     };
     for (const a of ALL) {
       for (const beat of a.beats) {
@@ -295,6 +296,19 @@ describe("doctrine: beats never outrun the fact block", () => {
     const multi = { factLine: "x", tradeDate: "01/05/2026", filedDate: "07/24/2026", singleTxn: false, lagDays: 4 };
     const picked = pickBeat(ARCHETYPES.CONGRESS_PTR, multi, { recentSkeletons: [], recentBeats: ["ptr.disclosedLater", "ptr.lagProduct"] }, 0);
     expect(picked?.beat.id).not.toBe("ptr.dates");
+  });
+});
+
+describe("doctrine: the pattern is the story", () => {
+  it("the Nth-halt beat needs a real count, never renders on a first halt", () => {
+    const first = { symbol: "X", reasonText: "Volatility Trading Pause", reasonCode: "LUDP", haltTimeEtShort: "14:06", haltCountToday: 1 };
+    const picked = pickBeat(ARCHETYPES.HALT, first, { recentSkeletons: [], recentBeats: [] }, 0);
+    expect(picked?.beat.id).not.toBe("halt.nthToday");
+
+    const fourth = { ...first, haltCountToday: 4 };
+    const escalated = pickBeat(ARCHETYPES.HALT, fourth, { recentSkeletons: [], recentBeats: [] }, 0);
+    expect(escalated?.beat.id).toBe("halt.nthToday");
+    expect(escalated?.text).toBe("Halt number 4 for this symbol today.");
   });
 });
 
