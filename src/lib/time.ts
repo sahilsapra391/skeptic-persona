@@ -81,6 +81,34 @@ export function utcOffsetMinutes(date: Date, tz: string): number {
 }
 
 /**
+ * Interpret a wall-clock time in `tz` on a specific calendar date as a UTC
+ * instant. DST-correct via two-pass offset resolution; a nonexistent local
+ * time (the spring-forward gap) resolves one hour later.
+ */
+export function zonedTimeToUtc(
+  tz: string,
+  year: number,
+  month: number, // 1-12
+  day: number,
+  hour: number,
+  minute: number,
+  second = 0,
+): Date {
+  let guess = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  guess = new Date(guess.getTime() - utcOffsetMinutes(guess, tz) * 60000);
+  const local = zonedParts(guess, tz);
+  let delta = hour * 60 + minute - (local.hour * 60 + local.minute);
+  if (delta > 720) delta -= 1440;
+  if (delta < -720) delta += 1440;
+  if (delta !== 0) {
+    const nudged = new Date(guess.getTime() + delta * 60000);
+    const check = zonedParts(nudged, tz);
+    if (check.hour === hour && check.minute === minute) guess = nudged;
+  }
+  return guess;
+}
+
+/**
  * Next instant at hh:mm local time in `tz`, strictly after `from`.
  * DST-correct: computes the offset at the candidate instant, not at `from`.
  * A nonexistent local time (the spring-forward gap, e.g. 02:30 on the US
@@ -92,21 +120,7 @@ export function nextLocalTime(from: Date, tz: string, hour: number, minute: numb
     // Calendar-date arithmetic in a UTC container: a fixed +24h probe can
     // skip a local date entirely on 23-hour spring-forward days.
     const cal = new Date(Date.UTC(start.year, start.month - 1, start.day + addDays, 12));
-    let guess = new Date(Date.UTC(cal.getUTCFullYear(), cal.getUTCMonth(), cal.getUTCDate(), hour, minute, 0));
-    guess = new Date(guess.getTime() - utcOffsetMinutes(guess, tz) * 60000);
-    // Second pass: if the first-pass offset estimate straddled a DST change,
-    // nudge by the wall-clock delta (normalized for midnight wrap-around) —
-    // but only keep the nudge if it actually lands on the target, so
-    // nonexistent gap times settle on the later side instead of oscillating.
-    const local = zonedParts(guess, tz);
-    let delta = hour * 60 + minute - (local.hour * 60 + local.minute);
-    if (delta > 720) delta -= 1440;
-    if (delta < -720) delta += 1440;
-    if (delta !== 0) {
-      const nudged = new Date(guess.getTime() + delta * 60000);
-      const check = zonedParts(nudged, tz);
-      if (check.hour === hour && check.minute === minute) guess = nudged;
-    }
+    const guess = zonedTimeToUtc(tz, cal.getUTCFullYear(), cal.getUTCMonth() + 1, cal.getUTCDate(), hour, minute);
     if (guess.getTime() <= from.getTime()) continue;
     if (weekdaysOnly && !isWeekday(guess, tz)) continue;
     return guess;
