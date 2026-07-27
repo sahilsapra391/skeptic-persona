@@ -175,7 +175,8 @@ const insiderNotice: Archetype = {
         const rel = str(p, "relationshipLabel");
         const shares = num(p, "unitsSold");
         const size = shares === null ? fmtUsd(value) : `${fmtNum(shares)} shares (${fmtUsd(value)})`;
-        return { lines: [`${who}${rel ? ` (${rel})` : ""} filed to sell ${size} of ${issuer}`] };
+        // "proposed sale", never "to sell" — see draftForm144.
+        return { lines: [`${who}${rel ? ` (${rel})` : ""} filed notice of a proposed sale: ${size} of ${issuer}`] };
       },
     },
   ],
@@ -210,9 +211,19 @@ const insiderNotice: Archetype = {
     // Escalation: size relative to the float, computed from two parsed fields.
     {
       id: "n144.pctFloat",
-      text: "That is {pctOfOutstanding}% of shares outstanding.",
+      // noOfUnitsOutstanding counts the CLASS named in the filing, not the
+      // issuer's total. Naming the class keeps the claim true for dual-class
+      // issuers; fillSlots fails closed if the class did not parse.
+      text: "That is {pctOfOutstanding}% of {securitiesClass} outstanding.",
       tier: "escalation",
-      when: { op: "gte", field: "pctOfOutstanding", value: 1 },
+      when: {
+        op: "all",
+        of: [
+          { op: "gte", field: "pctOfOutstanding", value: 1 },
+          { op: "lte", field: "pctOfOutstanding", value: 100 },
+          { op: "has", field: "securitiesClass" },
+        ],
+      },
     },
   ],
 };

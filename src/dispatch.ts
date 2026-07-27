@@ -107,11 +107,12 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
     }
     try {
       await handler(env, now, budget);
-      await env.DB.prepare(
-        `UPDATE jobs SET last_ok_at = ?1, consecutive_failures = 0 WHERE name = ?2`,
-      )
+      // .catch: a D1 hiccup on BOOKKEEPING must not be logged as the job
+      // failing — that would invert the very signal this column exists for.
+      await env.DB.prepare(`UPDATE jobs SET last_ok_at = ?1, consecutive_failures = 0 WHERE name = ?2`)
         .bind(iso(now), row.name)
-        .run();
+        .run()
+        .catch(() => {});
     } catch (e) {
       log("error", "job failed", { job: row.name, error: String(e) });
       // Job-level health: source_state tracks whether a SOURCE answers;

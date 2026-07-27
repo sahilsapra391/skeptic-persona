@@ -28,6 +28,8 @@ export const NOTICE_ALERT_USD = 25_000_000;
 export const NOTICE_ALERT_PCT_OUTSTANDING = 1;
 
 export const DETAIL_BATCH_PER_RUN = 10;
+/** Matches Form 4: a transient SEC failure must not discard a filing. */
+export const MAX_DETAIL_ATTEMPTS = 3;
 export const MAX_ENQUEUES_PER_RUN = 5;
 
 // ---------------------------------------------------------------------------
@@ -118,7 +120,14 @@ export function usDateToIso(v: string | null): string | null {
   if (!m) return null;
   const [, mo, d, y] = m;
   const iso = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  return Number.isNaN(new Date(`${iso}T00:00:00Z`).getTime()) ? null : iso;
+  // Round-trip: Date happily rolls 02/30 forward to March, so compare the
+  // parsed components back rather than trusting non-NaN.
+  const dt = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(dt.getTime())) return null;
+  if (dt.getUTCFullYear() !== Number(y) || dt.getUTCMonth() + 1 !== Number(mo) || dt.getUTCDate() !== Number(d)) {
+    return null;
+  }
+  return iso;
 }
 
 export function parseForm144Xml(xml: string): Form144Doc | null {
@@ -153,8 +162,11 @@ export function parseForm144Xml(xml: string): Form144Doc | null {
   }));
 
   // Derived from two parsed fields, nothing else. Null when either is absent.
+  // A notice cannot sell more of a class than exists, so a ratio above 100%
+  // means a field is garbage — treat that as a parse failure rather than
+  // publishing "10,000,000% of shares outstanding" and auto-alerting on it.
   let pctOfOutstanding: number | null = null;
-  if (unitsSold !== null && unitsOutstanding !== null && unitsOutstanding > 0) {
+  if (unitsSold !== null && unitsOutstanding !== null && unitsOutstanding > 0 && unitsSold <= unitsOutstanding) {
     pctOfOutstanding = Math.round((unitsSold / unitsOutstanding) * 10000) / 100;
   }
 
@@ -207,7 +219,12 @@ export function draftForm144(doc: Form144Doc): string {
   if (doc.aggregateMarketValue !== null) parts.push(`${fmtUsd(doc.aggregateMarketValue)}`);
   const size = parts.length > 0 ? ` ${parts.join(", ")}` : "";
   const when = doc.approxSaleDate ? ` on or after ${doc.approxSaleDate}` : "";
-  return `Form 144: ${who} filed notice to sell${size} of ${ticker}${when}`;
+  // NOT "to sell": persona section 6 bans buy/sell as advice tokens, and the
+  // poster's register guard blocks the word outright — every draft would be
+  // rejected at the last gate. "Proposed sale" is also the form's own term.
+  // No "Form 144:" prefix either: the renderer appends the attribution, and
+  // naming the form twice in one line reads as a template seam.
+  return `${who} filed notice of a proposed sale${size ? ` of${size}` : ""} of ${ticker}${when}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -263,10 +280,10 @@ export async function pollForm144(env: Env, now: Date = new Date(), budget: Tick
 
 async function processDetails(env: Env, userAgent: string, now: Date, budget: TickBudget): Promise<void> {
   const pending = await env.DB.prepare(
-    `SELECT id, payload FROM items WHERE source = ?1 AND status = 'pending_detail' ORDER BY id LIMIT ?2`,
+    `SELECT id, payload, event_at FROM items WHERE source = ?1 AND status = 'pending_detail' ORDER BY id LIMIT ?2`,
   )
     .bind(SOURCE, DETAIL_BATCH_PER_RUN)
-    .all<{ id: number; payload: string }>();
+    .all<{ id: number; payload: string; event_at: string | null }>();
   if (pending.results.length === 0) return;
 
   // One fetch per filing, run through the bounded pool: the platform allows
@@ -275,15 +292,19 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
   if (affordable.length === 0) return;
 
   await fetchPool(affordable, async (row) => {
-    const stub = JSON.parse(row.payload) as { dirUrl: string; accession: string };
+    // Everything inside the try: a malformed payload row must not reject the
+    // pool and take the whole poll down with it.
+    let attempts = 0;
     try {
+      const stub = JSON.parse(row.payload) as { dirUrl: string; accession: string; attempts?: number };
+      attempts = stub.attempts ?? 0;
       const res = await politeFetch(`${stub.dirUrl}/primary_doc.xml`, { userAgent, timeoutMs: 20_000 });
       if (!res.ok) throw new Error(`primary_doc ${res.status}`);
       const doc = parseForm144Xml(res.body);
       if (!doc) throw new Error("primary_doc did not parse");
 
       const score = scoreForm144(doc);
-      const fresh = isFreshAtIngest((await eventAtOf(env, row.id)) ?? "", now);
+      const fresh = isFreshAtIngest(row.event_at ?? "", now);
       await env.DB.prepare(
         `UPDATE items SET payload = ?1, score = ?2, status = ?3 WHERE id = ?4 AND status = 'pending_detail'`,
       )
@@ -309,7 +330,14 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
             acquisitionNature: doc.acquisitions[0]?.nature ?? null,
             // Derived at PARSE time from the filing's own nature text, so the
             // beat gates on a boolean field rather than re-reading prose.
-            acquisitionIsExercise: doc.acquisitions.some((a) => /exercise/i.test(a.nature ?? "")),
+            // SHARE-WEIGHTED, not some(): a multi-lot notice where 10 of
+            // 100,010 shares came from an exercise must not claim the sale
+            // was an exercise. True only when every lot that parsed a nature
+            // says exercise.
+            acquisitionIsExercise: (() => {
+              const withNature = doc.acquisitions.filter((a) => a.nature !== null);
+              return withNature.length > 0 && withNature.every((a) => /exercise/i.test(a.nature ?? ""));
+            })(),
             factLine: draftForm144(doc),
           }),
           score,
@@ -318,18 +346,26 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
         )
         .run();
     } catch (e) {
-      log("warn", "form 144 detail failed", { itemId: row.id, error: String(e) });
-      await env.DB.prepare(`UPDATE items SET status = 'logged' WHERE id = ?1 AND status = 'pending_detail'`)
-        .bind(row.id)
+      // RETRY like Form 4: SEC Archives 403s bursts, and this poll now fires
+      // 6 concurrent document GETs from a shared Cloudflare egress IP. One
+      // transient 503 must not lose a filing forever.
+      const next = attempts + 1;
+      const giveUp = next >= MAX_DETAIL_ATTEMPTS;
+      log(giveUp ? "warn" : "info", "form 144 detail failed", {
+        itemId: row.id,
+        attempt: next,
+        giveUp,
+        error: String(e),
+      });
+      await env.DB.prepare(
+        `UPDATE items SET payload = json_set(payload, '$.attempts', ?1), status = ?2
+         WHERE id = ?3 AND status = 'pending_detail'`,
+      )
+        .bind(next, giveUp ? "logged" : "pending_detail", row.id)
         .run()
         .catch(() => {});
     }
   });
-}
-
-async function eventAtOf(env: Env, id: number): Promise<string | null> {
-  const row = await env.DB.prepare(`SELECT event_at FROM items WHERE id = ?1`).bind(id).first<{ event_at: string | null }>();
-  return row?.event_at ?? null;
 }
 
 async function drainPostables(env: Env, now: Date, budget: TickBudget): Promise<void> {
@@ -340,10 +376,21 @@ async function drainPostables(env: Env, now: Date, budget: TickBudget): Promise<
     .bind(SOURCE, SCORE_POSTABLE, MAX_ENQUEUES_PER_RUN)
     .all<{ id: number; source_url: string; payload: string }>();
 
+  // Space the sends: Telegram allows ~1 message/sec per chat, and
+  // enqueueForApproval creates the queue row BEFORE notifying — a flood-
+  // controlled item would be marked 'queued', never re-selected by this
+  // drain, and expire without the owner ever seeing it.
+  const spacingRaw = Number(env.QUEUE_NOTIFY_SPACING_MS ?? 1100);
+  const spacingMs = Number.isFinite(spacingRaw) && spacingRaw >= 0 ? spacingRaw : 1100;
+  let sent = 0;
   for (const row of pending.results) {
     if (!budget.take(1)) break;
     const payload = JSON.parse(row.payload) as Record<string, unknown>;
     const result = await enqueueForApproval(env, row.id, "INSIDER_NOTICE", payload, row.source_url, now);
+    sent += 1;
     if (result.retryAfter !== null) break;
+    if (spacingMs > 0 && sent < pending.results.length) {
+      await new Promise((resolve) => setTimeout(resolve, spacingMs));
+    }
   }
 }
