@@ -19,6 +19,8 @@ export default defineWorkersConfig(async () => {
               QUEUE_NOTIFY_SPACING_MS: "0",
               BLS_POLL_INTERVAL_MS: "0",
               BLS_POLL_DEADLINE_MS: "300",
+              THREADS_APP_ID: "TESTAPP",
+              THREADS_APP_SECRET: "TESTSECRET",
             },
           },
         },
