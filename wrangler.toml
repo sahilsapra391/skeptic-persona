@@ -16,14 +16,16 @@ crons = ["* * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "skeptic-wire"
-database_id = "00000000-0000-0000-0000-000000000000" # placeholder — set after `wrangler d1 create`
+database_id = "d951177f-e4ab-4b6b-a014-efc7d78d065e"
 
 [[kv_namespaces]]
 binding = "KV"
-id = "0000000000000000000000000000000000" # placeholder — set after `wrangler kv namespace create`
+id = "87179e74d0ec417d8650ebdeaa01f377"
 
 [vars]
 # Goes into the User-Agent for polite polling (SEC/BLS require a declared contact).
 CONTACT_EMAIL = "admin@spechawk.ai"
 # Master gate for the poster (P2+). The dispatcher also honors the KV kill_switch key.
 POSTING_ENABLED = "false"
+# Owner's private chat; the only chat the approval bot listens to.
+TELEGRAM_CHAT_ID = "6504147349"
