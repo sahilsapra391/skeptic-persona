@@ -178,6 +178,20 @@ every business day, so the wire posts only an observed CHANGE, and the first
 observation of a series establishes a baseline and posts nothing. We cannot
 claim a change we did not witness.
 
+### TREASURY AUCTION
+- `Indirect bidders took {n}% of the competitive award.` [computed from two
+  parsed fields, indirect accepted and competitive accepted]
+- `{n}% allotted at the high.` [allocation percentage parsed]
+- `Bid-to-cover is the demand, not the price.`
+
+**Escalation tier:**
+- `Barely covered.` [bid-to-cover ≤ 2.1]
+
+NEVER the auction "tail". A tail is the high yield minus the when-issued
+yield at the bid deadline, and WI is dealer data we cannot license.
+Computing or implying one from TreasuryDirect fields alone would be
+fabrication wearing the clothes of arithmetic.
+
 ### HALT
 - `Pending is the whole disclosure.` [T1]
 - `The band did what the band does.` [LUDP/LUDS]
