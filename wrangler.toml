@@ -25,7 +25,9 @@ id = "87179e74d0ec417d8650ebdeaa01f377"
 [vars]
 # Goes into the User-Agent for polite polling (SEC/BLS require a declared contact).
 CONTACT_EMAIL = "admin@spechawk.ai"
-# Master gate for the poster (P2+). The dispatcher also honors the KV kill_switch key.
-POSTING_ENABLED = "false"
+# Master gate for the poster. TRUE arms the path; it does NOT publish anything
+# on its own — every post still requires an explicit Approve tap in Telegram,
+# and the poster additionally honors the KV kill_switch key and the daily cap.
+POSTING_ENABLED = "true"
 # Owner's private chat; the only chat the approval bot listens to.
 TELEGRAM_CHAT_ID = "6504147349"
