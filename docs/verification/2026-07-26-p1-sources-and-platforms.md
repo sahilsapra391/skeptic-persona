@@ -9,6 +9,19 @@ here.
 ## P1 sources
 
 ### SEC EDGAR 8-K — works, better than planned
+- **PR-3 re-verification:** live fixture captured 2026-07-27T00:57Z into
+  `test/fixtures/edgar-8k-current.atom.xml` (40 entries: 39 8-K + 1 8-K/A;
+  item lines present in every summary; structure unchanged from the
+  2026-07-26 check). The fixture is the parse contract.
+- **Paging verified live 2026-07-27T02:26Z:** `count=100` returns 100
+  entries; `start=100&count=100` (page 2) returns 100 more. The ingester
+  polls `count=100` and fetches one bounded second page on suspected
+  window overflow.
+- **`type=` filter is PREFIX-match** (review-verified 2026-07-27T01:13Z:
+  `type=485` returned 485APOS/485BPOS/485BXT; `type=S-1` returned S-1MEF),
+  so `type=8-K` can deliver 8-K12B/8-K12G3/8-K15D5. Those fail the strict
+  title regex by design → CIK unparsed → clamped to log-only (never drafted
+  with unparsed fields).
 - `https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&...&output=atom` → 200.
   **Item numbers are embedded in each entry's `<summary>`** ("Item 5.02: …"),
   so acceptance→items-known needs zero extra requests. Regex: `/Item (\d+\.\d+):/`.

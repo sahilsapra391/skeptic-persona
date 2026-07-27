@@ -14,6 +14,14 @@ export interface NewItem {
   sourceUrl: string;
   payload: Record<string, unknown>;
   score: number;
+  /**
+   * 'new' = awaiting queue notification; 'logged' = below the postable bar,
+   * recorded for the data lake only. Ingesters MUST insert sub-postable items
+   * as 'logged' so the notify-drain query's 'new' set stays small (the drain
+   * runs every poll; an ever-growing 'new' backlog would burn the D1
+   * rows-read budget).
+   */
+  status?: "new" | "logged";
 }
 
 export function dedupKey(source: string, externalId: string): string {
@@ -33,8 +41,8 @@ export async function insertItem(
   const res = await db
     .prepare(
       `INSERT OR IGNORE INTO items
-         (dedup_key, source, external_id, category, event_at, fetched_at, source_url, payload, score)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+         (dedup_key, source, external_id, category, event_at, fetched_at, source_url, payload, score, status)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
     )
     .bind(
       dedupKey(item.source, item.externalId),
@@ -46,6 +54,7 @@ export async function insertItem(
       item.sourceUrl,
       JSON.stringify(item.payload),
       item.score,
+      item.status ?? "new",
     )
     .run();
   if (res.meta.changes === 0) return { outcome: "duplicate", id: null };
@@ -181,8 +190,14 @@ export async function getQueueEntryByEditPrompt(
 }
 
 /** Expire stale pending entries; returns the expired rows for best-effort Telegram message updates. */
-/** Per-sweep cap: keeps one expiry run bounded against the 50-subrequest tick budget. */
-export const EXPIRY_SWEEP_LIMIT = 25;
+/**
+ * Per-sweep cap. Worst case is 2 Telegram edits per row (draft badge + stale
+ * edit prompt), so 12 rows = 24 external fetches — leaving headroom for the
+ * other jobs sharing a tick's 50-external-subrequest budget. TODO(next
+ * ingester PR): replace per-job constants with a shared per-tick budget
+ * passed down from the dispatcher.
+ */
+export const EXPIRY_SWEEP_LIMIT = 12;
 
 export async function expirePendingBefore(
   db: D1Database,
