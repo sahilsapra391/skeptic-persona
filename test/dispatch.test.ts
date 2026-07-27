@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { KILL_SWITCH_KEY, MAX_JOBS_PER_TICK, registry, tick } from "../src/dispatch";
+import { fetchPool, MAX_CONCURRENT_FETCHES, newTickBudget } from "../src/lib/budget";
 
 // These tests own the jobs table; clear migration-seeded jobs (queue_expiry)
 // so synthetic fixtures alone determine what each tick sees.
@@ -65,21 +66,46 @@ describe("tick", () => {
 
   it("caps work per tick at MAX_JOBS_PER_TICK, oldest due first", async () => {
     const ran: string[] = [];
-    for (let i = 0; i < MAX_JOBS_PER_TICK + 2; i++) {
-      const name = `j${i}`;
+    const total = MAX_JOBS_PER_TICK + 2;
+    const names = Array.from({ length: total }, (_, i) => `j${String(i).padStart(2, "0")}`);
+    for (const [i, name] of names.entries()) {
       registry[name] = async () => {
         ran.push(name);
       };
-      // j0 oldest ... j5 newest
-      await seedJob(name, `2026-07-22T13:0${i}:00.000Z`);
+      // Minute-spaced so lexical due_at ordering matches the array order.
+      await seedJob(name, `2026-07-22T13:${String(i).padStart(2, "0")}:00.000Z`);
     }
 
     await tick(env, NOW);
-    expect(ran).toEqual(["j0", "j1", "j2", "j3"]);
+    expect(ran).toEqual(names.slice(0, MAX_JOBS_PER_TICK));
 
     // Leftovers run on the next tick.
     await tick(env, NOW);
-    expect(ran).toEqual(["j0", "j1", "j2", "j3", "j4", "j5"]);
+    expect(ran).toEqual(names);
+  });
+
+  it("priority outranks due_at: the poster never queues behind stale backlog", async () => {
+    const ran: string[] = [];
+    // Backlog older than the priority job, and enough of it to fill the tick.
+    for (let i = 0; i < MAX_JOBS_PER_TICK; i++) {
+      const name = `backlog${String(i).padStart(2, "0")}`;
+      registry[name] = async () => {
+        ran.push(name);
+      };
+      await seedJob(name, `2026-07-22T12:${String(i).padStart(2, "0")}:00.000Z`);
+    }
+    registry["poster"] = async () => {
+      ran.push("poster");
+    };
+    // Due LAST by time, but priority 0.
+    await env.DB.prepare(
+      "INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority) VALUES (?1, ?2, 'every_5m', 1, 0)",
+    )
+      .bind("poster", "2026-07-22T13:59:00.000Z")
+      .run();
+
+    await tick(env, NOW);
+    expect(ran[0]).toBe("poster");
   });
 
   it("skips disabled jobs and unknown handlers without crashing", async () => {
@@ -173,5 +199,39 @@ describe("tick time budget", () => {
     }
     await tick(env, NOW);
     expect(ran.length).toBe(3);
+  });
+});
+
+describe("paid-tier budget", () => {
+  it("reserves fetches so ingester backlog cannot starve the poster", () => {
+    const b = newTickBudget(200);
+    // Unreserved callers see 180 of 200; the last 20 are for priority work.
+    expect(b.remaining()).toBe(180);
+    expect(b.remaining({ reserved: true })).toBe(200);
+    expect(b.take(180)).toBe(true);
+    expect(b.take(1)).toBe(false); // ingester hits the floor
+    expect(b.take(1, { reserved: true })).toBe(true); // poster still can
+  });
+
+  it("the reserve scales down so small budgets stay usable", () => {
+    // A flat reserve would swallow a tiny budget whole and deadlock the tick.
+    const tiny = newTickBudget(1);
+    expect(tiny.take(1)).toBe(true);
+  });
+
+  it("fetchPool bounds concurrency at the platform's 6 connections", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const items = Array.from({ length: 20 }, (_, i) => i);
+    const out = await fetchPool(items, async (n) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 5));
+      inFlight -= 1;
+      return n * 2;
+    });
+    expect(peak).toBeLessThanOrEqual(MAX_CONCURRENT_FETCHES);
+    // Order preserved despite out-of-order completion.
+    expect(out).toEqual(items.map((n) => n * 2));
   });
 });
