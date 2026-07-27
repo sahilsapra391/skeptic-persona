@@ -142,3 +142,36 @@ describe("tick", () => {
     expect(await dueAtOf("a")).toBe("2026-07-22T13:00:00.000Z");
   });
 });
+
+describe("tick time budget", () => {
+  it("stops starting new jobs once the budget is spent, but always runs at least one", async () => {
+    const ran: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const name = `slowjob${i}`;
+      registry[name] = async () => {
+        ran.push(name);
+        // Burn wall time so the guard trips for the next candidate.
+        await new Promise((r) => setTimeout(r, 30));
+      };
+      await seedJob(name, `2026-07-22T13:0${i}:00.000Z`);
+    }
+    const tiny = Object.assign(Object.create(Object.getPrototypeOf(env)), env, { TICK_TIME_BUDGET_MS: "10" });
+    await tick(tiny, NOW);
+    // First job always runs (otherwise nothing would ever progress); the rest
+    // defer rather than risk being killed mid-flight.
+    expect(ran.length).toBe(1);
+  });
+
+  it("a generous budget lets the full tick run", async () => {
+    const ran: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const name = `fastjob${i}`;
+      registry[name] = async () => {
+        ran.push(name);
+      };
+      await seedJob(name, `2026-07-22T13:0${i}:00.000Z`);
+    }
+    await tick(env, NOW);
+    expect(ran.length).toBe(3);
+  });
+});
