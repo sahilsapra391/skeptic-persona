@@ -269,3 +269,33 @@ describe("edit flow", () => {
     expect(snap()).toEqual(s0);
   });
 });
+
+describe("admin smoke test endpoint", () => {
+  it("rejects missing or wrong admin key", async () => {
+    const s0 = snap();
+    const bad = await SELF.fetch("https://worker.local/admin/seed-test", { method: "POST" });
+    expect(bad.status).toBe(401);
+    const wrong = await SELF.fetch("https://worker.local/admin/seed-test", {
+      method: "POST",
+      headers: { "X-Admin-Key": "nope" },
+    });
+    expect(wrong.status).toBe(401);
+    expect(snap()).toEqual(s0);
+  });
+
+  it("seeds a queued draft and notifies Telegram when authorized", async () => {
+    const s0 = snap();
+    const res = await SELF.fetch("https://worker.local/admin/seed-test", {
+      method: "POST",
+      headers: { "X-Admin-Key": "test-webhook-secret" },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json<{ ok: boolean; queueId: number }>();
+    expect(body.ok).toBe(true);
+    expect(SEND.calls.length).toBe(s0.s + 1);
+    expect(String(SEND.calls.at(-1)?.text)).toContain("Smoke test draft");
+    const entry = await getQueueEntry(env.DB, body.queueId);
+    expect(entry?.state).toBe("pending");
+    expect(entry?.telegramMessageId).toBe(900 + SEND.calls.length);
+  });
+});

@@ -2,6 +2,7 @@ import type { Env } from "./env";
 import { tick } from "./dispatch";
 import { registerJobs } from "./jobs";
 import { handleTelegramWebhook, WEBHOOK_PATH } from "./telegram/webhook";
+import { handleSeedTest } from "./admin";
 import { log } from "./lib/log";
 
 registerJobs();
@@ -21,6 +22,9 @@ export default {
     }
     if (request.method === "POST" && url.pathname === WEBHOOK_PATH) {
       return handleTelegramWebhook(request, env);
+    }
+    if (request.method === "POST" && url.pathname === "/admin/seed-test") {
+      return handleSeedTest(request, env);
     }
     log("debug", "unhandled request", { path: url.pathname, method: request.method });
     return new Response("not found", { status: 404 });
