@@ -203,7 +203,8 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{tradeDate\}/g, "{d1}")
         .replace(/\{filedDate\}/g, "{d2}")
         .replace(/\{superlative\}/g, "")
-        .replace(/\{haltCountToday\}/g, "{n}");
+        .replace(/\{haltCountToday\}/g, "{n}")
+        .replace(/\{pctOfOutstanding\}/g, "{n}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -226,6 +227,17 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
     const producible: Record<string, string[]> = {
       FILING_8K: ["itemCodes", "company", "formType", "items"],
       FILING_FORM4: ["primaryCode", "lagDays", "stakePrinted", "factLine", "who", "actionLine", "isAmendment"],
+      INSIDER_NOTICE: [
+        "aggregateMarketValue",
+        "broker",
+        "acquisitionIsExercise",
+        "pctOfOutstanding",
+        "factLine",
+        "sellerName",
+        "issuerName",
+        "relationshipLabel",
+        "unitsSold",
+      ],
       INSIDER_CLUSTER: ["memberCount", "allCodeP", "factLine", "symbol", "roster"],
       CONGRESS_PTR: ["lagDays", "amountBand", "tradeDate", "filedDate", "singleTxn", "bandWidthUsd", "factLine", "who", "tradeLine"],
       MACRO_PRINT: ["momSigned", "coreSigned", "yoyPct", "partialParse", "superlative", "factLine", "releaseName", "refMonth", "momText"],
