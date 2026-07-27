@@ -13,6 +13,7 @@
 export type ArchetypeId =
   | "FILING_8K"
   | "FILING_FORM4"
+  | "INSIDER_NOTICE"
   | "INSIDER_CLUSTER"
   | "CONGRESS_PTR"
   | "MACRO_PRINT"
