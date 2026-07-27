@@ -18,9 +18,13 @@ export interface PoliteResponse {
   ok: boolean;
   notModified: boolean;
   body: string;
+  /** Raw bytes; populated only when the request set binary: true. */
+  bodyBytes: Uint8Array | null;
   etag: string | null;
   lastModified: string | null;
   contentType: string | null;
+  /** All Set-Cookie headers (session handshakes: Senate eFD). */
+  setCookies: string[];
 }
 
 export interface PoliteOptions {
@@ -30,6 +34,11 @@ export interface PoliteOptions {
   headers?: Record<string, string>;
   method?: "GET" | "POST";
   postBody?: string;
+  /** "manual" surfaces 30x responses (their Set-Cookie matters mid-handshake). */
+  redirect?: "follow" | "manual";
+  /** Read the body as bytes (ZIP archives) instead of text. */
+  binary?: boolean;
+  cookie?: string;
 }
 
 export function buildUserAgent(contactEmail: string): string {
@@ -50,22 +59,27 @@ export async function politeFetch(url: string, opts: PoliteOptions): Promise<Pol
   };
   if (opts.validators?.etag) headers["If-None-Match"] = opts.validators.etag;
   if (opts.validators?.lastModified) headers["If-Modified-Since"] = opts.validators.lastModified;
+  if (opts.cookie) headers["Cookie"] = opts.cookie;
 
   const res = await fetch(url, {
     method: opts.method ?? "GET",
     headers,
     body: opts.postBody,
+    redirect: opts.redirect ?? "follow",
     signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),
   });
 
   const notModified = res.status === 304;
+  const wantBody = !notModified && opts.binary !== true;
   return {
     status: res.status,
     ok: res.ok,
     notModified,
-    body: notModified ? "" : await res.text(),
+    body: wantBody ? await res.text() : "",
+    bodyBytes: !notModified && opts.binary === true ? new Uint8Array(await res.arrayBuffer()) : null,
     etag: res.headers.get("etag"),
     lastModified: res.headers.get("last-modified"),
     contentType: res.headers.get("content-type"),
+    setCookies: res.headers.getSetCookie?.() ?? [],
   };
 }

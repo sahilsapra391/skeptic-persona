@@ -74,6 +74,13 @@ here.
   worked live; refresh cadence unknown — PR-5 instruments both paths).
 
 ### Senate eFD — works end-to-end from curl
+- **PR-5 re-verification (2026-07-27T04:49–04:52Z):** full 3-step handshake
+  re-run live (hidden token 64 chars, agreement 302, sessionid granted);
+  `report/data` fixture captured (11 records; row shape unchanged) into
+  `test/fixtures/senate-ptr-data.json`, plus one electronic PTR page
+  (`senate-ptr-page.fixture`, 2 transactions, verbatim bands). House
+  `2026FD.zip` captured (as `.b64`, 313 P rows; CRLF endings — parser trims
+  `\r`). Fixtures are the parse contract.
 - 3-step handshake verified: GET `/search/home/` (csrftoken cookie + LB
   cookie + hidden `csrfmiddlewaretoken` from HTML — two DIFFERENT values) →
   POST agreement (`prohibition_agreement=1`, Referer required) → 302 +
