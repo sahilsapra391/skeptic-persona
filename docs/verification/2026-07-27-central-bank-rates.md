@@ -11,6 +11,8 @@ Every one returned HTTP 200 with a parseable body; fixtures captured in
 | Banco Central do Brasil (SGS 432) | `/dados/serie/bcdata.sgs.432/dados/ultimos/20` | 200, 115 B | **14.25%** (Selic) |
 | South African Reserve Bank | `/SarbWebApi/WebIndicators/CurrentMarketRates` | 200, 5,310 B | **7.00%** |
 | Swiss National Bank (RSS-CB) | `/public/en/rss/interestRates` | 200, 73,741 B | **0.25%** |
+| Bank of England (IADB) | `/boeapps/iadb/fromshowcolumns.asp?...SeriesCodes=IUDBEDR` | 200, 2,570 B | **3.75%** (24 Jul) |
+| European Central Bank (SDMX) | `/service/data/FM/D.U2.EUR.4F.KR.MRR_FR.LEV?format=csvdata` | 200, 2,303 B | **2.40%** (27 Jul) |
 
 ## Shapes
 
@@ -25,6 +27,14 @@ Every one returned HTTP 200 with a parseable body; fixtures captured in
   not rely on (we compute direction from two parsed levels).
 - **SNB**: RSS carrying the CBWiki `cb:` namespace, so **the number is inside
   the feed** (`cb:value`) and no second fetch is needed.
+- **BoE**: two-column CSV, `DATE,IUDBEDR`, rows like `02 Jan 2026,3.75`. The
+  REQUEST wants `DD/Mon/YYYY` and the RESPONSE returns `DD Mon YYYY` — two
+  different formats in one round trip. The endpoint also requires an explicit
+  date window, so the URL is built at poll time as a rolling year; a
+  hard-coded `Dateto` would silently freeze the series.
+- **ECB**: SDMX-CSV with ~30 columns. Columns are located by NAME
+  (`TIME_PERIOD`, `OBS_VALUE`), never by position, so an upstream column
+  addition cannot shift the parse.
 
 ## THE TRAP: forward-dated observations (Brazil)
 
