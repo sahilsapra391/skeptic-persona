@@ -1,9 +1,10 @@
 name: CI
 
+# PRs only: the post-merge push run re-tested a commit that already passed
+# on its branch — pure Actions-minutes burn (private-repo minutes are
+# account-wide and shared with every other private repo).
 on:
   pull_request:
-  push:
-    branches: [main]
 
 jobs:
   test:
