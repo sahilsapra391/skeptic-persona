@@ -150,6 +150,20 @@ export function draftFor(entry: Edgar8kEntry): string {
 /** Cap Telegram notifications per run: external fetches share the 50/invocation budget. */
 export const MAX_ENQUEUES_PER_RUN = 10;
 
+/**
+ * Stale-at-ingest cutoff. A wire is only worth notifying about while it is
+ * news: anything older than this at FIRST SIGHT (first-deploy backfill,
+ * outage recovery, overflow page-2 catch-ups) goes to the data lake as
+ * 'logged' instead of spamming the approval queue with old filings.
+ */
+export const STALE_AT_INGEST_HOURS = 24;
+
+export function isFreshAtIngest(filedIso: string, now: Date): boolean {
+  if (!filedIso) return false; // no parsed timestamp -> can't claim freshness
+  const age = now.getTime() - new Date(filedIso).getTime();
+  return age <= STALE_AT_INGEST_HOURS * 3_600_000;
+}
+
 async function ingestEntries(env: Env, entries: Edgar8kEntry[], now: Date): Promise<number> {
   let inserted = 0;
   for (const entry of entries) {
@@ -169,9 +183,10 @@ async function ingestEntries(env: Env, entries: Edgar8kEntry[], now: Date): Prom
           items: entry.items,
         },
         score,
-        // Sub-postable items go straight to 'logged' so the notify-drain's
-        // 'new' set stays small (D1 rows-read discipline).
-        status: score >= SCORE_POSTABLE ? "new" : "logged",
+        // Sub-postable AND stale-at-ingest items go straight to 'logged' so
+        // the notify-drain's 'new' set stays small (D1 rows-read discipline)
+        // and the queue only ever carries actual news.
+        status: score >= SCORE_POSTABLE && isFreshAtIngest(entry.filedIso, now) ? "new" : "logged",
       },
       now,
     );
