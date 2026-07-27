@@ -37,11 +37,20 @@ export async function handleSeedTest(request: Request, env: Env): Promise<Respon
   if (item.outcome === "duplicate" || item.id === null) {
     return Response.json({ error: "duplicate (same-millisecond retry?)" }, { status: 409 });
   }
+  // Uses the real engine so the smoke test exercises the render path too.
   const { queueId } = await enqueueForApproval(
     env,
     item.id,
-    "SMOKE_TEST",
-    `Smoke test draft (${iso(now)}). Tap any button — nothing posts anywhere.`,
+    "HALT",
+    {
+      // Self-identifying: this must never read as a real halt if it somehow
+      // reached the account. The poster also excludes source='smoke_test'.
+      symbol: "SMOKE TEST",
+      name: "Skeptic Wire self-test, not a real halt",
+      reasonText: "News Pending",
+      reasonCode: "T1",
+      haltTimeEtShort: "09:30",
+    },
     "https://www.example.gov/smoke-test",
     now,
   );

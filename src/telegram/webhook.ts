@@ -12,6 +12,7 @@ import {
   markEditPrompt,
   type QueueEntry,
 } from "../lib/db";
+import { checkRegister } from "../templates/validate";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -230,6 +231,23 @@ async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promis
 
   // Edit-flow reply: match against a stored force-reply prompt id.
   if (msg.reply_to_message && msg.text) {
+    // An edited draft bypasses the template engine entirely, so it gets the
+    // register rules applied here instead. Rejected outright rather than
+    // silently posted: doctrine isn't optional because a human typed it.
+    const target = await getQueueEntryByEditPrompt(env.DB, msg.reply_to_message.message_id);
+    if (target) {
+      const entry = await getQueueEntry(env.DB, target.id);
+      const issues = checkRegister(msg.text, entry?.archetype as never);
+      if (issues.length > 0) {
+        await sendMessage(
+          token,
+          env.TELEGRAM_CHAT_ID,
+          `Edit rejected for #${target.id}: ${issues.map((i) => i.detail).join("; ")}. The draft is unchanged; reply again to retry.`,
+          { replyToMessageId: msg.message_id },
+        );
+        return;
+      }
+    }
     const queueId = await applyEditReply(env.DB, msg.reply_to_message.message_id, msg.text);
     if (queueId !== null) {
       // Transition committed. Side-effects below are cosmetic — never let

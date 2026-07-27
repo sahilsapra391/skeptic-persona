@@ -73,10 +73,11 @@ describe("senate parsers (live fixtures)", () => {
       filedDate: "07/24/2026",
     };
     const draft = draftSenatePtr(row, parsePtrTable(SENATE_PAGE), efdDateToIso("07/24/2026"));
-    expect(draft).toContain("Senate PTR: Moreno, Bernardo —");
+    expect(draft).toContain("Senate PTR: Moreno, Bernardo.");
     expect(draft).toContain("Sale (Full) $1,001 - $15,000");
     expect(draft).toContain("disclosed 30 days after the latest trade"); // 06/24 -> 07/24, parsed dates only
-    expect(draft).toContain("per Senate eFD");
+    // Attribution is appended by the template engine, not the fact builder.
+    expect(draft).not.toContain("per Senate eFD");
     expect(draft).not.toContain("(Senator)");
   });
 });
@@ -168,7 +169,7 @@ describe("polls end-to-end", () => {
     await pollSenatePtr(env, NOW);
 
     expect(SEND.calls.length).toBe(s0 + 1);
-    expect(String(SEND.calls.at(-1)?.text)).toContain("Senate PTR: Moreno, Bernardo");
+    expect(String(SEND.calls.at(-1)?.text)).toContain("per Senate eFD");
     const items = await env.DB.prepare(
       "SELECT external_id, status, score FROM items WHERE source = 'senate_ptr' ORDER BY external_id",
     ).all<{ external_id: string; status: string; score: number }>();

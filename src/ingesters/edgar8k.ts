@@ -145,7 +145,7 @@ export function draftFor(entry: Edgar8kEntry): string {
   const substantive = entry.items.filter((i) => i.code !== "9.01");
   const shown = substantive.length > 0 ? substantive : entry.items;
   const head = `${entry.formType}: ${entry.company}`;
-  return [head, ...shown.map((i) => `Item ${i.code} — ${i.title}`)].join("\n");
+  return [head, ...shown.map((i) => `Item ${i.code}: ${i.title}`)].join("\n");
 }
 
 /** Cap Telegram notifications per run: external fetches share the 50/invocation budget. */
@@ -171,6 +171,8 @@ async function ingestEntries(env: Env, entries: Edgar8kEntry[], now: Date): Prom
           cik: entry.cik,
           formType: entry.formType,
           items: entry.items,
+          // Flat code list so gates can test membership declaratively.
+          itemCodes: entry.items.map((i) => i.code),
         },
         score,
         // Sub-postable AND stale-at-ingest items go straight to 'logged' so
@@ -204,14 +206,8 @@ async function drainPostables(env: Env, now: Date, budget: TickBudget): Promise<
       log("warn", "tick budget exhausted; deferring remaining notifications", { remaining: pending.results.length - sent });
       break;
     }
-    const payload = JSON.parse(row.payload) as {
-      company: string;
-      cik: string;
-      formType: string;
-      items: Edgar8kEntry["items"];
-    };
-    const draft = draftFor({ ...payload, accession: "", indexUrl: row.source_url, filedIso: "" });
-    const result = await enqueueForApproval(env, row.id, "FILING_ALERT", draft, row.source_url, now);
+    const payload = JSON.parse(row.payload) as Record<string, unknown>;
+    const result = await enqueueForApproval(env, row.id, "FILING_8K", payload, row.source_url, now);
     sent += 1;
     if (result.retryAfter !== null) {
       // Telegram flood control: stop batching; the rest are still 'new' and

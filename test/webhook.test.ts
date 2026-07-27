@@ -293,7 +293,7 @@ describe("admin smoke test endpoint", () => {
     const body = await res.json<{ ok: boolean; queueId: number }>();
     expect(body.ok).toBe(true);
     expect(SEND.calls.length).toBe(s0.s + 1);
-    expect(String(SEND.calls.at(-1)?.text)).toContain("Smoke test draft");
+    expect(String(SEND.calls.at(-1)?.text)).toContain("per Nasdaq");
     const entry = await getQueueEntry(env.DB, body.queueId);
     expect(entry?.state).toBe("pending");
     expect(entry?.telegramMessageId).toBe(900 + SEND.calls.length);
