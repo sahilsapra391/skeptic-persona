@@ -1,3 +1,4 @@
+import { fmtNum, fmtUsd } from "../ingesters/shared";
 import type { Archetype, ArchetypeId, Payload, PendingBeat } from "./types";
 
 // Beat libraries transcribed from docs/persona.md §8 (owner-signed).
@@ -148,6 +149,72 @@ const form4: Archetype = {
     },
   ],
   guards: [{ id: "form4.notAmendment", ok: (p) => p.isAmendment !== true }],
+};
+
+// ---------------------------------------------------------------------------
+// INSIDER_NOTICE (Form 144 — proposed sale, filed BEFORE it happens)
+
+const insiderNotice: Archetype = {
+  id: "INSIDER_NOTICE",
+  attribution: "per SEC Form 144",
+  skeletons: [
+    {
+      id: "n144.notice",
+      build: (p) => {
+        const line = str(p, "factLine");
+        return line ? { lines: [line] } : null;
+      },
+    },
+    {
+      id: "n144.whoWhat",
+      build: (p) => {
+        const who = str(p, "sellerName");
+        const issuer = str(p, "issuerName");
+        const value = num(p, "aggregateMarketValue");
+        if (!who || !issuer || value === null) return null;
+        const rel = str(p, "relationshipLabel");
+        const shares = num(p, "unitsSold");
+        const size = shares === null ? fmtUsd(value) : `${fmtNum(shares)} shares (${fmtUsd(value)})`;
+        return { lines: [`${who}${rel ? ` (${rel})` : ""} filed to sell ${size} of ${issuer}`] };
+      },
+    },
+  ],
+  beats: [
+    {
+      id: "n144.noticeNotTrade",
+      text: "A 144 is the intent. The Form 4 is the receipt.",
+      tier: "base",
+      // "144" and "4" are FORM NAMES, not claims about the filing's data.
+      literals: ["144", "4"],
+      when: { op: "has", field: "aggregateMarketValue" },
+    },
+    {
+      id: "n144.beforeNotAfter",
+      text: "This one is filed before the sale, not after.",
+      tier: "base",
+      when: { op: "has", field: "aggregateMarketValue" },
+    },
+    {
+      id: "n144.brokerNamed",
+      text: "The broker is named in the filing.",
+      tier: "base",
+      when: { op: "has", field: "broker" },
+    },
+    {
+      id: "n144.optionSale",
+      text: "Acquired by option exercise, sold the same notice.",
+      tier: "base",
+      // Only when the filing's OWN nature-of-acquisition text says so.
+      when: { op: "eq", field: "acquisitionIsExercise", value: true },
+    },
+    // Escalation: size relative to the float, computed from two parsed fields.
+    {
+      id: "n144.pctFloat",
+      text: "That is {pctOfOutstanding}% of shares outstanding.",
+      tier: "escalation",
+      when: { op: "gte", field: "pctOfOutstanding", value: 1 },
+    },
+  ],
 };
 
 // ---------------------------------------------------------------------------
@@ -425,6 +492,7 @@ export const PENDING_BEATS: readonly PendingBeat[] = [
 export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   FILING_8K: filing8k,
   FILING_FORM4: form4,
+  INSIDER_NOTICE: insiderNotice,
   INSIDER_CLUSTER: insiderCluster,
   CONGRESS_PTR: congressPtr,
   MACRO_PRINT: macroPrint,

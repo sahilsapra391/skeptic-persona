@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?><edgarSubmission xmlns="http://www.sec.gov/edgar/ownership" xmlns:com="http://www.sec.gov/edgar/common">
+  <headerData>
+    <submissionType>144</submissionType>
+    <filerInfo>
+      <filer>
+        <filerCredentials>
+          <cik>0001622588</cik>
+          <ccc>XXXXXXXX</ccc>
+        </filerCredentials>
+      </filer>
+      <liveTestFlag>LIVE</liveTestFlag>
+
+
+    </filerInfo>
+  </headerData>
+  <formData>
+    <issuerInfo>
+      <issuerCik>0000076267</issuerCik>
+      <issuerName>PARK AEROSPACE CORP</issuerName>
+      <secFileNumber>001-04415</secFileNumber>
+      <issuerAddress>
+        <com:street1>48 S. SERVICE ROAD</com:street1>
+        <com:street2>SUITE 300</com:street2>
+        <com:city>MELVILLE</com:city>
+        <com:stateOrCountry>NY</com:stateOrCountry>
+        <com:zipCode>11747</com:zipCode>
+      </issuerAddress>
+      <issuerContactPhone>6314653600</issuerContactPhone>
+      <nameOfPersonForWhoseAccountTheSecuritiesAreToBeSold>Petropoulos Constantine</nameOfPersonForWhoseAccountTheSecuritiesAreToBeSold>
+      <relationshipsToIssuer>
+        <relationshipToIssuer>Officer</relationshipToIssuer>
+      </relationshipsToIssuer>
+    </issuerInfo>
+    <securitiesInformation>
+      <securitiesClassTitle>Common</securitiesClassTitle>
+      <brokerOrMarketmakerDetails>
+        <name>Needham and Company LLC</name>
+        <address>
+          <com:street1>250 Park Avenue</com:street1>
+          <com:street2>250 Park Avenue</com:street2>
+          <com:city>New York</com:city>
+          <com:stateOrCountry>NY</com:stateOrCountry>
+          <com:zipCode>10177</com:zipCode>
+        </address>
+      </brokerOrMarketmakerDetails>
+      <noOfUnitsSold>2500</noOfUnitsSold>
+      <aggregateMarketValue>90000.00</aggregateMarketValue>
+      <noOfUnitsOutstanding>21751211</noOfUnitsOutstanding>
+      <approxSaleDate>07/27/2026</approxSaleDate>
+      <securitiesExchangeName>NYSE</securitiesExchangeName>
+    </securitiesInformation>
+    <securitiesToBeSold>
+      <securitiesClassTitle>Common</securitiesClassTitle>
+      <acquiredDate>07/27/2026</acquiredDate>
+      <natureOfAcquisitionTransaction>Cashless Exercise of Stock Options</natureOfAcquisitionTransaction>
+      <nameOfPersonfromWhomAcquired>Park Aerospace Corp</nameOfPersonfromWhomAcquired>
+      <isGiftTransaction>N</isGiftTransaction>
+      <amountOfSecuritiesAcquired>2500</amountOfSecuritiesAcquired>
+      <paymentDate>07/27/2026</paymentDate>
+      <natureOfPayment>Cashless exercise</natureOfPayment>
+    </securitiesToBeSold>
+    <nothingToReportFlagOnSecuritiesSoldInPast3Months>Y</nothingToReportFlagOnSecuritiesSoldInPast3Months>
+    <noticeSignature>
+      <noticeDate>07/27/2026</noticeDate>
+      <signature>/s/Needham and Company LLC, on behalf of Constantine Petropoulas</signature>
+    </noticeSignature>
+  </formData>
+</edgarSubmission>
