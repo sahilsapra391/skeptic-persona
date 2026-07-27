@@ -31,7 +31,7 @@ npm test          # vitest + @cloudflare/vitest-pool-workers (real workerd, real
 ## Deploy (owner, one-time setup)
 
 1. `wrangler d1 create skeptic-wire` → paste `database_id` into wrangler.toml.
-2. `wrangler kv namespace create STATE` → paste `id` into wrangler.toml.
+2. `wrangler kv namespace create KV` → paste `id` into wrangler.toml.
 3. `wrangler d1 migrations apply skeptic-wire --remote`.
 4. `npm run deploy`.
 

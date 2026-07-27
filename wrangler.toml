@@ -16,11 +16,11 @@ crons = ["* * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "skeptic-wire"
-database_id = "00000000-0000-0000-0000-000000000000" # placeholder — set after `wrangler d1 create`
+database_id = "d951177f-e4ab-4b6b-a014-efc7d78d065e"
 
 [[kv_namespaces]]
 binding = "KV"
-id = "0000000000000000000000000000000000" # placeholder — set after `wrangler kv namespace create`
+id = "87179e74d0ec417d8650ebdeaa01f377"
 
 [vars]
 # Goes into the User-Agent for polite polling (SEC/BLS require a declared contact).
