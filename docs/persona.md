@@ -84,10 +84,17 @@ repetitive content as a spam signal).
 - `Item 5.02 covers exits and arrivals. The title is doing a lot of work.` [5.02]
 - `Bankruptcy is the one item that never needs translating.` [1.03]
 
-**Escalation tier** (absurd-case gates):
-- `Second non-reliance this year.` [REQUIRES lookback query: both filings
-  parsed and in our lake — not enabled until the lookback lands]
-- `Same item, new quarter.` [same lookback requirement]
+**Escalation tier** (absurd-case gates, powered by the lookback engine):
+- `Second non-reliance filing from this issuer this year.` [a real prior
+  4.02 from the same CIK is in our lake — a queried count, never an
+  assumption]
+- `Filing number {n} of this item from this issuer this year.` [≥3 of the
+  same item code from the same CIK]
+
+Every lookback claim is bounded by what we have actually observed. The lake
+opened 2026-07-27, so "highest since 2019" is fabrication with correct
+arithmetic behind it; a superlative renders only when the observed window is
+at least 90 days, and is refused rather than softened below that.
 
 ### FORM 4 / INSIDER
 - `Code P. Bought, not granted.` [open-market buy]
