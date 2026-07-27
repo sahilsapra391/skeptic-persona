@@ -4,6 +4,7 @@ import { syncBlsCalendar, watchBls } from "./ingesters/bls";
 import { pollEdgar8k } from "./ingesters/edgar8k";
 import { pollFedPress } from "./ingesters/fedPress";
 import { pollForm4 } from "./ingesters/form4";
+import { pollForm144 } from "./ingesters/form144";
 import { pollNasdaqHalts, pollNyseHalts } from "./ingesters/halts";
 import { pollHousePtr } from "./ingesters/housePtr";
 import { pollSenatePtr } from "./ingesters/senatePtr";
@@ -77,6 +78,7 @@ export function registerJobs(): void {
   registry["queue_expiry"] = queueExpiry;
   registry["edgar_8k"] = pollEdgar8k;
   registry["edgar_form4"] = pollForm4;
+  registry["sec_form144"] = pollForm144;
   registry["senate_ptr"] = pollSenatePtr;
   registry["house_ptr"] = pollHousePtr;
   registry["fed_press"] = pollFedPress;
