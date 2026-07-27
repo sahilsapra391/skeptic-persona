@@ -2,6 +2,8 @@ import type { Env } from "./env";
 import { registry } from "./dispatch";
 import { pollEdgar8k } from "./ingesters/edgar8k";
 import { pollForm4 } from "./ingesters/form4";
+import { pollHousePtr } from "./ingesters/housePtr";
+import { pollSenatePtr } from "./ingesters/senatePtr";
 import { newTickBudget, type TickBudget } from "./lib/budget";
 import { expirePendingBefore } from "./lib/db";
 import { editMessageText } from "./lib/telegram";
@@ -71,4 +73,6 @@ export function registerJobs(): void {
   registry["queue_expiry"] = queueExpiry;
   registry["edgar_8k"] = pollEdgar8k;
   registry["edgar_form4"] = pollForm4;
+  registry["senate_ptr"] = pollSenatePtr;
+  registry["house_ptr"] = pollHousePtr;
 }
