@@ -645,6 +645,66 @@ const productRecall: Archetype = {
 };
 
 // ---------------------------------------------------------------------------
+// POLICY_ACTION (executive orders, proclamations, determinations)
+
+const policyAction: Archetype = {
+  id: "POLICY_ACTION",
+  attribution: "per Federal Register",
+  skeletons: [
+    {
+      id: "policy.numbered",
+      build: (p) => {
+        const line = str(p, "factLine");
+        return line ? { lines: [line] } : null;
+      },
+    },
+    {
+      id: "policy.titleFirst",
+      build: (p) => {
+        const title = str(p, "title");
+        const kind = str(p, "kind");
+        const pub = str(p, "publicationDate");
+        if (!title || !kind || !pub) return null;
+        return { lines: [`${title}. ${kind}, published ${pub}`] };
+      },
+    },
+  ],
+  beats: [
+    {
+      id: "policy.signedVsPublished",
+      text: "Signed {signingDate}. Published {publicationDate}.",
+      tier: "base",
+      when: {
+        op: "all",
+        of: [
+          { op: "has", field: "signingDate" },
+          { op: "has", field: "publicationDate" },
+        ],
+      },
+    },
+    {
+      id: "policy.numbered",
+      text: "Numbered in the series, so it is countable.",
+      tier: "base",
+      when: { op: "has", field: "number" },
+    },
+    {
+      id: "policy.textIsTheDocument",
+      text: "The document is the source. No summary in between.",
+      tier: "base",
+      when: { op: "has", field: "documentNumber" },
+    },
+    // Escalation: a long gap between signing and publication.
+    {
+      id: "policy.publicationLag",
+      text: "{signingLagDays} days from signature to publication.",
+      tier: "escalation",
+      when: { op: "gte", field: "signingLagDays", value: 7 },
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // HALT
 
 const halt: Archetype = {
@@ -721,5 +781,6 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   RATE_DECISION: rateDecision,
   TREASURY_AUCTION: treasuryAuction,
   PRODUCT_RECALL: productRecall,
+  POLICY_ACTION: policyAction,
   HALT: halt,
 };
