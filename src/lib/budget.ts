@@ -64,20 +64,35 @@ export function newTickBudget(
  */
 export const MAX_CONCURRENT_FETCHES = 6;
 
+export interface PoolResult<R> {
+  /** Per item, by index: the worker's value, or undefined if it threw. */
+  results: Array<R | undefined>;
+  errors: Array<{ index: number; error: unknown }>;
+}
+
 export async function fetchPool<T, R>(
   items: readonly T[],
   worker: (item: T, index: number) => Promise<R>,
   concurrency: number = MAX_CONCURRENT_FETCHES,
-): Promise<R[]> {
-  const out: R[] = new Array(items.length);
+): Promise<PoolResult<R>> {
+  const results: Array<R | undefined> = new Array(items.length);
+  const errors: Array<{ index: number; error: unknown }> = [];
   let next = 0;
+  // Each item is independent (one filing, one fetch), so ONE failure must not
+  // void the batch: a rejecting Promise.all would discard results already
+  // computed, abandon undispatched items, and leave in-flight runners
+  // unawaited — where a second rejection becomes an unhandled rejection.
   const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
     for (;;) {
       const i = next++;
       if (i >= items.length) return;
-      out[i] = await worker(items[i]!, i);
+      try {
+        results[i] = await worker(items[i]!, i);
+      } catch (error) {
+        errors.push({ index: i, error });
+      }
     }
   });
   await Promise.all(runners);
-  return out;
+  return { results, errors };
 }

@@ -103,8 +103,11 @@ repetitive content as a spam signal).
   nature-of-acquisition text says exercise]
 
 **Escalation tier:**
-- `That is {n}% of shares outstanding.` [≥1% — computed from two parsed
-  fields, shares sold and shares outstanding, and from nothing else]
+- `That is {n}% of {class} outstanding.` [≥1% and ≤100% — computed from two
+  parsed fields, shares sold and shares outstanding, and nothing else. The
+  filing's denominator counts the CLASS it names, not the issuer's total, so
+  the class is named too: on a dual-class issuer "% of shares outstanding"
+  would overstate the stake.]
 
 ### INSIDER CLUSTER
 - `{n} separate filings, same issuer, same week.`

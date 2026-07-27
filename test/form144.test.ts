@@ -121,8 +121,11 @@ describe("draftForm144", () => {
     const doc = parseForm144Xml(XML_PREFIXED)!;
     const d = draftForm144(doc);
     expect(d).toBe(
-      "Form 144: Bender Investment Company (Member of 10% Owner) filed notice to sell 100,000 shares, $5.5M of Cactus Inc on or after 07/27/2026",
+      "Bender Investment Company (Member of 10% Owner) filed notice of a proposed sale of 100,000 shares, $5.5M of Cactus Inc on or after 07/27/2026",
     );
+    // "sell" is a banned advice token AND the poster's register guard blocks
+    // it: the fact line must never contain it.
+    expect(d).not.toMatch(/\bsell\b/i);
     expect(d).not.toContain("—");
     // The label is the filing's own words, never normalized to "10% Owner".
     expect(relationshipLabel(doc)).toBe("Member of 10% Owner");
@@ -131,12 +134,44 @@ describe("draftForm144", () => {
   it("omits what did not parse instead of guessing", () => {
     const doc = parseForm144Xml(XML_PREFIXED)!;
     const d = draftForm144({ ...doc, unitsSold: null, aggregateMarketValue: null, approxSaleDate: null });
-    expect(d).toBe("Form 144: Bender Investment Company (Member of 10% Owner) filed notice to sell of Cactus Inc");
-    // No SHARE COUNT, no DOLLARS, no DATE — only the form name and the
-    // relationship label (both verbatim from the filing) carry digits.
+    expect(d).toBe("Bender Investment Company (Member of 10% Owner) filed notice of a proposed sale of Cactus Inc");
+    // No SHARE COUNT, no DOLLARS, no DATE — only the relationship label,
+    // verbatim from the filing, carries digits.
     expect(d).not.toMatch(/\$/);
     expect(d).not.toContain("100,000");
     expect(d).not.toMatch(/\d{2}\/\d{2}\/\d{4}/);
+  });
+});
+
+describe("guards against arithmetic that is faithful but absurd", () => {
+  it("selling more than the class outstanding is a PARSE FAILURE, not a headline", () => {
+    // Faithful division on garbage input yields "10,000,000% of shares
+    // outstanding" AND promotes the filing to auto-alert. A notice cannot
+    // sell more of a class than exists.
+    const broken = XML_PREFIXED.replace("<own:noOfUnitsOutstanding>69418430<", "<own:noOfUnitsOutstanding>1<");
+    const doc = parseForm144Xml(broken);
+    expect(doc?.unitsOutstanding).toBe(1);
+    expect(doc?.pctOfOutstanding).toBeNull();
+    expect(scoreForm144(doc!)).not.toBe(SCORE_AUTO_ALERT);
+  });
+
+  it("the exercise flag describes the WHOLE notice, not any single lot", () => {
+    const doc = parseForm144Xml(XML_PREFIXED)!;
+    const mixed = {
+      ...doc,
+      acquisitions: [
+        { acquiredDate: null, nature: "Open market purchase", isGift: false, amount: 100000 },
+        { acquiredDate: null, nature: "Exercise of stock option", isGift: false, amount: 10 },
+      ],
+    };
+    // some() would call this an exercise on the strength of 10 shares.
+    const withNature = mixed.acquisitions.filter((a) => a.nature !== null);
+    expect(withNature.every((a) => /exercise/i.test(a.nature ?? ""))).toBe(false);
+  });
+
+  it("rejects calendar-impossible dates instead of rolling them forward", () => {
+    expect(usDateToIso("02/30/2026")).toBeNull(); // Date would roll to Mar 2
+    expect(usDateToIso("02/28/2026")).toBe("2026-02-28");
   });
 });
 
@@ -150,6 +185,7 @@ describe("INSIDER_NOTICE archetype", () => {
     aggregateMarketValue: 2_000_000,
     broker: "Merrill Lynch",
     pctOfOutstanding: 0.2,
+    securitiesClass: "Common",
   };
 
   it("renders fact + attribution + one gated beat", () => {
@@ -167,12 +203,22 @@ describe("INSIDER_NOTICE archetype", () => {
 
     const big = pickBeat(
       ARCHETYPES.INSIDER_NOTICE,
-      { ...payload, pctOfOutstanding: 4.2 },
+      { ...payload, pctOfOutstanding: 4.2, securitiesClass: "Common" },
       { recentSkeletons: [], recentBeats: [] },
       0,
     );
     expect(big?.beat.id).toBe("n144.pctFloat");
-    expect(big?.text).toBe("That is 4.2% of shares outstanding.");
+    expect(big?.text).toBe("That is 4.2% of Common outstanding.");
+
+    // The denominator is class-scoped: without a parsed class the claim
+    // cannot be stated at all.
+    const noClass = pickBeat(
+      ARCHETYPES.INSIDER_NOTICE,
+      { ...payload, pctOfOutstanding: 4.2, securitiesClass: null },
+      { recentSkeletons: [], recentBeats: [] },
+      0,
+    );
+    expect(noClass?.beat.id).not.toBe("n144.pctFloat");
   });
 
   it("the option-exercise beat gates on a PARSED boolean, never on prose", () => {
@@ -205,6 +251,17 @@ describe("pollForm144 end-to-end", () => {
   const SEC = "https://www.sec.gov";
   const FEED_PATH = FORM144_FEED.replace(SEC, "");
 
+  /** queue.item_id has a real FK, so children go before parents — otherwise
+   *  the items delete is a silent no-op and the next test reads stale rows. */
+  async function resetSource(): Promise<void> {
+    await env.DB.prepare(
+      "DELETE FROM queue WHERE item_id IN (SELECT id FROM items WHERE source = ?1)",
+    )
+      .bind(SOURCE)
+      .run();
+    await env.DB.prepare("DELETE FROM items WHERE source = ?1").bind(SOURCE).run();
+  }
+
   it("feed -> stubs -> detail -> postable item, deduping on re-poll", async () => {
     fetchMock.get(SEC).intercept({ path: FEED_PATH }).reply(200, FEED_FIXTURE);
     // Every stub resolves to the big prefixed filing ($5.5M -> postable).
@@ -212,7 +269,9 @@ describe("pollForm144 end-to-end", () => {
       .get(SEC)
       .intercept({ path: (p) => p.endsWith("/primary_doc.xml"), method: "GET" })
       .reply(200, XML_PREFIXED)
-      .persist();
+      .times(5); // EXACT: the fixture has 5 unique accessions. Any surplus
+      // (or .persist()) would shadow the 503 interceptor the retry test
+      // registers for this same path.
 
     await pollForm144(env, NOW, newTickBudget(60));
 
@@ -239,8 +298,30 @@ describe("pollForm144 end-to-end", () => {
     expect(after?.n).toBe(rows.results.length);
   });
 
+  it("a transient SEC failure retries instead of losing the filing forever", async () => {
+    await resetSource();
+    fetchMock.get(SEC).intercept({ path: FEED_PATH }).reply(200, FEED_FIXTURE);
+    // Every document 503s this tick.
+    fetchMock
+      .get(SEC)
+      .intercept({ path: (p) => p.endsWith("/primary_doc.xml"), method: "GET" })
+      .reply(503, "unavailable")
+      .times(5);
+
+    await pollForm144(env, NOW, newTickBudget(60));
+
+    const after = await env.DB.prepare(
+      "SELECT status, json_extract(payload,'$.attempts') AS attempts FROM items WHERE source = ?1",
+    )
+      .bind(SOURCE)
+      .all<{ status: string; attempts: number }>();
+    // Still retryable, with the attempt recorded — NOT dropped to the lake.
+    expect(after.results.every((r) => r.status === "pending_detail")).toBe(true);
+    expect(after.results.every((r) => r.attempts === 1)).toBe(true);
+  });
+
   it("a stale-at-ingest notice never reaches the queue", async () => {
-    await env.DB.prepare("DELETE FROM items WHERE source = ?1").bind(SOURCE).run();
+    await resetSource();
     fetchMock.get(SEC).intercept({ path: FEED_PATH }).reply(200, FEED_FIXTURE);
     // A week later: the fixture's filings are old news.
     const late = new Date("2026-08-03T21:00:00Z");
