@@ -223,7 +223,7 @@ describe("paid-tier budget", () => {
     let inFlight = 0;
     let peak = 0;
     const items = Array.from({ length: 20 }, (_, i) => i);
-    const out = await fetchPool(items, async (n) => {
+    const { results: out, errors } = await fetchPool(items, async (n) => {
       inFlight += 1;
       peak = Math.max(peak, inFlight);
       await new Promise((r) => setTimeout(r, 5));
@@ -233,5 +233,17 @@ describe("paid-tier budget", () => {
     expect(peak).toBeLessThanOrEqual(MAX_CONCURRENT_FETCHES);
     // Order preserved despite out-of-order completion.
     expect(out).toEqual(items.map((n) => n * 2));
+    expect(errors).toEqual([]);
+  });
+
+  it("one throwing worker does not void the batch", async () => {
+    // Each item is an independent filing; a single 503 must not discard the
+    // other five results or abandon undispatched work.
+    const { results, errors } = await fetchPool([0, 1, 2, 3, 4], async (n) => {
+      if (n === 2) throw new Error("boom");
+      return n * 10;
+    });
+    expect(results).toEqual([0, 10, undefined, 30, 40]);
+    expect(errors.map((e) => e.index)).toEqual([2]);
   });
 });
