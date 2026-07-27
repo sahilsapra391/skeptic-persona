@@ -218,7 +218,8 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{disclosureLagDays\}/g, "{n}")
         .replace(/\{signingDate\}/g, "{d1}")
         .replace(/\{publicationDate\}/g, "{d2}")
-        .replace(/\{signingLagDays\}/g, "{n}");
+        .replace(/\{signingLagDays\}/g, "{n}")
+        .replace(/\{openInterest\}/g, "{n}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -259,6 +260,7 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       FED_PRESS: ["title", "category"],
       HALT: ["reasonCode", "symbol", "name", "reasonText", "haltTimeEtShort", "haltCountToday"],
       RATE_DECISION: ["changeBps", "priorValue", "priorDate", "observedDate", "factLine", "country", "label", "value", "direction"],
+      POSITIONING: ["reportDate", "changeLevNet", "openInterest", "factLine", "contract", "levNet"],
       POLICY_ACTION: ["signingDate", "publicationDate", "number", "documentNumber", "signingLagDays", "factLine", "title", "kind"],
       PRODUCT_RECALL: [
         "initiatedIso",
@@ -413,6 +415,14 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       yoyPct: 3.5,
     },
     FED_PRESS: { title: "Agencies issue joint statement", category: "Banking and Consumer Regulatory Policy" },
+    POSITIONING: {
+      factLine: "CFTC positioning: leveraged funds net short 361,875 E-MINI S&P 500 contracts, week ending 2026-07-21",
+      contract: "E-MINI S&P 500",
+      levNet: -361875,
+      reportDate: "2026-07-21",
+      openInterest: 1969636,
+      changeLevNet: -1406,
+    },
     POLICY_ACTION: {
       factLine: "Executive Order 14415: Securing America's Defense Supply Chains, signed 2026-07-20",
       title: "Securing America's Defense Supply Chains",
@@ -654,5 +664,39 @@ describe("render integration", () => {
     });
     const r = await renderForQueue(broken, "HALT" as ArchetypeId, { symbol: "X", reasonText: "News Pending", reasonCode: "T1", haltTimeEtShort: "10:00" }, "s");
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("doctrine: the advice guard is narrow on purpose", () => {
+  // It produced three false positives and zero true ones before this was
+  // tightened: "filed notice to sell" (Form 144), "coming up short"
+  // (Treasury) and "leveraged funds net short" (CFTC) are all factual
+  // descriptions of a parsed record.
+  it("permits the vocabulary of markets when it describes a record", async () => {
+    const { checkRegister } = await import("../src/templates/validate");
+    const factual = [
+      "Bender Investment Company filed notice of a proposed sale of 100,000 shares, per SEC Form 144",
+      "CFTC positioning: leveraged funds net short 361,875 E-MINI S&P 500 contracts, per CFTC",
+      "Form 4: Jane Doe (CEO) sold 600,000 ACME at ~$12.00, per SEC Form 4",
+      "Short interest rose to 12.4% of float, per FINRA",
+    ];
+    for (const t of factual) {
+      expect(checkRegister(t).filter((i) => i.rule === "advice"), t).toEqual([]);
+    }
+  });
+
+  it("still blocks actual advice", async () => {
+    const { checkRegister } = await import("../src/templates/validate");
+    const advice = [
+      "Buy this one before earnings, per SEC",
+      "You should sell into the rally, per SEC",
+      "Bullish setup here, per SEC",
+      "Price target $200, per SEC",
+      "This will rally into year end, per SEC",
+      "Worth buying at these levels, per SEC",
+    ];
+    for (const t of advice) {
+      expect(checkRegister(t).map((i) => i.rule), t).toContain("advice");
+    }
   });
 });
