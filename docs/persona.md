@@ -95,6 +95,20 @@ repetitive content as a spam signal).
 - `The stake number is the filer's own.` [sharesAfter parsed]
 - `An award is compensation. A P is a decision.` [P present]
 
+### FORM 144 / INSIDER NOTICE (a sale filed BEFORE it happens)
+- `A 144 is the intent. The Form 4 is the receipt.`
+- `This one is filed before the sale, not after.`
+- `The broker is named in the filing.` [broker parsed]
+- `Acquired by option exercise, sold the same notice.` [the filing's own
+  nature-of-acquisition text says exercise]
+
+**Escalation tier:**
+- `That is {n}% of {class} outstanding.` [≥1% and ≤100% — computed from two
+  parsed fields, shares sold and shares outstanding, and nothing else. The
+  filing's denominator counts the CLASS it names, not the issuer's total, so
+  the class is named too: on a dual-class issuer "% of shares outstanding"
+  would overstate the stake.]
+
 ### INSIDER CLUSTER
 - `{n} separate filings, same issuer, same week.`
 - `Buys only. Code P across every filer.`

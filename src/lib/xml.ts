@@ -55,6 +55,29 @@ export function extractAll(xml: string, tag: string): string[] {
   return out;
 }
 
+/**
+ * Namespace-agnostic extraction: matches `<tag>` and `<any:tag>` alike.
+ *
+ * VERIFIED NECESSARY 2026-07-27: the same SEC form arrives with and without
+ * namespace prefixes depending on the filing agent. Form 144 accession
+ * 0001628280-26-049826 (Workiva) prefixes every element `own:`, while
+ * 0000764900-26-000029 uses bare tags. A parser written against either
+ * convention alone silently returns nothing for roughly half of all filings —
+ * no error, no warning, just missing data.
+ */
+export function extractAllNs(xml: string, tag: string): string[] {
+  const esc = escapeRe(tag);
+  const re = new RegExp(`<(?:[A-Za-z][\\w.-]*:)?${esc}${ATTRS}>([\\s\\S]*?)</(?:[A-Za-z][\\w.-]*:)?${esc}>`, "g");
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) out.push(m[1] ?? "");
+  return out;
+}
+
+export function extractFirstNs(xml: string, tag: string): string | null {
+  return extractAllNs(xml, tag)[0] ?? null;
+}
+
 export function extractFirst(xml: string, tag: string): string | null {
   return extractAll(xml, tag)[0] ?? null;
 }

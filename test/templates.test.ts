@@ -203,7 +203,9 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{tradeDate\}/g, "{d1}")
         .replace(/\{filedDate\}/g, "{d2}")
         .replace(/\{superlative\}/g, "")
-        .replace(/\{haltCountToday\}/g, "{n}");
+        .replace(/\{haltCountToday\}/g, "{n}")
+        .replace(/\{pctOfOutstanding\}/g, "{n}")
+        .replace(/\{securitiesClass\}/g, "{class}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -226,6 +228,18 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
     const producible: Record<string, string[]> = {
       FILING_8K: ["itemCodes", "company", "formType", "items"],
       FILING_FORM4: ["primaryCode", "lagDays", "stakePrinted", "factLine", "who", "actionLine", "isAmendment"],
+      INSIDER_NOTICE: [
+        "aggregateMarketValue",
+        "broker",
+        "acquisitionIsExercise",
+        "pctOfOutstanding",
+        "factLine",
+        "sellerName",
+        "issuerName",
+        "relationshipLabel",
+        "unitsSold",
+        "securitiesClass",
+      ],
       INSIDER_CLUSTER: ["memberCount", "allCodeP", "factLine", "symbol", "roster"],
       CONGRESS_PTR: ["lagDays", "amountBand", "tradeDate", "filedDate", "singleTxn", "bandWidthUsd", "factLine", "who", "tradeLine"],
       MACRO_PRINT: ["momSigned", "coreSigned", "yoyPct", "partialParse", "superlative", "factLine", "releaseName", "refMonth", "momText"],
@@ -309,6 +323,105 @@ describe("doctrine: the pattern is the story", () => {
     const escalated = pickBeat(ARCHETYPES.HALT, fourth, { recentSkeletons: [], recentBeats: [] }, 0);
     expect(escalated?.beat.id).toBe("halt.nthToday");
     expect(escalated?.text).toBe("Halt number 4 for this symbol today.");
+  });
+});
+
+describe("doctrine: rendered output survives the publish-time guard", () => {
+  // THE TEST THAT WAS MISSING. checkRegister runs on every post in
+  // src/poster.ts, engine-rendered included — but nothing asserted that our
+  // OWN templates pass it. Form 144's fact line said "filed notice to sell",
+  // and \bsell\b is a banned advice token, so every draft was blocked at the
+  // last gate and its queue row permanently rejected. Fully parsed, fully
+  // sourced, and unpublishable.
+  const REPRESENTATIVE: Record<string, Record<string, unknown>> = {
+    FILING_8K: {
+      company: "ACME CORP",
+      formType: "8-K",
+      items: [{ code: "4.02", title: "Non-Reliance on Previously Issued Financial Statements" }],
+      itemCodes: ["4.02"],
+    },
+    FILING_FORM4: {
+      factLine: "Form 4: Jane Doe (CEO) bought 50,000 DOCS at ~$12.34 ($617K) on 2026-07-24",
+      who: "Jane Doe (CEO)",
+      actionLine: "bought 50,000 DOCS at ~$12.34 ($617K) on 2026-07-24",
+      primaryCode: "P",
+      lagDays: 3,
+      stakePrinted: true,
+    },
+    INSIDER_NOTICE: {
+      factLine: "Bender Investment Company (Member of 10% Owner) filed notice of a proposed sale of 100,000 shares, $5.5M of Cactus Inc on or after 07/27/2026",
+      sellerName: "Bender Investment Company",
+      issuerName: "Cactus Inc",
+      relationshipLabel: "Member of 10% Owner",
+      unitsSold: 100000,
+      aggregateMarketValue: 5_500_000,
+      broker: "Merrill Lynch",
+      securitiesClass: "Common",
+      pctOfOutstanding: 4.2,
+    },
+    INSIDER_CLUSTER: {
+      factLine: "Insider cluster: 3 insiders bought DOCS in the past week. A (Director) $200K, B (Director) $200K, C (Director) $200K. Combined $600K",
+      memberCount: 3,
+      symbol: "DOCS",
+      roster: "A (Director) $200K, B (Director) $200K, C (Director) $200K",
+      allCodeP: true,
+    },
+    CONGRESS_PTR: {
+      factLine: "Senate PTR: Moreno, Bernardo. Sale (Full) $1,001 - $15,000, BAC (06/24/2026). Filed 07/24/2026",
+      who: "Moreno, Bernardo",
+      tradeLine: "Sale (Full) $1,001 - $15,000, BAC (06/24/2026)",
+      filedDate: "07/24/2026",
+      tradeDate: "06/24/2026",
+      singleTxn: true,
+      amountBand: "$1,001 - $15,000",
+      lagDays: 30,
+    },
+    MACRO_PRINT: {
+      factLine: "BLS: Consumer Price Index, June 2026: CPI -0.4% m/m, prior +0.5%",
+      releaseName: "Consumer Price Index",
+      refMonth: "June 2026",
+      momText: "CPI -0.4% m/m",
+      momSigned: -0.4,
+      coreSigned: 0.1,
+      yoyPct: 3.5,
+    },
+    FED_PRESS: { title: "Agencies issue joint statement", category: "Banking and Consumer Regulatory Policy" },
+    HALT: {
+      symbol: "STKH",
+      name: "Steakholder Foods Ltd. ADS",
+      reasonText: "News Pending",
+      reasonCode: "T1",
+      haltTimeEtShort: "19:50",
+      haltCountToday: 1,
+    },
+  };
+
+  it("every archetype renders text the poster will actually publish", async () => {
+    const { checkRegister } = await import("../src/templates/validate");
+    for (const a of ALL) {
+      const payload = REPRESENTATIVE[a.id];
+      expect(payload, `no representative payload for ${a.id}`).toBeDefined();
+      const r = renderPost(a, payload!, { seed: `guard:${a.id}` });
+      expect(r.ok, `${a.id} failed to render`).toBe(true);
+      if (!r.ok) continue;
+      const issues = checkRegister(r.text, a.id);
+      expect(issues.map((i) => `${i.rule}: ${i.detail}`), `${a.id} would be BLOCKED at publish: ${r.text}`).toEqual([]);
+    }
+  });
+
+  it("every beat, rendered onto its archetype, also survives the guard", async () => {
+    const { checkRegister } = await import("../src/templates/validate");
+    for (const a of ALL) {
+      const payload = REPRESENTATIVE[a.id]!;
+      for (const beat of a.beats) {
+        // Render the fact block, then append this specific beat's text.
+        const r = renderPost(a, payload, { seed: `beat:${a.id}` });
+        if (!r.ok) continue;
+        const factBlock = r.text.split("\n\n")[0]!;
+        const issues = checkRegister(`${factBlock}\n\n${beat.text}`, a.id);
+        expect(issues.map((i) => i.rule), `${a.id}/${beat.id} would be blocked: "${beat.text}"`).toEqual([]);
+      }
+    }
   });
 });
 
