@@ -18,6 +18,7 @@ export type ArchetypeId =
   | "CONGRESS_PTR"
   | "MACRO_PRINT"
   | "FED_PRESS"
+  | "RATE_DECISION"
   | "HALT";
 
 /** Beat tiers. `signature` is deliberately outside normal rotation
