@@ -10,7 +10,13 @@ export default defineWorkersConfig(async () => {
           singleWorker: true,
           wrangler: { configPath: "./wrangler.toml" },
           miniflare: {
-            bindings: { TEST_MIGRATIONS: migrations },
+            bindings: {
+              TEST_MIGRATIONS: migrations,
+              // Telegram test fixtures; the API itself is fetchMock'd.
+              TELEGRAM_BOT_TOKEN: "TEST:TOKEN",
+              TELEGRAM_CHAT_ID: "424242",
+              TELEGRAM_WEBHOOK_SECRET: "test-webhook-secret",
+            },
           },
         },
       },

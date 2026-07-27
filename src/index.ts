@@ -1,6 +1,10 @@
 import type { Env } from "./env";
 import { tick } from "./dispatch";
+import { registerJobs } from "./jobs";
+import { handleTelegramWebhook, WEBHOOK_PATH } from "./telegram/webhook";
 import { log } from "./lib/log";
+
+registerJobs();
 
 export default {
   async scheduled(controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
@@ -10,12 +14,14 @@ export default {
     await tick(env, new Date(controller.scheduledTime));
   },
 
-  async fetch(request: Request, _env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
       return Response.json({ ok: true, now: new Date().toISOString() });
     }
-    // Telegram webhook route lands here in PR-2.
+    if (request.method === "POST" && url.pathname === WEBHOOK_PATH) {
+      return handleTelegramWebhook(request, env);
+    }
     log("debug", "unhandled request", { path: url.pathname, method: request.method });
     return new Response("not found", { status: 404 });
   },

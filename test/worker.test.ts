@@ -12,6 +12,7 @@ describe("worker scheduled handler", () => {
     registry["sched_probe"] = async () => {
       ran.push("sched_probe");
     };
+    await env.DB.prepare("DELETE FROM jobs").run(); // own the table; drop migration-seeded jobs
     await env.DB.prepare(
       "INSERT INTO jobs (name, due_at, cadence_profile) VALUES ('sched_probe', '2026-07-22T13:59:00.000Z', 'every_5m')",
     ).run();
