@@ -60,7 +60,7 @@ export async function runPoster(env: Env, now: Date, budget: TickBudget = newTic
   // CPU ceiling does exactly this). The claim correctly blocks a re-post,
   // but left alone it blocks that row FOREVER — so ask Threads what actually
   // happened and either confirm the claim or release it.
-  if (budget.remaining() > 2) await reconcileClaims(env, auth, now, budget);
+  if (budget.remaining({ reserved: true }) > 2) await reconcileClaims(env, auth, now, budget);
 
   const rows = await env.DB.prepare(
     `SELECT q.id AS queue_id, q.item_id, q.archetype,
@@ -96,7 +96,9 @@ export async function runPoster(env: Env, now: Date, budget: TickBudget = newTic
   }
 
   for (const row of rows.results) {
-    if (!budget.take(1)) break;
+    // Publishing draws on the reserved pool: an approved draft must not wait
+    // a tick because a feed poll spent the budget.
+    if (!budget.take(1, { reserved: true })) break;
 
     // LAST GATE BEFORE THE WORLD. The engine guarantees doctrine for text it
     // rendered, but `edited_text` is hand-typed and bypasses it entirely —
@@ -215,7 +217,7 @@ async function reconcileClaims(
     .all<{ id: number; queue_id: number; text: string }>();
   if (stale.results.length === 0) return;
 
-  if (!budget.take(1)) return;
+  if (!budget.take(1, { reserved: true })) return;
   let recent;
   try {
     recent = await listRecentPosts(auth.token, auth.userId, 25);
