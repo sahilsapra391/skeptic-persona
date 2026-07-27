@@ -9,4 +9,6 @@ export interface Env {
   TELEGRAM_CHAT_ID?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
   QUEUE_TTL_HOURS?: string;
+  /** Ms between batched queue notifications (Telegram asks ≤1 msg/s per chat). Default 1100; tests use 0. */
+  QUEUE_NOTIFY_SPACING_MS?: string;
 }

@@ -1,7 +1,14 @@
 import type { Env } from "../env";
 import { createQueueEntry, setQueueTelegramMessageId } from "../lib/db";
-import { sendMessage } from "../lib/telegram";
+import { sendMessage, TelegramError } from "../lib/telegram";
 import { log } from "../lib/log";
+
+export interface EnqueueResult {
+  queueId: number;
+  notified: boolean;
+  /** Set when Telegram flood control pushed back — callers should stop batching. */
+  retryAfter: number | null;
+}
 
 /**
  * Put an item's draft into the approval queue and surface it in Telegram
@@ -18,12 +25,12 @@ export async function enqueueForApproval(
   draftText: string,
   sourceUrl: string,
   now: Date = new Date(),
-): Promise<number> {
+): Promise<EnqueueResult> {
   const queueId = await createQueueEntry(env.DB, itemId, archetype, draftText, now);
 
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
     log("warn", "telegram not configured; queue entry created without notification", { queueId });
-    return queueId;
+    return { queueId, notified: false, retryAfter: null };
   }
 
   const text = `#${queueId} · ${archetype}\n\n${draftText}\n\nSource: ${sourceUrl}`;
@@ -38,9 +45,11 @@ export async function enqueueForApproval(
       ],
     });
     await setQueueTelegramMessageId(env.DB, queueId, msg.message_id);
+    return { queueId, notified: true, retryAfter: null };
   } catch (e) {
     // Queue row survives; the expiry job will sweep it if nobody notices.
     log("error", "telegram notify failed", { queueId, error: String(e) });
+    const retryAfter = e instanceof TelegramError ? e.retryAfter : null;
+    return { queueId, notified: false, retryAfter };
   }
-  return queueId;
 }
