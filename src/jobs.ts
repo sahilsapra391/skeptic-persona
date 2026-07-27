@@ -1,6 +1,8 @@
 import type { Env } from "./env";
 import { registry } from "./dispatch";
 import { pollEdgar8k } from "./ingesters/edgar8k";
+import { pollForm4 } from "./ingesters/form4";
+import { newTickBudget, type TickBudget } from "./lib/budget";
 import { expirePendingBefore } from "./lib/db";
 import { editMessageText } from "./lib/telegram";
 import { iso } from "./lib/time";
@@ -13,7 +15,7 @@ export const DEFAULT_QUEUE_TTL_HOURS = 6;
  * content is worthless late, so pending drafts older than QUEUE_TTL_HOURS
  * are expired rather than posted stale. Also purges old webhook-dedup rows.
  */
-async function queueExpiry(env: Env, now: Date): Promise<void> {
+async function queueExpiry(env: Env, now: Date, budget: TickBudget = newTickBudget()): Promise<void> {
   const raw = Number(env.QUEUE_TTL_HOURS ?? DEFAULT_QUEUE_TTL_HOURS);
   const ttlHours = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_QUEUE_TTL_HOURS;
   if (ttlHours !== raw) {
@@ -27,7 +29,9 @@ async function queueExpiry(env: Env, now: Date): Promise<void> {
   for (const entry of expired) {
     log("info", "queue entry expired", { queueId: entry.id });
     if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) continue;
-    if (entry.telegramMessageId) {
+    // Badge edits are cosmetic; when the shared tick budget runs dry the
+    // remaining badges are skipped (stale keyboards self-heal on tap).
+    if (entry.telegramMessageId && budget.take(1)) {
       try {
         await editMessageText(
           env.TELEGRAM_BOT_TOKEN,
@@ -41,7 +45,7 @@ async function queueExpiry(env: Env, now: Date): Promise<void> {
     }
     // An outstanding force-reply prompt would keep inviting a reply that can
     // no longer apply — badge it too.
-    if (entry.editPromptMessageId) {
+    if (entry.editPromptMessageId && budget.take(1)) {
       try {
         await editMessageText(
           env.TELEGRAM_BOT_TOKEN,
@@ -66,4 +70,5 @@ async function queueExpiry(env: Env, now: Date): Promise<void> {
 export function registerJobs(): void {
   registry["queue_expiry"] = queueExpiry;
   registry["edgar_8k"] = pollEdgar8k;
+  registry["edgar_form4"] = pollForm4;
 }

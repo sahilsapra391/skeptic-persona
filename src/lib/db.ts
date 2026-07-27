@@ -16,12 +16,13 @@ export interface NewItem {
   score: number;
   /**
    * 'new' = awaiting queue notification; 'logged' = below the postable bar,
-   * recorded for the data lake only. Ingesters MUST insert sub-postable items
-   * as 'logged' so the notify-drain query's 'new' set stays small (the drain
-   * runs every poll; an ever-growing 'new' backlog would burn the D1
-   * rows-read budget).
+   * recorded for the data lake only; 'pending_detail' = discovered via a
+   * feed but needs a per-filing detail fetch (Form 4 ownership XML) before
+   * scoring. Ingesters MUST insert sub-postable items as 'logged' so the
+   * notify-drain query's 'new' set stays small (the drain runs every poll;
+   * an ever-growing 'new' backlog would burn the D1 rows-read budget).
    */
-  status?: "new" | "logged";
+  status?: "new" | "logged" | "pending_detail";
 }
 
 export function dedupKey(source: string, externalId: string): string {
@@ -236,6 +237,80 @@ export async function expirePendingBefore(
     draftText: r.draft_text,
     editPromptMessageId: r.edit_prompt_message_id,
   }));
+}
+
+/**
+ * Second stage of two-phase ingestion: replace a stub's payload/score once
+ * the detail document is parsed. Guarded on pending_detail so a concurrent
+ * run can't double-process.
+ */
+export async function updateItemDetail(
+  db: D1Database,
+  id: number,
+  payload: Record<string, unknown>,
+  score: number,
+  status: "new" | "logged" | "pending_detail",
+): Promise<boolean> {
+  const res = await db
+    .prepare(`UPDATE items SET payload = ?1, score = ?2, status = ?3 WHERE id = ?4 AND status = 'pending_detail'`)
+    .bind(JSON.stringify(payload), score, status, id)
+    .run();
+  return res.meta.changes > 0;
+}
+
+export interface InsiderTradeRow {
+  itemId: number;
+  /** Position in the ownership document; (itemId, txnIndex) is the idempotency key. */
+  txnIndex: number;
+  issuerCik: string;
+  ticker: string | null;
+  insiderCik: string;
+  insiderName: string;
+  isOfficer: boolean;
+  isDirector: boolean;
+  officerTitle: string | null;
+  side: "buy" | "sell" | "other";
+  code: string;
+  shares: number | null;
+  price: number | null;
+  sharesAfter: number | null;
+  pctChange: number | null;
+  transactionDate: string; // YYYY-MM-DD, from the ownership document
+  isAmendment: boolean;
+}
+
+/** OR IGNORE + UNIQUE(item_id, txn_index): replays and overlapping runs are harmless. */
+export function prepareInsiderTrade(db: D1Database, row: InsiderTradeRow): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT OR IGNORE INTO insider_trades
+         (item_id, txn_index, issuer_cik, ticker, insider_cik, insider_name, is_officer, is_director, officer_title,
+          side, code, shares, price, shares_after, pct_change, transaction_date, is_amendment)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
+    )
+    .bind(
+      row.itemId,
+      row.txnIndex,
+      row.issuerCik,
+      row.ticker,
+      row.insiderCik,
+      row.insiderName,
+      row.isOfficer ? 1 : 0,
+      row.isDirector ? 1 : 0,
+      row.officerTitle,
+      row.side,
+      row.code,
+      row.shares,
+      row.price,
+      row.sharesAfter,
+      row.pctChange,
+      row.transactionDate,
+      row.isAmendment ? 1 : 0,
+    );
+}
+
+export async function insertInsiderTrade(db: D1Database, row: InsiderTradeRow): Promise<void> {
+  await prepareInsiderTrade(db, row).run();
 }
 
 export interface SourceState {

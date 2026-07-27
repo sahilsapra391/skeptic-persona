@@ -1,0 +1,85 @@
+<?xml version="1.0"?>
+<ownershipDocument>
+
+    <schemaVersion>X0609</schemaVersion>
+
+    <documentType>4</documentType>
+
+    <periodOfReport>2026-07-23</periodOfReport>
+
+    <issuer>
+        <issuerCik>0001504678</issuerCik>
+        <issuerName>Loop Industries, Inc.</issuerName>
+        <issuerTradingSymbol>LOOP</issuerTradingSymbol>
+        <issuerForeignTradingSymbol></issuerForeignTradingSymbol>
+    </issuer>
+
+    <reportingOwner>
+        <reportingOwnerId>
+            <rptOwnerCik>0001796961</rptOwnerCik>
+            <rptOwnerName>Sams Louise S</rptOwnerName>
+        </reportingOwnerId>
+        <reportingOwnerAddress>
+            <rptOwnerNonUSAddressFlag>true</rptOwnerNonUSAddressFlag>
+            <rptOwnerStreet1>480 FERNAND POITRAS</rptOwnerStreet1>
+            <rptOwnerStreet2></rptOwnerStreet2>
+            <rptOwnerCity>TERREBONNE</rptOwnerCity>
+            <rptOwnerNonUSStateTerritory>QC</rptOwnerNonUSStateTerritory>
+            <rptOwnerCountry>Z4</rptOwnerCountry>
+            <rptOwnerZipCode>J6Y1Y4</rptOwnerZipCode>
+            <rptOwnerStateDescription>CANADA (FEDERAL LEVEL)</rptOwnerStateDescription>
+        </reportingOwnerAddress>
+        <reportingOwnerRelationship>
+            <isDirector>1</isDirector>
+        </reportingOwnerRelationship>
+    </reportingOwner>
+
+    <aff10b5One>0</aff10b5One>
+
+    <nonDerivativeTable>
+        <nonDerivativeTransaction>
+            <securityTitle>
+                <value>Common Stock</value>
+            </securityTitle>
+            <transactionDate>
+                <value>2026-07-23</value>
+            </transactionDate>
+            <transactionCoding>
+                <transactionFormType>4</transactionFormType>
+                <transactionCode>A</transactionCode>
+                <equitySwapInvolved>0</equitySwapInvolved>
+            </transactionCoding>
+            <transactionAmounts>
+                <transactionShares>
+                    <value>105263</value>
+                    <footnoteId id="F1"/>
+                </transactionShares>
+                <transactionPricePerShare>
+                    <value>0</value>
+                </transactionPricePerShare>
+                <transactionAcquiredDisposedCode>
+                    <value>A</value>
+                </transactionAcquiredDisposedCode>
+            </transactionAmounts>
+            <postTransactionAmounts>
+                <sharesOwnedFollowingTransaction>
+                    <value>259678</value>
+                </sharesOwnedFollowingTransaction>
+            </postTransactionAmounts>
+            <ownershipNature>
+                <directOrIndirectOwnership>
+                    <value>D</value>
+                </directOrIndirectOwnership>
+            </ownershipNature>
+        </nonDerivativeTransaction>
+    </nonDerivativeTable>
+
+    <footnotes>
+        <footnote id="F1">This reported transaction involved the grant of 105,263 restricted stock units (&quot;RSU&quot;), which shall fully vest upon the earlier of the one (1) year anniversary of the grant date or on the day prior to Loop Industries, Inc.'s (the &quot;Company&quot;) next annual meeting of stockholders occurring after the grant date, provided that the Reporting Person continues to serve as a non-employee director through the applicable vesting date. Each RSU represents a contingent right to receive one share of the Company's common stock.</footnote>
+    </footnotes>
+
+    <ownerSignature>
+        <signatureName>/s/ Louise Scott Sams</signatureName>
+        <signatureDate>2026-07-24</signatureDate>
+    </ownerSignature>
+</ownershipDocument>
