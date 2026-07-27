@@ -144,19 +144,42 @@ function lagDays(filedIso: string, txnDate: string): number | null {
   return days >= 0 ? days : null;
 }
 
+/**
+ * Ratio between a band's upper and lower bound ("$1,001 - $15,000" -> ~15).
+ * Gates the "The range is doing a lot of work." escalation beat: a wide band
+ * is a parsed property of the disclosure, not an inference about the trade.
+ */
+export function bandWidth(band: string): number | null {
+  const nums = band.match(/[\d,]+/g);
+  if (!nums || nums.length < 2) return null;
+  const lo = Number(nums[0]!.replace(/,/g, ""));
+  const hi = Number(nums[nums.length - 1]!.replace(/,/g, ""));
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+  return hi - lo;
+}
+
+export function bandSpan(band: string): number | null {
+  const nums = band.match(/[\d,]+/g);
+  if (!nums || nums.length < 2) return null;
+  const lo = Number(nums[0]!.replace(/,/g, ""));
+  const hi = Number(nums[nums.length - 1]!.replace(/,/g, ""));
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo <= 0) return null;
+  return Math.round((hi / lo) * 10) / 10;
+}
+
 /** Tier A draft; the disclosure-lag line is the built-in editorial (all parsed). */
 export function draftSenatePtr(row: EfdRow, txns: EfdTxn[], filedIso: string): string {
   const who = row.display.replace(/\s*\(Senator\)\s*$/, "");
   const shown = txns.slice(0, 3).map((t) => {
     const what = t.ticker ?? (t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName);
-    return `${t.type} ${t.amount} — ${what} (${t.transactionDate})`;
+    return `${t.type} ${t.amount}, ${what} (${t.transactionDate})`;
   });
   const more = txns.length > 3 ? ` +${txns.length - 3} more` : "";
   // "After the LATEST trade" = the smallest per-transaction lag (the newest
   // trade is the one closest to the filing date).
   const lags = txns.map((t) => lagDays(filedIso, t.transactionDate)).filter((d): d is number => d !== null);
   const lag = lags.length > 0 ? `, disclosed ${Math.min(...lags)} days after the latest trade` : "";
-  return `Senate PTR: ${who} — ${shown.join("; ")}${more} — filed ${row.filedDate}${lag}, per Senate eFD`;
+  return `Senate PTR: ${who}. ${shown.join("; ")}${more}. Filed ${row.filedDate}${lag}`;
 }
 
 export async function pollSenatePtr(env: Env, now: Date, budget: TickBudget = newTickBudget()): Promise<void> {
@@ -323,6 +346,13 @@ export async function pollSenatePtr(env: Env, now: Date, budget: TickBudget = ne
       }
       const txns = parsePtrTable(page.body);
       const parsedOk = txns.length > 0;
+      // All beat fields describe the NEWEST transaction, the same one the
+      // lag line refers to: mixing txns[0]'s date with the min lag would
+      // imply a disclosure speed that isn't true of either trade.
+      const dated = txns.filter((t) => lagDays(filedIso, t.transactionDate) !== null);
+      const newest = dated.slice().sort((a, b) => (lagDays(filedIso, a.transactionDate)! < lagDays(filedIso, b.transactionDate)! ? -1 : 1))[0];
+      const minLag = newest ? lagDays(filedIso, newest.transactionDate) : null;
+      const singleTxn = txns.length === 1;
       const fresh = isFreshDateOnly(filedIso, now);
       if (parsedOk && !fresh) {
         log("info", "senate_ptr stale-at-ingest suppressed", { uuid: row.uuid, filedDate: row.filedDate });
@@ -343,7 +373,19 @@ export async function pollSenatePtr(env: Env, now: Date, budget: TickBudget = ne
             lastName: row.lastName,
             filedDate: row.filedDate,
             transactions: txns,
-            draft,
+            // Template-engine fields (rendered at enqueue, not frozen here).
+            factLine: draft,
+            who: row.display.replace(/\s*\(Senator\)\s*$/, ""),
+            tradeLine: txns
+              .slice(0, 3)
+              .map((t) => `${t.type} ${t.amount}, ${t.ticker ?? t.assetName.slice(0, 40)} (${t.transactionDate})`)
+              .join("; "),
+            tradeDate: newest?.transactionDate ?? null,
+            amountBand: newest?.amount ?? null,
+            singleTxn,
+            lagDays: minLag,
+            bandSpanRatio: bandSpan(newest?.amount ?? ""),
+            bandWidthUsd: bandWidth(newest?.amount ?? ""),
           },
           score: parsedOk ? SCORE_POSTABLE : SCORE_LOG_ONLY,
           status: parsedOk && fresh ? "new" : "logged",
@@ -363,8 +405,8 @@ export async function pollSenatePtr(env: Env, now: Date, budget: TickBudget = ne
     let enqueued = 0;
     for (const item of pending.results) {
       if (!budget.take(1)) break;
-      const payload = JSON.parse(item.payload) as { draft?: string };
-      const result = await enqueueForApproval(env, item.id, "FILING_ALERT", payload.draft ?? "", item.source_url, now);
+      const payload = JSON.parse(item.payload) as Record<string, unknown>;
+      const result = await enqueueForApproval(env, item.id, "CONGRESS_PTR", payload, item.source_url, now);
       enqueued += 1;
       if (result.retryAfter !== null) break;
     }

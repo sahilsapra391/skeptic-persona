@@ -246,7 +246,7 @@ export function draftForm4(doc: Form4Doc, totals: Form4Totals): string {
     const last = buys.slice().sort((a, b) => (a.date < b.date ? -1 : 1)).at(-1);
     const stake =
       buys.length === allBuys.length && last && last.sharesAfter !== null
-        ? ` — stake now ${fmtNum(last.sharesAfter)} shares${last.pctChange !== null ? ` (+${last.pctChange}%)` : ""}`
+        ? `, stake now ${fmtNum(last.sharesAfter)} shares${last.pctChange !== null ? ` (+${last.pctChange}%)` : ""}`
         : "";
     lines.push(
       `Form 4: ${who} bought ${fmtNum(totals.buyShares)} ${sym} at ~$${avg.toFixed(2)} (${fmtUsd(totals.buyValue)})${span(buys)}${stake}`,
@@ -295,6 +295,17 @@ export async function checkCluster(
 
   if (members.results.length < CLUSTER_MIN_INSIDERS) return false;
 
+  // "Buys only" asserts an ABSENCE, so it must be queried, never assumed:
+  // the member query selects code-P rows, which says nothing about whether
+  // those same filers also sold inside the window.
+  const sells = await env.DB.prepare(
+    `SELECT 1 AS x FROM insider_trades
+     WHERE issuer_cik = ?1 AND code <> 'P' AND transaction_date >= ?2 LIMIT 1`,
+  )
+    .bind(issuer.cik, cutoff)
+    .first<{ x: number }>();
+  const allCodeP = sells === null;
+
   const key = `${issuer.cik}:${members.results
     .map((m) => m.insider_cik)
     .sort()
@@ -308,10 +319,10 @@ export async function checkCluster(
     .join(", ");
   const allPriced = members.results.every((m) => m.value !== null);
   const total = members.results.reduce((s, m) => s + (m.value ?? 0), 0);
-  const combined = allPriced ? `Combined ${fmtUsd(total)}, ` : "";
+  const combined = allPriced ? `Combined ${fmtUsd(total)}.` : "";
   const draft =
-    `Insider cluster: ${members.results.length} insiders bought ${sym} in the past week — ${who}. ` +
-    `${combined}per SEC Form 4 filings`;
+    `Insider cluster: ${members.results.length} insiders bought ${sym} in the past week. ${who}.` +
+    (combined ? ` ${combined.replace(/, $/, "")}` : "");
 
   const res = await insertItem(
     env.DB,
@@ -321,7 +332,15 @@ export async function checkCluster(
       category: "insider",
       eventAt: iso(now),
       sourceUrl: clusterSourceUrl(issuer.cik),
-      payload: { draft, issuer, members: members.results },
+      payload: {
+        factLine: draft,
+        issuer,
+        members: members.results,
+        memberCount: members.results.length,
+        symbol: sym,
+        roster: who,
+        allCodeP,
+      },
       score: SCORE_AUTO_ALERT,
       status: "new",
     },
@@ -384,7 +403,34 @@ async function processDetail(
             transactions: doc.nonDerivative,
             derivativeCount: doc.derivativeCount,
             totals,
-            draft,
+            // Template-engine fields (rendered at enqueue, not frozen here).
+            factLine: draft,
+            who: owner ? `${owner.name} (${ownerLabel(owner)})` : null,
+            actionLine: draft.replace(/^Form 4: .*?\) /, ""),
+            // Derived from the PRINTED subset, not document order: a
+            // footnote-priced buy is excluded from the fact line, so it must
+            // not license "Code P. Bought, not granted." on a sell post.
+            primaryCode:
+              totals.buyValue > 0 && totals.sellValue === 0
+                ? "P"
+                : totals.sellValue > 0 && totals.buyValue === 0
+                  ? "S"
+                  : null,
+            lagDays: (() => {
+              const dates = doc.nonDerivative.filter((t) => t.date).map((t) => t.date).sort();
+              const newest = dates.at(-1);
+              if (!newest || !row.event_at) return null;
+              const d = Math.round((new Date(row.event_at).getTime() - new Date(`${newest}T00:00:00Z`).getTime()) / 86_400_000);
+              return d >= 0 ? d : null;
+            })(),
+            // Only true when the fact line actually prints a stake number.
+            stakePrinted: (() => {
+              const buys = doc.nonDerivative.filter((t) => t.code === "P" && t.shares !== null && t.price !== null && t.date);
+              const allBuys = doc.nonDerivative.filter((t) => t.code === "P");
+              const last = buys.slice().sort((a, b) => (a.date < b.date ? -1 : 1)).at(-1);
+              return buys.length === allBuys.length && !!last && last.sharesAfter !== null;
+            })(),
+            isAmendment: stub.formType.endsWith("/A"),
           }),
           score,
           score >= SCORE_POSTABLE && fresh ? "new" : "logged",
@@ -457,9 +503,9 @@ async function drainPostables(env: Env, now: Date, budget: TickBudget): Promise<
       });
       break;
     }
-    const payload = JSON.parse(row.payload) as { draft?: string };
-    const archetype = row.source === CLUSTER_SOURCE ? "INSIDER_CLUSTER" : "FILING_ALERT";
-    const result = await enqueueForApproval(env, row.id, archetype, payload.draft ?? "", row.source_url, now);
+    const payload = JSON.parse(row.payload) as Record<string, unknown>;
+    const archetype = row.source === CLUSTER_SOURCE ? "INSIDER_CLUSTER" : "FILING_FORM4";
+    const result = await enqueueForApproval(env, row.id, archetype, payload, row.source_url, now);
     sent += 1;
     if (result.retryAfter !== null) {
       log("warn", "telegram flood control; deferring remaining form4 notifications", { retryAfter: result.retryAfter });

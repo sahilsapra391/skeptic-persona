@@ -61,7 +61,7 @@ export function scoreFedItem(item: FedItem): number {
 
 /** Tier A: the Fed's own headline, category-tagged. */
 export function draftFed(item: FedItem): string {
-  return `Fed — ${item.category}: ${item.title}`;
+  return `Fed, ${item.category}: ${item.title}`;
 }
 
 export async function pollFedPress(env: Env, now: Date, budget: TickBudget = newTickBudget()): Promise<void> {
@@ -111,7 +111,7 @@ export async function pollFedPress(env: Env, now: Date, budget: TickBudget = new
             category: "fed",
             eventAt: item.pubIso || null,
             sourceUrl: item.link || item.guid,
-            payload: { title: item.title, category: item.category, draft: draftFed(item) },
+            payload: { title: item.title, category: item.category },
             score,
             status: score >= SCORE_POSTABLE && isFreshAtIngest(item.pubIso, now) ? "new" : "logged",
           },
@@ -132,8 +132,8 @@ export async function pollFedPress(env: Env, now: Date, budget: TickBudget = new
     let enqueued = 0;
     for (const row of pending.results) {
       if (!budget.take(1)) break;
-      const payload = JSON.parse(row.payload) as { draft?: string };
-      const result = await enqueueForApproval(env, row.id, "WIRE", payload.draft ?? "", row.source_url, now);
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      const result = await enqueueForApproval(env, row.id, "FED_PRESS", payload, row.source_url, now);
       enqueued += 1;
       if (result.retryAfter !== null) break;
     }
