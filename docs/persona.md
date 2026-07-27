@@ -192,6 +192,19 @@ yield at the bid deadline, and WI is dealer data we cannot license.
 Computing or implying one from TreasuryDirect fields alone would be
 fabrication wearing the clothes of arithmetic.
 
+### PRODUCT RECALL (FDA drug enforcement)
+- `Initiated {d1}. Published {d2}.` [both dates parsed from the record]
+- `The class is the FDA's grading, not ours.`
+- `Firm-initiated, in the agency's own words.` [FDA's voluntary field says so]
+- `Status: ongoing.` [status field parsed]
+
+**Escalation tier:**
+- `{n} days from the firm acting to the public knowing.` [≥30 days between
+  recall initiation and FDA publication, both parsed]
+
+The classification is always FDA's own grading. We never read the reason text
+and decide how serious a recall is.
+
 ### HALT
 - `Pending is the whole disclosure.` [T1]
 - `The band did what the band does.` [LUDP/LUDS]

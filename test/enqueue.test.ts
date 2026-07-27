@@ -109,7 +109,11 @@ describe("queue_expiry job", () => {
       .bind(1, new Date(later.getTime() - 8 * 86_400_000).toISOString(), 2, new Date(later.getTime() - 86_400_000).toISOString())
       .run();
 
-    await tick(env, later);
+    // Run the job DIRECTLY rather than through tick(): the source expansion
+    // pushed the job count past MAX_JOBS_PER_TICK, so a priority-50 job is no
+    // longer guaranteed a slot in any single tick. That is correct scheduling
+    // behaviour, but it makes tick() the wrong unit for testing this handler.
+    await registry["queue_expiry"]?.(env, later, newTickBudget());
 
     const entry = await getQueueEntry(env.DB, queueId);
     expect(entry?.state).toBe("expired");
