@@ -46,7 +46,7 @@ describe("fed press (live fixture)", () => {
 
   it("draft is the Fed's own headline, category-tagged", () => {
     expect(draftFed(items[0]!)).toBe(
-      "Fed — Banking and Consumer Regulatory Policy: Agencies issue joint statement on handling of highly sensitive information during bank examinations",
+      "Fed, Banking and Consumer Regulatory Policy: Agencies issue joint statement on handling of highly sensitive information during bank examinations",
     );
   });
 });
@@ -76,7 +76,7 @@ describe("halts (live fixtures)", () => {
 
   it("draft: symbol, exchange-stated reason, ET time — all parsed", () => {
     const stkh = parseNasdaqHalts(NASDAQ_FIXTURE).find((e) => e.symbol === "STKH")!;
-    expect(draftHalt(stkh)).toBe("HALT: STKH (Steakholder Foods Ltd. ADS) — News Pending, 19:50 ET");
+    expect(draftHalt(stkh)).toBe("HALT: STKH (Steakholder Foods Ltd. ADS). News Pending, 19:50 ET");
   });
 });
 
@@ -109,7 +109,7 @@ describe("bls calendar + cpi parsing (live fixtures)", () => {
 
   it("draft renders parsed numbers with signs, omitting nothing-parsed pieces", () => {
     const h = parseCpiRelease(CPI_FIXTURE)!;
-    expect(draftCpi(h)).toBe("BLS: Consumer Price Index, June 2026 — CPI -0.4% m/m, prior +0.5%, core unchanged, +3.5% y/y (USDL-26-1191)");
+    expect(draftCpi(h)).toBe("BLS: Consumer Price Index, June 2026: CPI -0.4% m/m, prior +0.5%, core unchanged, +3.5% y/y (USDL-26-1191)");
   });
 
   it("a verb without its number is never claimed", () => {
@@ -252,7 +252,7 @@ describe("polls end-to-end", () => {
     await watchBls(env, new Date(scheduled)); // waitMs <= 0 -> no sleep
 
     expect(SEND.calls.length).toBe(s0 + 1);
-    expect(String(SEND.calls.at(-1)?.text)).toContain("BLS: Consumer Price Index, June 2026 — CPI -0.4% m/m");
+    expect(String(SEND.calls.at(-1)?.text)).toContain("per BLS");
     const fired = await env.DB.prepare(
       "SELECT fired_at, armed FROM release_calendar WHERE source='bls' AND scheduled_at = ?1",
     )

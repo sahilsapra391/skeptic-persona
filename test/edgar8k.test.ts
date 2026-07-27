@@ -143,7 +143,7 @@ describe("draftFor", () => {
         items: [{ code: "5.02", title: "Departure of Directors or Certain Officers" }],
       }),
     );
-    expect(d).toBe("8-K/A: ACME CORP\nItem 5.02 — Departure of Directors or Certain Officers");
+    expect(d).toBe("8-K/A: ACME CORP\nItem 5.02: Departure of Directors or Certain Officers");
   });
 
   it("drops exhibit-only noise but keeps 9.01 when it is the only item", () => {
@@ -156,7 +156,7 @@ describe("draftFor", () => {
         ],
       }),
     );
-    expect(d).toBe("8-K: ACME CORP\nItem 5.02 — Departure of Directors or Certain Officers");
+    expect(d).toBe("8-K: ACME CORP\nItem 5.02: Departure of Directors or Certain Officers");
     expect(draftFor(entry({ items: [{ code: "9.01", title: "Financial Statements and Exhibits" }] }))).toContain(
       "Item 9.01",
     );
@@ -213,7 +213,7 @@ describe("pollEdgar8k end-to-end", () => {
     const items = await env.DB.prepare("SELECT COUNT(*) AS n FROM items WHERE source = 'edgar_8k'").first<{ n: number }>();
     expect(items?.n).toBe(40);
     expect(SEND.calls.length - s0).toBe(MAX_ENQUEUES_PER_RUN);
-    expect(String(SEND.calls.at(-1)?.text)).toMatch(/8-K/);
+    expect(String(SEND.calls.at(-1)?.text)).toContain("per SEC");
 
     // Sub-postable items are 'logged', not 'new' (drain-set stays bounded).
     const logged = await env.DB.prepare(
@@ -235,7 +235,7 @@ describe("pollEdgar8k end-to-end", () => {
 
     const q = await env.DB.prepare(
       `SELECT COUNT(*) AS total, COUNT(DISTINCT item_id) AS distinct_items
-       FROM queue WHERE archetype = 'FILING_ALERT'`,
+       FROM queue WHERE archetype = 'FILING_8K'`,
     ).first<{ total: number; distinct_items: number }>();
     expect(q?.total).toBe(postable);
     expect(q?.distinct_items).toBe(postable); // identity, not just count
