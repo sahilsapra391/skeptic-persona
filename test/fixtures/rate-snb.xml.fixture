@@ -7,10 +7,10 @@
     <description>Swiss National Bank (SNB): CHF interest rates at the end of the day</description>
     <pubDate>Mon, 27 Jul 2026 11:10:10 GMT</pubDate>
     <dc:date>2026-07-27T11:10:10Z</dc:date>
-    <dcterms:created>2026-07-27T22:25:04Z</dcterms:created>
+    <dcterms:created>2026-07-27T23:30:39Z</dcterms:created>
     <dcterms:license>https://www.snb.ch/en/srv/disclaimer</dcterms:license>
     <dc:publisher>SNB</dc:publisher>
-    <dc:date>2026-07-27T22:25:04Z</dc:date>
+    <dc:date>2026-07-27T23:30:39Z</dc:date>
     <dc:rights>Copyright © Swiss National Bank, Zurich (Switzerland) 2026</dc:rights>
     <item>
       <title>CH: 0.492 R10 2026-07-27 SNB Yield on Swiss Confederation bonds</title>
@@ -41,4 +41,276 @@
           </cb:observationPeriod>
         </cb:interestRate>
       </cb:statistics>
-    </ite
+    </item>
+<item>
+      <title>CH: 0.25 LSFF 2026-07-27 SNB Special rate (liquidity-shortage financing facility)</title>
+      <link>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</link>
+      <description>Special rate (liquidity-shortage financing facility) / valid until 12:00 noon of the next bank working day (2026-07-27T13:10:10+02:00)</description>
+      <pubDate>Mon, 27 Jul 2026 11:10:10 GMT</pubDate>
+      <guid>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</guid>
+      <dc:date>2026-07-27T11:10:10Z</dc:date>
+      <dc:language>en</dc:language>
+      <cb:statistics rdf:parseType="Resource">
+        <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Statistics" />
+        <cb:country>CH</cb:country>
+        <cb:institutionAbbrev>SNB</cb:institutionAbbrev>
+        <cb:interestRate rdf:parseType="Resource">
+          <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#InterestRate" />
+          <cb:observation rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Observation" />
+            <cb:value>0.25</cb:value>
+            <cb:unit>percent</cb:unit>
+            <cb:decimals>2</cb:decimals>
+          </cb:observation>
+          <cb:rateName>LSFF</cb:rateName>
+          <cb:rateType>Special rate (liquidity-shortage financing facility) / valid until 12:00 noon of the next bank working day</cb:rateType>
+          <cb:observationPeriod rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#ObservationPeriod" />
+            <cb:frequency>daily</cb:frequency>
+            <cb:period>2026-07-27</cb:period>
+          </cb:observationPeriod>
+        </cb:interestRate>
+      </cb:statistics>
+    </item>
+<item>
+      <title>CH: 0.00 SNBLZ 2026-07-27 SNB SNB policy rate</title>
+      <link>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</link>
+      <description>SNB policy rate / valid from 27.07.2026 (2026-07-27T13:10:10+02:00)</description>
+      <pubDate>Mon, 27 Jul 2026 11:10:10 GMT</pubDate>
+      <guid>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</guid>
+      <dc:date>2026-07-27T11:10:10Z</dc:date>
+      <dc:language>en</dc:language>
+      <cb:statistics rdf:parseType="Resource">
+        <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Statistics" />
+        <cb:country>CH</cb:country>
+        <cb:institutionAbbrev>SNB</cb:institutionAbbrev>
+        <cb:interestRate rdf:parseType="Resource">
+          <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#InterestRate" />
+          <cb:observation rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Observation" />
+            <cb:value>0.00</cb:value>
+            <cb:unit>percent</cb:unit>
+            <cb:decimals>2</cb:decimals>
+          </cb:observation>
+          <cb:rateName>SNBLZ</cb:rateName>
+          <cb:rateType>SNB policy rate / valid from 20.06.2025</cb:rateType>
+          <cb:observationPeriod rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#ObservationPeriod" />
+            <cb:frequency>daily</cb:frequency>
+            <cb:period>2026-07-27</cb:period>
+          </cb:observationPeriod>
+        </cb:interestRate>
+      </cb:statistics>
+    </item>
+<item>
+      <title>CH: 0.00 SNBGIRO1 2026-07-27 SNB Interest rate on sight deposits up to threshold</title>
+      <link>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</link>
+      <description>Interest rate on sight deposits up to threshold / valid from 27.07.2026 (2026-07-27T13:10:10+02:00)</description>
+      <pubDate>Mon, 27 Jul 2026 11:10:10 GMT</pubDate>
+      <guid>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</guid>
+      <dc:date>2026-07-27T11:10:10Z</dc:date>
+      <dc:language>en</dc:language>
+      <cb:statistics rdf:parseType="Resource">
+        <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Statistics" />
+        <cb:country>CH</cb:country>
+        <cb:institutionAbbrev>SNB</cb:institutionAbbrev>
+        <cb:interestRate rdf:parseType="Resource">
+          <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#InterestRate" />
+          <cb:observation rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Observation" />
+            <cb:value>0.00</cb:value>
+            <cb:unit>percent</cb:unit>
+            <cb:decimals>2</cb:decimals>
+          </cb:observation>
+          <cb:rateName>SNBGIRO1</cb:rateName>
+          <cb:rateType>Interest rate on sight deposits up to threshold / valid from 20.06.2025</cb:rateType>
+          <cb:observationPeriod rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#ObservationPeriod" />
+            <cb:frequency>daily</cb:frequency>
+            <cb:period>2026-07-27</cb:period>
+          </cb:observationPeriod>
+        </cb:interestRate>
+      </cb:statistics>
+    </item>
+<item>
+      <title>CH: -0.25 SNBGIRO2 2026-07-27 SNB Interest rate on sight deposits above threshold</title>
+      <link>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</link>
+      <description>Interest rate on sight deposits above threshold / valid from 27.07.2026 (2026-07-27T13:10:10+02:00)</description>
+      <pubDate>Mon, 27 Jul 2026 11:10:10 GMT</pubDate>
+      <guid>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</guid>
+      <dc:date>2026-07-27T11:10:10Z</dc:date>
+      <dc:language>en</dc:language>
+      <cb:statistics rdf:parseType="Resource">
+        <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Statistics" />
+        <cb:country>CH</cb:country>
+        <cb:institutionAbbrev>SNB</cb:institutionAbbrev>
+        <cb:interestRate rdf:parseType="Resource">
+          <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#InterestRate" />
+          <cb:observation rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Observation" />
+            <cb:value>-0.25</cb:value>
+            <cb:unit>percent</cb:unit>
+            <cb:decimals>2</cb:decimals>
+          </cb:observation>
+          <cb:rateName>SNBGIRO2</cb:rateName>
+          <cb:rateType>Interest rate on sight deposits above threshold / valid from 20.06.2025</cb:rateType>
+          <cb:observationPeriod rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#ObservationPeriod" />
+            <cb:frequency>daily</cb:frequency>
+            <cb:period>2026-07-27</cb:period>
+          </cb:observationPeriod>
+        </cb:interestRate>
+      </cb:statistics>
+    </item>
+<item>
+      <title>CH: 25 Discount 2023-04-13 SNB Discount in basis points</title>
+      <link>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</link>
+      <description>Discount in basis points / basis point (2026-07-27T13:10:10+02:00)</description>
+      <pubDate>Mon, 27 Jul 2026 11:10:10 GMT</pubDate>
+      <guid>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</guid>
+      <dc:date>2026-07-27T11:10:10Z</dc:date>
+      <dc:language>en</dc:language>
+      <cb:statistics rdf:parseType="Resource">
+        <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Statistics" />
+        <cb:country>CH</cb:country>
+        <cb:institutionAbbrev>SNB</cb:institutionAbbrev>
+        <cb:interestRate rdf:parseType="Resource">
+          <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#InterestRate" />
+          <cb:observation rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Observation" />
+            <cb:value>25</cb:value>
+            <cb:unit>basis point</cb:unit>
+            <cb:decimals>0</cb:decimals>
+          </cb:observation>
+          <cb:rateName>Discount</cb:rateName>
+          <cb:rateType>Discount in basis points / basis point</cb:rateType>
+          <cb:observationPeriod rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#ObservationPeriod" />
+            <cb:frequency>daily</cb:frequency>
+            <cb:period>2026-07-27</cb:period>
+          </cb:observationPeriod>
+        </cb:interestRate>
+      </cb:statistics>
+    </item>
+<item>
+      <title>CH: 15 SNBFBF 2026-07-27 SNB Threshold factor</title>
+      <link>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</link>
+      <description>Threshold factor / valid from 24.03.2023 27.07.2026 (2026-07-27T13:10:10+02:00)</description>
+      <pubDate>Mon, 27 Jul 2026 11:10:10 GMT</pubDate>
+      <guid>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</guid>
+      <dc:date>2026-07-27T11:10:10Z</dc:date>
+      <dc:language>en</dc:language>
+      <cb:statistics rdf:parseType="Resource">
+        <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Statistics" />
+        <cb:country>CH</cb:country>
+        <cb:institutionAbbrev>SNB</cb:institutionAbbrev>
+        <cb:interestRate rdf:parseType="Resource">
+          <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#InterestRate" />
+          <cb:observation rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Observation" />
+            <cb:value>15</cb:value>
+            <cb:unit>factor</cb:unit>
+            <cb:decimals>3</cb:decimals>
+          </cb:observation>
+          <cb:rateName>SNBFBF</cb:rateName>
+          <cb:rateType>Threshold factor / valid from 01.03.2026</cb:rateType>
+          <cb:observationPeriod rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#ObservationPeriod" />
+            <cb:frequency>daily</cb:frequency>
+            <cb:period>2026-07-27</cb:period>
+          </cb:observationPeriod>
+        </cb:interestRate>
+      </cb:statistics>
+    </item>
+<item>
+      <title>CH: 0.537 R10 2026-07-24 SNB Yield on Swiss Confederation bonds</title>
+      <link>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</link>
+      <description>Yield on Swiss Confederation bonds / Spot interest rate for 10-year maturities (2026-07-27T13:10:10+02:00)</description>
+      <pubDate>Mon, 27 Jul 2026 11:10:10 GMT</pubDate>
+      <guid>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</guid>
+      <dc:date>2026-07-27T11:10:10Z</dc:date>
+      <dc:language>en</dc:language>
+      <cb:statistics rdf:parseType="Resource">
+        <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Statistics" />
+        <cb:country>CH</cb:country>
+        <cb:institutionAbbrev>SNB</cb:institutionAbbrev>
+        <cb:interestRate rdf:parseType="Resource">
+          <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#InterestRate" />
+          <cb:observation rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Observation" />
+            <cb:value>0.537</cb:value>
+            <cb:unit>percent</cb:unit>
+            <cb:decimals>3</cb:decimals>
+          </cb:observation>
+          <cb:rateName>R10</cb:rateName>
+          <cb:rateType>Yield on Swiss Confederation bonds / Spot interest rate for 10-year maturities</cb:rateType>
+          <cb:observationPeriod rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#ObservationPeriod" />
+            <cb:frequency>daily</cb:frequency>
+            <cb:period>2026-07-24</cb:period>
+          </cb:observationPeriod>
+        </cb:interestRate>
+      </cb:statistics>
+    </item>
+<item>
+      <title>CH: 0.25 LSFF 2026-07-24 SNB Special rate (liquidity-shortage financing facility)</title>
+      <link>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</link>
+      <description>Special rate (liquidity-shortage financing facility) / valid until 12:00 noon of the next bank working day (2026-07-27T13:10:10+02:00)</description>
+      <pubDate>Mon, 27 Jul 2026 11:10:10 GMT</pubDate>
+      <guid>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</guid>
+      <dc:date>2026-07-27T11:10:10Z</dc:date>
+      <dc:language>en</dc:language>
+      <cb:statistics rdf:parseType="Resource">
+        <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Statistics" />
+        <cb:country>CH</cb:country>
+        <cb:institutionAbbrev>SNB</cb:institutionAbbrev>
+        <cb:interestRate rdf:parseType="Resource">
+          <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#InterestRate" />
+          <cb:observation rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Observation" />
+            <cb:value>0.25</cb:value>
+            <cb:unit>percent</cb:unit>
+            <cb:decimals>2</cb:decimals>
+          </cb:observation>
+          <cb:rateName>LSFF</cb:rateName>
+          <cb:rateType>Special rate (liquidity-shortage financing facility) / valid until 12:00 noon of the next bank working day</cb:rateType>
+          <cb:observationPeriod rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#ObservationPeriod" />
+            <cb:frequency>daily</cb:frequency>
+            <cb:period>2026-07-24</cb:period>
+          </cb:observationPeriod>
+        </cb:interestRate>
+      </cb:statistics>
+    </item>
+<item>
+      <title>CH: -0.04 SARH 2026-07-24 SNB SARON</title>
+      <link>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</link>
+      <description>SARON / fixing at the close of the trading day (2026-07-27T13:10:10+02:00)</description>
+      <pubDate>Mon, 27 Jul 2026 11:10:10 GMT</pubDate>
+      <guid>https://www.snb.ch/en/the-snb/mandates-goals/statistics/statistics-pub/current_interest_exchange_rates#t00</guid>
+      <dc:date>2026-07-27T11:10:10Z</dc:date>
+      <dc:language>en</dc:language>
+      <cb:statistics rdf:parseType="Resource">
+        <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Statistics" />
+        <cb:country>CH</cb:country>
+        <cb:institutionAbbrev>SNB</cb:institutionAbbrev>
+        <cb:interestRate rdf:parseType="Resource">
+          <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#InterestRate" />
+          <cb:observation rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#Observation" />
+            <cb:value>-0.04</cb:value>
+            <cb:unit>percent</cb:unit>
+            <cb:decimals>2</cb:decimals>
+          </cb:observation>
+          <cb:rateName>SARH</cb:rateName>
+          <cb:rateType>SARON / fixing at the close of the trading day</cb:rateType>
+          <cb:observationPeriod rdf:parseType="Resource">
+            <rdf:type rdf:resource="http://www.cbwiki.net/wiki/index.php/RSS-CB_1.2_RDF_Schema#ObservationPeriod" />
+            <cb:frequency>daily</cb:frequency>
+            <cb:period>2026-07-24</cb:period>
+          </cb:observationPeriod>
+        </cb:interestRate>
+      </cb:statistics>
+    </item>
+</channel>
+</rss>

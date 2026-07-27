@@ -40,6 +40,17 @@ export const HALT_CODES: Record<string, { meaning: string; score: number }> = {
   LUDP: { meaning: "Volatility Trading Pause", score: SCORE_POSTABLE },
   LUDS: { meaning: "Volatility Trading Pause — Straddle", score: SCORE_POSTABLE },
   O1: { meaning: "Operations Halt", score: SCORE_POSTABLE },
+  // Added 2026-07-27 after production logged them as unknown. Meanings taken
+  // verbatim from Nasdaq's own Trade Halt Codes legend.
+  // "M" is the exchange-listed equivalent of LUDP and was the most frequent
+  // unknown code in the logs.
+  M: { meaning: "Volatility Trading Pause", score: SCORE_POSTABLE },
+  // T3 announces resumption after a T1/T2 halt we have usually already
+  // posted. Lake-only: the halt is the news, the resumption notice is not,
+  // and treating it as a fresh halt would double-post the same event.
+  T3: { meaning: "News and Resumption Times", score: SCORE_LOG_ONLY },
+  MWC0: { meaning: "Market-Wide Circuit Breaker, carried over from the previous day", score: SCORE_AUTO_ALERT },
+  D: { meaning: "Security Deletion from Nasdaq / CQS", score: SCORE_POSTABLE },
 };
 
 /**
