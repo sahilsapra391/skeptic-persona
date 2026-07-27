@@ -7,6 +7,36 @@ import { THREADS_TEXT_LIMIT } from "./render";
 // by construction; an edited draft has no such guarantee, so it gets the same
 // register rules applied after the fact (persona.md §6, §11).
 
+/**
+ * Advice detection, deliberately narrow.
+ *
+ * persona.md section 6 bans ADVICE: telling the reader what to do, or
+ * predicting direction. It does not ban the vocabulary of markets. A blunt
+ * word list produced three false positives in a row and zero true ones:
+ * "filed notice to sell" (Form 144), "coming up short" (Treasury), and
+ * "leveraged funds net short" (CFTC) are all factual descriptions of a
+ * parsed record, and refusing them makes the wire less accurate rather than
+ * safer.
+ *
+ * So these match advice CONSTRUCTIONS, not bare words.
+ */
+const ADVICE_PATTERNS: readonly RegExp[] = [
+  // Directional calls and targets, banned outright.
+  /\b(bullish|bearish)\b/i,
+  /\bprice target\b/i,
+  /\b(to the moon|load up|buy the dip|dip buy)\b/i,
+  // Imperatives aimed at the reader. The object matters: "Short interest
+  // rose" opens a sentence with the same word and is a plain fact, so the
+  // pattern requires something a command would actually take.
+  /(^|[.!?]\s+)(buy|sell|short|avoid)\s+(this|that|these|those|it|now|here|the\s+dip|\$[A-Z])/i,
+  /\b(you|we)\s+(should|must|need to)\s+(buy|sell|short|avoid|own|hold)\b/i,
+  /\b(should|must)\s+(buy|sell|short|avoid)\b/i,
+  /\bworth (buying|selling|shorting|owning)\b/i,
+  // Forecasts.
+  /\b(will|going to)\s+(rise|fall|rally|crash|soar|plunge)\b/i,
+  /\bexpect\s+\S+\s+to\s+(rise|fall|rally|crash)\b/i,
+];
+
 export interface RegisterIssue {
   readonly rule: string;
   readonly detail: string;
@@ -21,9 +51,7 @@ export function checkRegister(text: string, archetype?: ArchetypeId): RegisterIs
   if (text.includes("—")) issues.push({ rule: "em_dash", detail: "em-dashes are banned in post copy" });
   if (text.includes("#")) issues.push({ rule: "hashtag", detail: "no hashtags" });
   if (text.trimEnd().endsWith("?")) issues.push({ rule: "question", detail: "no engagement-bait questions" });
-  if (/\b(buy|sell|short|avoid|bullish|bearish|price target)\b/i.test(text)) {
-    // Note: a fact line may legitimately contain "bought"/"sold"; the ban is
-    // on the imperative/directional register, so this matches whole words only.
+  if (ADVICE_PATTERNS.some((re) => re.test(text))) {
     issues.push({ rule: "advice", detail: "advice language" });
   }
   const attribution = archetype ? ARCHETYPES[archetype]?.attribution : undefined;

@@ -219,6 +219,15 @@ a parsed title, never a claim: it decides what asks for attention and never
 appears in a post, so getting it wrong costs a queue slot rather than a false
 statement.
 
+### POSITIONING (CFTC Commitments of Traders)
+- `Positioning as of the Tuesday close, published Friday.` [report date parsed]
+- `The weekly change is the CFTC's own figure.` [change parsed]
+- `Against {n} contracts of open interest.` [open interest parsed]
+
+CFTC pre-computes every week-over-week delta, so the only arithmetic we do is
+long minus short. Never a claim about WHY positioning moved, and never a
+prediction from it.
+
 ### HALT
 - `Pending is the whole disclosure.` [T1]
 - `The band did what the band does.` [LUDP/LUDS]

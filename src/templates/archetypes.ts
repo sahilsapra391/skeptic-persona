@@ -705,6 +705,54 @@ const policyAction: Archetype = {
 };
 
 // ---------------------------------------------------------------------------
+// POSITIONING (CFTC Commitments of Traders)
+
+const positioning: Archetype = {
+  id: "POSITIONING",
+  attribution: "per CFTC",
+  skeletons: [
+    {
+      id: "cot.net",
+      build: (p) => {
+        const line = str(p, "factLine");
+        return line ? { lines: [line] } : null;
+      },
+    },
+    {
+      id: "cot.contractFirst",
+      build: (p) => {
+        const contract = str(p, "contract");
+        const net = num(p, "levNet");
+        const week = str(p, "reportDate");
+        if (!contract || net === null || !week) return null;
+        const side = net >= 0 ? "net long" : "net short";
+        return { lines: [`${contract}: leveraged funds ${side} ${Math.abs(net).toLocaleString("en-US")} contracts, week ending ${week}`] };
+      },
+    },
+  ],
+  beats: [
+    {
+      id: "cot.weekly",
+      text: "Positioning as of the Tuesday close, published Friday.",
+      tier: "base",
+      when: { op: "has", field: "reportDate" },
+    },
+    {
+      id: "cot.cftcMath",
+      text: "The weekly change is the CFTC's own figure.",
+      tier: "base",
+      when: { op: "has", field: "changeLevNet" },
+    },
+    {
+      id: "cot.openInterest",
+      text: "Against {openInterest} contracts of open interest.",
+      tier: "base",
+      when: { op: "has", field: "openInterest" },
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // HALT
 
 const halt: Archetype = {
@@ -782,5 +830,6 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   TREASURY_AUCTION: treasuryAuction,
   PRODUCT_RECALL: productRecall,
   POLICY_ACTION: policyAction,
+  POSITIONING: positioning,
   HALT: halt,
 };
