@@ -76,6 +76,13 @@ Current secrets/vars by phase:
    ```
 6. **Verify:** send `/start` to the bot — it replies with your chat id.
    `getWebhookInfo` shows delivery errors if anything is off.
+7. **Smoke test the full loop** (message + buttons + decision round-trip):
+   ```bash
+   curl -s -X POST "https://skeptic-persona.sahilsapra391.workers.dev/admin/seed-test" \
+     -H "X-Admin-Key: <same value as TELEGRAM_WEBHOOK_SECRET>"
+   ```
+   A fake draft appears in the chat; Approve/Edit/Reject all work and
+   nothing posts anywhere (no poster exists until P2).
 
 Kill switch (note `--remote` — without it wrangler v4 writes to LOCAL
 simulated storage and production keeps running):
