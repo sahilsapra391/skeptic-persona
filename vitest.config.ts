@@ -16,6 +16,7 @@ export default defineWorkersConfig(async () => {
               TELEGRAM_BOT_TOKEN: "TEST:TOKEN",
               TELEGRAM_CHAT_ID: "424242",
               TELEGRAM_WEBHOOK_SECRET: "test-webhook-secret",
+              QUEUE_NOTIFY_SPACING_MS: "0",
             },
           },
         },

@@ -1,5 +1,6 @@
 import type { Env } from "./env";
 import { registry } from "./dispatch";
+import { pollEdgar8k } from "./ingesters/edgar8k";
 import { expirePendingBefore } from "./lib/db";
 import { editMessageText } from "./lib/telegram";
 import { iso } from "./lib/time";
@@ -64,4 +65,5 @@ async function queueExpiry(env: Env, now: Date): Promise<void> {
 /** Idempotent; called once at Worker module init. Ingester PRs add theirs here. */
 export function registerJobs(): void {
   registry["queue_expiry"] = queueExpiry;
+  registry["edgar_8k"] = pollEdgar8k;
 }

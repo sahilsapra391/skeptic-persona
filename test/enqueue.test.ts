@@ -43,7 +43,7 @@ describe("enqueueForApproval", () => {
         return JSON.stringify({ ok: true, result: { message_id: 321, chat: { id: 424242 } } });
       });
 
-    const queueId = await enqueueForApproval(env, itemId, "FILING_ALERT", "the draft", "https://www.sec.gov/x");
+    const { queueId } = await enqueueForApproval(env, itemId, "FILING_ALERT", "the draft", "https://www.sec.gov/x");
 
     const entry = await getQueueEntry(env.DB, queueId);
     expect(entry).toMatchObject({ state: "pending", telegramMessageId: 321 });
@@ -61,7 +61,7 @@ describe("enqueueForApproval", () => {
       .intercept({ path: `${BOT}/sendMessage`, method: "POST" })
       .reply(200, JSON.stringify({ ok: false, error_code: 429, description: "Too Many Requests", parameters: { retry_after: 5 } }));
 
-    const queueId = await enqueueForApproval(env, itemId, "WIRE", "draft", "https://x.gov");
+    const { queueId } = await enqueueForApproval(env, itemId, "WIRE", "draft", "https://x.gov");
     const entry = await getQueueEntry(env.DB, queueId);
     expect(entry).toMatchObject({ state: "pending", telegramMessageId: null });
   });
@@ -83,7 +83,7 @@ describe("queue_expiry job", () => {
       .get(TG)
       .intercept({ path: `${BOT}/sendMessage`, method: "POST" })
       .reply(200, JSON.stringify({ ok: true, result: { message_id: 42, chat: { id: 424242 } } }));
-    const queueId = await enqueueForApproval(env, itemId, "WIRE", "stale draft", "https://x.gov");
+    const { queueId } = await enqueueForApproval(env, itemId, "WIRE", "stale draft", "https://x.gov");
 
     // Expiry sweep edits the stale message.
     fetchMock
@@ -118,7 +118,7 @@ describe("queue_expiry job", () => {
       .get(TG)
       .intercept({ path: `${BOT}/sendMessage`, method: "POST" })
       .reply(200, JSON.stringify({ ok: true, result: { message_id: 43, chat: { id: 424242 } } }));
-    const queueId = await enqueueForApproval(env, itemId, "WIRE", "fresh draft", "https://x.gov");
+    const { queueId } = await enqueueForApproval(env, itemId, "WIRE", "fresh draft", "https://x.gov");
 
     // "-1" would make the cutoff land in the future and expire everything.
     const hostile = Object.assign(Object.create(Object.getPrototypeOf(env)), env, { QUEUE_TTL_HOURS: "-1" });

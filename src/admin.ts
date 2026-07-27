@@ -37,7 +37,7 @@ export async function handleSeedTest(request: Request, env: Env): Promise<Respon
   if (item.outcome === "duplicate" || item.id === null) {
     return Response.json({ error: "duplicate (same-millisecond retry?)" }, { status: 409 });
   }
-  const queueId = await enqueueForApproval(
+  const { queueId } = await enqueueForApproval(
     env,
     item.id,
     "SMOKE_TEST",
