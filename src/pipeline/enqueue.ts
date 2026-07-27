@@ -1,6 +1,8 @@
 import type { Env } from "../env";
 import { createQueueEntry, setQueueTelegramMessageId } from "../lib/db";
 import { sendMessage, TelegramError } from "../lib/telegram";
+import { renderForQueue } from "../templates";
+import type { ArchetypeId, Payload } from "../templates/types";
 import { log } from "../lib/log";
 
 export interface EnqueueResult {
@@ -21,12 +23,29 @@ export interface EnqueueResult {
 export async function enqueueForApproval(
   env: Env,
   itemId: number,
-  archetype: string,
-  draftText: string,
+  archetype: ArchetypeId,
+  payload: Payload,
   sourceUrl: string,
   now: Date = new Date(),
+  seed?: string,
 ): Promise<EnqueueResult> {
-  const queueId = await createQueueEntry(env.DB, itemId, archetype, draftText, now);
+  // RENDER AT ENQUEUE TIME (persona.md: what Sahil approves is byte-identical
+  // to what posts). Deterministic seed = the item's identity, so a re-render
+  // produces the same text.
+  const rendered = await renderForQueue(env, archetype, payload, seed ?? `${archetype}:${itemId}`);
+  if (!rendered.ok) {
+    // Park it in the lake rather than leaving status='new': the drain query
+    // is ORDER BY id LIMIT N, so an unrenderable row would head-of-line block
+    // its entire source forever.
+    await env.DB.prepare(`UPDATE items SET status = 'logged' WHERE id = ?1`).bind(itemId).run().catch(() => {});
+    log("error", "render failed; item parked as logged", { itemId, archetype, reason: rendered.reason });
+    return { queueId: 0, notified: false, retryAfter: null };
+  }
+  const draftText = rendered.text;
+  const queueId = await createQueueEntry(env.DB, itemId, archetype, draftText, now, {
+    skeletonId: rendered.skeletonId,
+    beatId: rendered.beatId,
+  });
 
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
     log("warn", "telegram not configured; queue entry created without notification", { queueId });

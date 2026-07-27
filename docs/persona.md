@@ -111,24 +111,33 @@ prices exist in the pipeline today, so no such beat may render yet.
 - `The lag is the product.`
 - `Reported as a range. That's all the record shows.`
 - `Trade date {d1}. Public {d2}.`
-- `Paper filing. Scanned, technically public.` [paper kind]
+- `Paper filing. Scanned, technically public.` [paper kind — CURRENTLY
+  DISABLED: paper PTRs score log-only and never reach the queue. Promoting
+  them is an owner call.]
 
 **Escalation tier:**
 - `Read that lag again.` [lag ≥ 30 days]
 - `Filed eventually.` [lag ≥ 40 days]
-- `The range is doing a lot of work.` [band spans ≥ 5x, e.g. "$1,000,001 - $5,000,000"]
+- `The range is doing a lot of work.` [band WIDTH ≥ $1M, e.g.
+  "$1,000,001 - $5,000,000". NOT a ratio: the minimum reportable band
+  "$1,001 - $15,000" has the highest ratio in the Senate table (15x) and is
+  the most routine disclosure there is.]
 
 ### BLS PRINT
-- `Core above headline this month.` [both parsed, core > headline]
+- `Core above headline this month.` [both parsed, SIGNED core > SIGNED headline — comparing magnitudes would let core -0.6 read as "above" headline +0.5]
 - `One month of data. The y/y line covers twelve.`
 - `Headline only. The rest is in the release.` [numbers partially parsed]
 
 **Escalation tier:**
-- Quote the release's OWN superlative when it prints one, e.g. the release
-  text "largest 1-month decrease since April 2020" may be quoted verbatim
-  with attribution. [gate: superlative sentence parsed from release text]
+- `The release's words: {superlative}` [gate: superlative sentence parsed
+  from the release text] — quotes the release's OWN superlative when it
+  prints one, e.g. "largest 1-month decrease since April 2020". The
+  government writes the beat; we only carry it.
 
 ### FED / STATEMENT DIFF
+DISABLED UNTIL BUILT: these describe a diff between consecutive FOMC
+statements, and the diff engine is P3. Fed press releases post the Fed's own
+headline with no beat until then.
 - `The edit is the entire news.`
 - `Everything else is verbatim.` [diff confirms remainder identical]
 - `The diff will not change. The interpretations will.`

@@ -215,7 +215,7 @@ export function draftCpi(h: CpiHeadline): string {
   if (core) parts.push(`core ${core}`);
   const yoy = signed(h.yoyVerb, h.yoyPct);
   if (yoy) parts.push(`${yoy === "unchanged" ? "unchanged" : yoy} y/y`);
-  const numbers = parts.length > 0 ? ` — ${parts.join(", ")}` : "";
+  const numbers = parts.length > 0 ? `: ${parts.join(", ")}` : "";
   const month = h.refMonth.charAt(0) + h.refMonth.slice(1).toLowerCase();
   return `BLS: Consumer Price Index, ${month}${numbers} (USDL-${h.usdl})`;
 }
@@ -292,13 +292,31 @@ export async function watchBls(env: Env, now: Date, budget: TickBudget = newTick
       } else if (usdl && usdl !== state.cursor) {
         // NEW RELEASE. CPI gets the full parsed print; others an alert.
         let draft: string;
+        let macroPayload: Record<string, unknown> = { slug: meta.slug, usdl, releaseName: release.release_name };
         if (meta.slug === "cpi") {
+          // Parse ONCE (10ms CPU budget) and carry SIGNED values: gating on
+          // magnitudes would let core -0.6 read as "above" headline +0.5.
           const headline = parseCpiRelease(page.body);
           draft = headline ? draftCpi(headline) : `BLS: Consumer Price Index released (USDL-${usdl})`;
+          const sign = (verb: string | null, pct: number | null): number | null => {
+            if (verb === null || pct === null) return null;
+            if (verb.toLowerCase().includes("unchanged")) return 0;
+            return /decreas|fell|fall|declin|drop/.test(verb.toLowerCase()) ? -pct : pct;
+          };
+          macroPayload = {
+            ...macroPayload,
+            refMonth: headline?.refMonth ?? null,
+            momText: headline ? draft.split(": ").slice(2).join(": ") || null : null,
+            momSigned: sign(headline?.momVerb ?? null, headline?.momPct ?? null),
+            coreSigned: sign(headline?.coreVerb ?? null, headline?.corePct ?? null),
+            yoyPct: headline?.yoyPct ?? null,
+            partialParse: headline ? headline.momPct === null || headline.yoyPct === null : true,
+          };
         } else {
           const month = /[A-Z]{2,}[A-Z ]*\s*[-–—]+\s*([A-Z]+ \d{4})/.exec(page.body)?.[1];
           draft = `BLS: ${meta.label}${month ? `, ${month.charAt(0) + month.slice(1).toLowerCase()}` : ""} released (USDL-${usdl})`;
         }
+        macroPayload = { ...macroPayload, factLine: draft };
         const item = await insertItem(
           env.DB,
           {
@@ -307,7 +325,7 @@ export async function watchBls(env: Env, now: Date, budget: TickBudget = newTick
             category: "macro_print",
             eventAt: release.scheduled_at,
             sourceUrl: releaseUrl(meta.slug),
-            payload: { slug: meta.slug, usdl, draft },
+            payload: macroPayload,
             score: SCORE_AUTO_ALERT,
             status: "new",
           },
@@ -315,7 +333,7 @@ export async function watchBls(env: Env, now: Date, budget: TickBudget = newTick
         );
         if (item.outcome === "inserted" && item.id !== null && budget.take(1)) {
           // Speed path: notify immediately rather than waiting for a drain.
-          await enqueueForApproval(env, item.id, "WIRE", draft, releaseUrl(meta.slug), now);
+          await enqueueForApproval(env, item.id, "MACRO_PRINT", macroPayload, releaseUrl(meta.slug), now);
         }
         await env.DB.prepare(`UPDATE release_calendar SET fired_at = ?1, armed = 1 WHERE id = ?2`)
           .bind(iso(now), release.id)

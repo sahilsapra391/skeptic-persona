@@ -64,6 +64,7 @@ export async function runPoster(env: Env, now: Date, budget: TickBudget = newTic
      JOIN items i ON i.id = q.item_id
      LEFT JOIN post_log p ON p.queue_id = q.id
      WHERE q.state IN ('approved', 'edited') AND p.id IS NULL
+       AND i.source <> 'smoke_test'
      ORDER BY q.decided_at
      LIMIT ?1`,
   )

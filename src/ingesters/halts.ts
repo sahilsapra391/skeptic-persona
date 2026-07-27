@@ -163,7 +163,7 @@ export function parseNyseHalts(csv: string): HaltEvent[] {
 export function draftHalt(e: HaltEvent): string {
   const name = e.name ? ` (${e.name})` : "";
   const hhmm = e.haltTime.slice(0, 5);
-  return `HALT: ${e.symbol}${name} — ${e.reasonText}, ${hhmm} ET`;
+  return `HALT: ${e.symbol}${name}. ${e.reasonText}, ${hhmm} ET`;
 }
 
 async function ingestHalts(env: Env, events: HaltEvent[], sourceUrl: string, now: Date): Promise<number> {
@@ -185,7 +185,7 @@ async function ingestHalts(env: Env, events: HaltEvent[], sourceUrl: string, now
           reasonCode: e.reasonCode,
           reasonText: e.reasonText,
           haltTimeEt: `${e.haltDate} ${e.haltTime}`,
-          draft: draftHalt(e),
+          haltTimeEtShort: e.haltTime.slice(0, 5),
         },
         score: e.score,
         status: e.score >= SCORE_POSTABLE && isFreshAtIngest(e.eventIso, now) ? "new" : "logged",
@@ -207,8 +207,8 @@ async function drainHalts(env: Env, now: Date, budget: TickBudget): Promise<numb
   let enqueued = 0;
   for (const row of pending.results) {
     if (!budget.take(1)) break;
-    const payload = JSON.parse(row.payload) as { draft?: string };
-    const result = await enqueueForApproval(env, row.id, "WIRE", payload.draft ?? "", row.source_url, now);
+    const payload = JSON.parse(row.payload) as Record<string, unknown>;
+    const result = await enqueueForApproval(env, row.id, "HALT", payload, row.source_url, now);
     enqueued += 1;
     if (result.retryAfter !== null) break;
   }

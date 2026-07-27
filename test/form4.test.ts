@@ -146,7 +146,7 @@ describe("totals + scoring", () => {
       derivativeCount: 0,
     };
     const d = draftForm4(doc, totalsFor(doc.nonDerivative));
-    expect(d).toBe("Form 4: Jane Doe (CEO) bought 50,000 DOCS at ~$12.34 ($617K) on 2026-07-24 — stake now 1,250,000 shares (+4.2%)");
+    expect(d).toBe("Form 4: Jane Doe (CEO) bought 50,000 DOCS at ~$12.34 ($617K) on 2026-07-24, stake now 1,250,000 shares (+4.2%)");
   });
 
   it("an unpriced buy in the same filing suppresses stake/pct and its date never leaks into the span", () => {
@@ -225,9 +225,10 @@ describe("checkCluster", () => {
       .bind(CLUSTER_SOURCE)
       .all<{ payload: string }>();
     expect(items.results.length).toBe(2);
-    const draft = (JSON.parse(items.results[1]!.payload) as { draft: string }).draft;
+    const draft = (JSON.parse(items.results[1]!.payload) as { factLine: string }).factLine;
     expect(draft).toContain("4 insiders bought DOCS");
-    expect(draft).toContain("per SEC Form 4 filings");
+    // Attribution is appended by the template engine, not the fact builder.
+    expect(draft).not.toContain("per SEC Form 4 filings");
   });
 
   it("sells and out-of-window buys don't count", async () => {
@@ -248,7 +249,7 @@ describe("checkCluster", () => {
     const item = await env.DB.prepare("SELECT payload FROM items WHERE source = ?1 AND external_id LIKE '0011:%'")
       .bind(CLUSTER_SOURCE)
       .first<{ payload: string }>();
-    expect((JSON.parse(item!.payload) as { draft: string }).draft).toContain("3 insiders bought NVC");
+    expect((JSON.parse(item!.payload) as { factLine: string }).factLine).toContain("3 insiders bought NVC");
   });
 
   it("a footnote-only price yields 'amt n/a' for that member and suppresses the combined total", async () => {
@@ -260,11 +261,12 @@ describe("checkCluster", () => {
     const item = await env.DB.prepare("SELECT payload FROM items WHERE source = ?1 AND external_id LIKE '0012:%'")
       .bind(CLUSTER_SOURCE)
       .first<{ payload: string }>();
-    const draft = (JSON.parse(item!.payload) as { draft: string }).draft;
+    const draft = (JSON.parse(item!.payload) as { factLine: string }).factLine;
     expect(draft).toContain("C (Director) amt n/a");
     expect(draft).not.toContain("Combined");
     expect(draft).not.toContain("$0");
-    expect(draft).toContain("per SEC Form 4 filings");
+    // Attribution is appended by the template engine, not the fact builder.
+    expect(draft).not.toContain("per SEC Form 4 filings");
   });
 });
 
@@ -347,7 +349,10 @@ describe("pollForm4 end-to-end", () => {
 
     // $200k P-buy -> postable -> notified.
     expect(SEND.calls.length).toBe(s0 + 1);
-    expect(String(SEND.calls.at(-1)?.text)).toContain("BUYER PERSON (Chief Financial Officer) bought 25,000 ISCO");
+    const sentText = String(SEND.calls.at(-1)?.text);
+    expect(sentText).toContain("BUYER PERSON (Chief Financial Officer)");
+    expect(sentText).toContain("25,000 ISCO");
+    expect(sentText).toContain("per SEC Form 4");
 
     const item = await env.DB.prepare(
       "SELECT status, score FROM items WHERE source = 'edgar_form4' AND external_id = '0009999999-26-000001'",
@@ -447,6 +452,6 @@ describe("pollForm4 end-to-end", () => {
       .first<{ archetype: string; state: string; payload: string }>();
     expect(clusterRow?.archetype).toBe("INSIDER_CLUSTER");
     expect(clusterRow?.state).toBe("pending");
-    expect((JSON.parse(clusterRow!.payload) as { draft: string }).draft).toContain("3 insiders bought ISCO");
+    expect((JSON.parse(clusterRow!.payload) as { factLine: string }).factLine).toContain("3 insiders bought ISCO");
   });
 });

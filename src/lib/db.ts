@@ -87,13 +87,19 @@ export async function createQueueEntry(
   archetype: string,
   draftText: string,
   now: Date = new Date(),
+  provenance?: { skeletonId: string | null; beatId: string | null },
 ): Promise<number> {
   // db.batch = one subrequest + an implicit transaction: the queue row and
   // the items mirror can never diverge on a mid-write failure.
+  // skeleton_id/beat_id are the rotation ledger — written on the row we
+  // already insert, so rotation costs zero extra writes.
   const [ins] = await db.batch([
     db
-      .prepare(`INSERT INTO queue (item_id, archetype, draft_text, created_at) VALUES (?1, ?2, ?3, ?4)`)
-      .bind(itemId, archetype, draftText, iso(now)),
+      .prepare(
+        `INSERT INTO queue (item_id, archetype, draft_text, created_at, skeleton_id, beat_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      )
+      .bind(itemId, archetype, draftText, iso(now), provenance?.skeletonId ?? null, provenance?.beatId ?? null),
     db.prepare(`UPDATE items SET status = 'queued' WHERE id = ?1`).bind(itemId),
   ]);
   return ins?.meta.last_row_id ?? 0;
@@ -161,7 +167,11 @@ export async function applyEditReply(
   const [flip] = await db.batch([
     db
       .prepare(
-        `UPDATE queue SET state = 'edited', edited_text = ?1, decided_at = ?2
+        // skeleton_id/beat_id are nulled: hand-written text has no engine
+        // provenance, and leaving the old ids would poison rotation with a
+        // beat that never actually went out.
+        `UPDATE queue SET state = 'edited', edited_text = ?1, decided_at = ?2,
+           skeleton_id = NULL, beat_id = NULL
          WHERE edit_prompt_message_id = ?3 AND state = 'pending'
          RETURNING id, item_id`,
       )
