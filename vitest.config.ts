@@ -17,6 +17,8 @@ export default defineWorkersConfig(async () => {
               TELEGRAM_CHAT_ID: "424242",
               TELEGRAM_WEBHOOK_SECRET: "test-webhook-secret",
               QUEUE_NOTIFY_SPACING_MS: "0",
+              BLS_POLL_INTERVAL_MS: "0",
+              BLS_POLL_DEADLINE_MS: "300",
             },
           },
         },

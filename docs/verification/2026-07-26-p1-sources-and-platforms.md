@@ -177,3 +177,37 @@ here.
 - **P7 deferrals:** TDnet (Japanese-only HTML), Korea OpenDART/KIND, Japan
   e-Stat CPI (free appId + metadata mapping), Norges Bank (Norwegian-only
   feed), CBRT EVDS (moved to evds3, key required).
+
+## Production-egress findings (2026-07-27, from the deployed Worker)
+
+The repo's standing warning that datacenter egress may be treated
+differently than residential curl proved real — and only for one source.
+
+- **efdsearch.senate.gov 403s Cloudflare Workers egress.** The same 3-step
+  handshake that succeeds from a residential IP returns `403` on the very
+  first GET from the Worker. Tested from production in three variants:
+  declared Skeptic UA (403), declared UA + full `Accept`/`Accept-Language`
+  headers (403), and a browser UA + those headers (403). Header shape is
+  therefore not the discriminator — the block is IP/ASN-class. Response:
+  `senate_ptr` is parked on a **daily probe** (`daily_1330_utc`) so it
+  auto-recovers if the block lifts; Senate polling moves to the GitHub
+  Actions lane (residential-class runners) after the Actions quota resets
+  2026-08-01, alongside House PDF extraction. NOT worked around by
+  disguising the client: the repo's honest-automation rule outranks the
+  source.
+- **Everything else polls fine from Workers egress:** EDGAR 8-K + Form 4
+  (100 + 48 filings ingested in production), House Clerk ZIP (313 rows),
+  and — as of this chunk — Fed press RSS, Nasdaq/NYSE halt feeds, and BLS
+  (`bls.ics` + release pages). BLS was the source flagged as most likely to
+  block datacenter IPs; it does not.
+
+## PR-6 fixtures (captured live 2026-07-27T05:24Z)
+
+`fed-press-all.fixture` (20 items, per-item `<category>`),
+`nasdaq-halts.fixture` (25 items — the documented cap; `ndaq:` namespace
+fields; date-only `pubDate` vs real `HaltDate`+`HaltTime`),
+`nyse-halts.csv.fixture` (CSV behind `octet-stream`, triple-quoted names,
+prose reasons), `bls.ics.fixture` (313 VEVENTs; `DTSTART;TZID=US-Eastern`),
+`cpi-nr0.fixture` (USDL-26-1191, June 2026 print). Note: release prose wraps
+at ~110 chars, so **inter-word gaps in the CPI sentences can be newlines** —
+the parser's regexes use `\s+` between words for exactly this reason.
