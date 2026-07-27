@@ -28,6 +28,9 @@ export function isFreshDateOnly(dateOnlyIso: string, now: Date): boolean {
 
 /** Compact money formatting for drafts ($950, $617K, $1.2M) — display of parsed numbers. */
 export function fmtUsd(n: number): string {
+  // Billions tier: Treasury auctions run to tens of billions, and without
+  // this a $69B offering rendered as "$69000M".
+  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
   if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
   return `$${Math.round(n)}`;

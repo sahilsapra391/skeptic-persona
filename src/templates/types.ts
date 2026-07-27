@@ -19,6 +19,7 @@ export type ArchetypeId =
   | "MACRO_PRINT"
   | "FED_PRESS"
   | "RATE_DECISION"
+  | "TREASURY_AUCTION"
   | "HALT";
 
 /** Beat tiers. `signature` is deliberately outside normal rotation

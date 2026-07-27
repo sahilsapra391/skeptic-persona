@@ -519,6 +519,63 @@ const rateDecision: Archetype = {
 };
 
 // ---------------------------------------------------------------------------
+// TREASURY_AUCTION
+
+const treasuryAuction: Archetype = {
+  id: "TREASURY_AUCTION",
+  attribution: "per US Treasury",
+  skeletons: [
+    {
+      id: "auction.result",
+      build: (p) => {
+        const line = str(p, "factLine");
+        return line ? { lines: [line] } : null;
+      },
+    },
+    {
+      id: "auction.termFirst",
+      build: (p) => {
+        const term = str(p, "securityTerm");
+        const type = str(p, "securityType");
+        const cover = num(p, "bidToCoverRatio");
+        const yld = num(p, "highYield");
+        if (!term || !type || cover === null || yld === null) return null;
+        return { lines: [`${term} ${type}: ${yld}% high yield, ${cover} bid-to-cover`] };
+      },
+    },
+  ],
+  beats: [
+    {
+      id: "auction.indirect",
+      text: "Indirect bidders took {indirectPct}% of the competitive award.",
+      tier: "base",
+      when: { op: "has", field: "indirectPct" },
+    },
+    {
+      id: "auction.allocation",
+      text: "{allocationPercentage}% allotted at the high.",
+      tier: "base",
+      when: { op: "has", field: "allocationPercentage" },
+    },
+    {
+      id: "auction.coverIsDemand",
+      text: "Bid-to-cover is the demand, not the price.",
+      tier: "base",
+      when: { op: "has", field: "bidToCoverRatio" },
+    },
+    // Escalation: a weak cover is the newsworthy auction.
+    {
+      id: "auction.weakCover",
+      // NOT "coming up short": \bshort\b is a banned advice token and the
+      // poster's register guard would block every weak-auction post.
+      text: "Barely covered.",
+      tier: "escalation",
+      when: { op: "lte", field: "bidToCoverRatio", value: 2.1 },
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // HALT
 
 const halt: Archetype = {
@@ -593,5 +650,6 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   MACRO_PRINT: macroPrint,
   FED_PRESS: fedPress,
   RATE_DECISION: rateDecision,
+  TREASURY_AUCTION: treasuryAuction,
   HALT: halt,
 };

@@ -210,7 +210,9 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{changeBps\}/g, "{n}")
         .replace(/\{priorValue\}/g, "{x}")
         .replace(/\{priorDate\}/g, "{date}")
-        .replace(/\{observedDate\}/g, "{date}");
+        .replace(/\{observedDate\}/g, "{date}")
+        .replace(/\{indirectPct\}/g, "{n}")
+        .replace(/\{allocationPercentage\}/g, "{n}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -251,6 +253,7 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       FED_PRESS: ["title", "category"],
       HALT: ["reasonCode", "symbol", "name", "reasonText", "haltTimeEtShort", "haltCountToday"],
       RATE_DECISION: ["changeBps", "priorValue", "priorDate", "observedDate", "factLine", "country", "label", "value", "direction"],
+      TREASURY_AUCTION: ["indirectPct", "allocationPercentage", "bidToCoverRatio", "factLine", "securityTerm", "securityType", "highYield"],
     };
     for (const a of ALL) {
       for (const beat of a.beats) {
@@ -392,6 +395,15 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       yoyPct: 3.5,
     },
     FED_PRESS: { title: "Agencies issue joint statement", category: "Banking and Consumer Regulatory Policy" },
+    TREASURY_AUCTION: {
+      factLine: "US Treasury 2-Year Note auction 2026-07-27: high yield 4.315%, bid-to-cover 2.66, $69.0B offered",
+      securityTerm: "2-Year",
+      securityType: "Note",
+      highYield: 4.315,
+      bidToCoverRatio: 2.66,
+      allocationPercentage: 69.04,
+      indirectPct: 56.6,
+    },
     RATE_DECISION: {
       factLine: "Canada: Target for the overnight rate lowered to 2.25% from 2.5%, effective 2026-07-26",
       country: "Canada",
