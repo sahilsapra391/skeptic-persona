@@ -215,7 +215,10 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{allocationPercentage\}/g, "{n}")
         .replace(/\{initiatedIso\}/g, "{d1}")
         .replace(/\{reportedIso\}/g, "{d2}")
-        .replace(/\{disclosureLagDays\}/g, "{n}");
+        .replace(/\{disclosureLagDays\}/g, "{n}")
+        .replace(/\{signingDate\}/g, "{d1}")
+        .replace(/\{publicationDate\}/g, "{d2}")
+        .replace(/\{signingLagDays\}/g, "{n}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -256,6 +259,7 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       FED_PRESS: ["title", "category"],
       HALT: ["reasonCode", "symbol", "name", "reasonText", "haltTimeEtShort", "haltCountToday"],
       RATE_DECISION: ["changeBps", "priorValue", "priorDate", "observedDate", "factLine", "country", "label", "value", "direction"],
+      POLICY_ACTION: ["signingDate", "publicationDate", "number", "documentNumber", "signingLagDays", "factLine", "title", "kind"],
       PRODUCT_RECALL: [
         "initiatedIso",
         "reportedIso",
@@ -409,6 +413,16 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       yoyPct: 3.5,
     },
     FED_PRESS: { title: "Agencies issue joint statement", category: "Banking and Consumer Regulatory Policy" },
+    POLICY_ACTION: {
+      factLine: "Executive Order 14415: Securing America's Defense Supply Chains, signed 2026-07-20",
+      title: "Securing America's Defense Supply Chains",
+      kind: "Executive Order",
+      number: "14415",
+      documentNumber: "2026-15000",
+      publicationDate: "2026-07-23",
+      signingDate: "2026-07-20",
+      signingLagDays: 3,
+    },
     PRODUCT_RECALL: {
       factLine: "FDA Class II recall: Chiesi USA, Inc. CLEVIPREX. Reason: Lack of Assurance of Sterility",
       firm: "Chiesi USA, Inc.",

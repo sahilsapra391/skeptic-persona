@@ -205,6 +205,20 @@ fabrication wearing the clothes of arithmetic.
 The classification is always FDA's own grading. We never read the reason text
 and decide how serious a recall is.
 
+### POLICY ACTION (executive orders, proclamations, determinations)
+- `Signed {d1}. Published {d2}.` [both dates parsed]
+- `Numbered in the series, so it is countable.` [EO/proclamation number parsed]
+- `The document is the source. No summary in between.`
+
+**Escalation tier:**
+- `{n} days from signature to publication.` [≥7 days, both dates parsed]
+
+Ceremonial proclamations ("Made in America Week, 2026") are roughly half of
+all proclamations and are lake-only. That filter is a SELECTION heuristic on
+a parsed title, never a claim: it decides what asks for attention and never
+appears in a post, so getting it wrong costs a queue slot rather than a false
+statement.
+
 ### HALT
 - `Pending is the whole disclosure.` [T1]
 - `The band did what the band does.` [LUDP/LUDS]
