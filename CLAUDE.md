@@ -13,9 +13,12 @@ docs/ here as needed).
 2. **Primary sources only.** Filed, printed, or released by an official
    source, or parsed from our own data lake. No "reportedly."
 3. **No vendor-data republishing.**
-4. **Honest automation.** Bio discloses the account is Skeptic's automated
-   wire. No fake typos, no engagement bait. Template rotation is also a
-   Meta-policy requirement (repetitive content is a named spam signal).
+4. **Honest identity** (amended 2026-07-27, owner-approved). The account is
+   Skeptic's market desk: brand-affiliation transparent (skeptic.fyi
+   visible), never a fake human (no invented name, avatar, or lore), and it
+   never denies automation if asked (true answer: "Skeptic's desk, a human
+   runs it"). No fake typos, no engagement bait. Template rotation is also
+   a Meta-policy requirement (repetitive content is a named spam signal).
 5. **No advice language.**
 
 ## Engineering discipline
@@ -51,6 +54,8 @@ docs/ here as needed).
 
 ## Voice
 
-Post templates follow the persona guide (wire-terse, attribution always),
-NOT Sahil's personal LinkedIn voice rules. The persona doc gets its own file
-in P2; Sahil signs off on voice.
+**docs/persona.md is the signed-off voice authority** (owner pass applied
+2026-07-27). Post templates follow it, NOT Sahil's personal LinkedIn voice
+rules. Core structural law: fact first + attribution, ONE dry beat last,
+never blended; beats are machine-gated to parsed fields; rotation is
+mandatory. Any template/persona conflict is a bug in the template.
