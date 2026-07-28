@@ -229,12 +229,9 @@ export function stylePackFor(archetype: ArchetypeId): string {
     ...ANTI_PATTERNS.map((p) => `- ${p.name}: e.g. "${p.example}". ${p.why}`),
   ];
   if (archetype === "CONGRESS_PTR") sections.push(CONGRESS_NOTES);
-  const exemplars = OWNER_EXEMPLARS.filter((e) => e.archetype === archetype);
-  if (exemplars.length > 0) {
-    sections.push(
-      "OWNER EXEMPLARS (the voice to match; these outrank everything above on tone):",
-      ...exemplars.map((e) => `---\n${e.text}\n---`),
-    );
-  }
+  // Exemplars are DELIBERATELY absent here: generate.ts's buildPrompt is
+  // their single home (it filters the injectable bank per archetype). Two
+  // homes meant the prompt would embed every exemplar twice the day the
+  // bank was populated.
   return sections.join("\n\n");
 }

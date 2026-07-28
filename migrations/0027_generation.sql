@@ -40,10 +40,11 @@ CREATE TABLE echo_ngrams (
   hash TEXT PRIMARY KEY
 ) WITHOUT ROWID;
 
--- The generation job. Priority 5: behind nothing that matters (the poster's
--- 0 slot is parked) and ahead of feed polls — an approved item is the owner
--- waiting on his phone. every_5m not every_1m: generation is not wire-speed,
--- the LLM call is the latency floor anyway, and a 5-minute cadence keeps a
--- misbehaving model from burning budget 60x/hour.
+-- The generation job. Priority 30: BEHIND the release-second BLS watchers
+-- (priority 10 — migration 0011's ordering doctrine says nothing pre-empts
+-- a watcher due at its release second) and ahead of the priority-50 feed
+-- polls. every_5m not every_1m: generation is not wire-speed, the LLM call
+-- is the latency floor anyway, and a 5-minute cadence keeps a misbehaving
+-- model from burning budget 60x/hour.
 INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority) VALUES
-  ('generation', '2026-01-01T00:00:00.000Z', 'every_5m', 1, 5);
+  ('generation', '2026-01-01T00:00:00.000Z', 'every_5m', 1, 30);
