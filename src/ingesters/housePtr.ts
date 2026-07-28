@@ -50,6 +50,21 @@ const ASSET_TAIL_RE = /\(([A-Z.\-]{1,8})\)\s*(?:\[([A-Z]{2,3})\])?\s*$/;
 const OWNER_RE = /^(SP|DC|JT)\s+/;
 
 /**
+ * Count transaction MARKERS with a deliberately loose pattern: the
+ * concatenated date pair followed by a dollar sign, anywhere in the text.
+ *
+ * This exists to check the strict parser against something other than
+ * itself. The strict pattern once matched 15 rows in a filing that contained
+ * 16, silently dropping a Home Depot purchase, and nothing downstream could
+ * tell — the post would have been complete with a trade simply absent.
+ * A completeness check has to count against a signal the DOCUMENT emits,
+ * not against what the parser managed to read.
+ */
+export function countTxnMarkers(raw: string): number {
+  return (raw.replace(/\u0000/g, "").match(/\d{2}\/\d{2}\/\d{4}\d{2}\/\d{2}\/\d{4}\$/g) ?? []).length;
+}
+
+/**
  * Parse the transaction table out of a House PTR PDF's extracted text.
  *
  * The PDF is RC4-encrypted with an EMPTY owner password and carries a real
