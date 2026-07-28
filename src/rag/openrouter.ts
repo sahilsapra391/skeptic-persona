@@ -55,7 +55,7 @@ export async function chatComplete(
     body: JSON.stringify({
       model,
       messages,
-      max_tokens: opts.maxTokens ?? 1024,
+      max_tokens: opts.maxTokens ?? 2048,
       temperature: opts.temperature ?? 0.8,
     }),
     // The LLM call IS the latency floor of the generation job; anything past
@@ -86,24 +86,80 @@ export async function chatComplete(
  * like validation failure (regenerate once, then fall back).
  */
 export function parseVariants(content: string): Partial<Record<"dry" | "sharp" | "commentary", string>> {
-  const startIdx = content.indexOf("{");
-  const endIdx = content.lastIndexOf("}");
-  if (startIdx === -1 || endIdx <= startIdx) {
-    log("warn", "openrouter reply carried no JSON object");
-    return {};
+  // Layered (finding #23: first-{ to last-} dies when the surrounding prose
+  // contains braces, e.g. a preamble echoing the requested format). Extract
+  // every BALANCED top-level object, parse each, and keep the one carrying
+  // the most variant keys — a decoy like {"dry": "..."} in prose scores 1,
+  // the real reply scores 3.
+  const keys = ["dry", "sharp", "commentary"] as const;
+  const extract = (c: string): Partial<Record<(typeof keys)[number], string>> | null => {
+    try {
+      const parsed: unknown = JSON.parse(c);
+      if (parsed === null || typeof parsed !== "object") return null;
+      const rec = parsed as Record<string, unknown>;
+      const out: Partial<Record<(typeof keys)[number], string>> = {};
+      for (const k of keys) {
+        if (typeof rec[k] === "string" && rec[k].trim() !== "") out[k] = (rec[k] as string).trim();
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const candidates: string[] = [content];
+  const fence = /```(?:json)?\s*([\s\S]*?)```/.exec(content);
+  if (fence?.[1]) candidates.push(fence[1]);
+  // Balanced-object scan (string- and escape-aware enough for JSON).
+  let depth = 0;
+  let start = -1;
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i]!;
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === "{") {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0 && start !== -1) {
+        candidates.push(content.slice(start, i + 1));
+        start = -1;
+      }
+      if (depth < 0) depth = 0;
+    }
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content.slice(startIdx, endIdx + 1));
-  } catch {
-    log("warn", "openrouter reply JSON did not parse");
-    return {};
+
+  let best: Partial<Record<(typeof keys)[number], string>> = {};
+  for (const c of candidates) {
+    const got = extract(c);
+    if (got && Object.keys(got).length > Object.keys(best).length) best = got;
+    if (Object.keys(best).length === keys.length) return best;
   }
-  if (parsed === null || typeof parsed !== "object") return {};
-  const rec = parsed as Record<string, unknown>;
-  const out: Partial<Record<"dry" | "sharp" | "commentary", string>> = {};
-  for (const k of ["dry", "sharp", "commentary"] as const) {
-    if (typeof rec[k] === "string" && rec[k].trim() !== "") out[k] = (rec[k] as string).trim();
+  if (Object.keys(best).length > 0) return best;
+
+  // Per-key regex salvage for broken outer JSON; LAST occurrence wins (the
+  // real reply follows any prose that echoes the format).
+  const out: Partial<Record<(typeof keys)[number], string>> = {};
+  for (const k of keys) {
+    const matches = [...content.matchAll(new RegExp(`"${k}"\\s*:\\s*("(?:[^"\\\\]|\\\\.)*")`, "g"))];
+    const m = matches.at(-1);
+    if (m?.[1]) {
+      try {
+        const v: unknown = JSON.parse(m[1]);
+        if (typeof v === "string" && v.trim() !== "") out[k] = v.trim();
+      } catch {
+        // leave absent
+      }
+    }
   }
+  if (Object.keys(out).length === 0) log("warn", "openrouter reply carried no parseable variants");
   return out;
 }

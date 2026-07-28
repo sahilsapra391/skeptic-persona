@@ -115,5 +115,6 @@ export function registerJobs(): void {
   // 0026. Their handlers still exist (src/poster.ts, THREADS_PARKED) for the
   // appeal. Re-enabling a row without reverting the code logs a "no handler
   // registered" warn rather than silently doing nothing, which is the failure
-  // mode we want. The generation job that replaces the poster lands in p2r-04.
+  // mode we want. The 'generation' job registered above is the poster's
+  // replacement: it produces copy-ready variants; the OWNER publishes.
 }

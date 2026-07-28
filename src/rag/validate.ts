@@ -1,5 +1,6 @@
 import type { Payload } from "../templates/types";
 import type { ArchetypeId } from "../templates/types";
+import { ARCHETYPES } from "../templates/archetypes";
 import { checkRegister } from "../templates/validate";
 import { POST_TEXT_LIMIT, weightedLength } from "../templates/length";
 import { ngramHashes, sharedNgrams } from "./echo";
@@ -13,15 +14,43 @@ import { ngramHashes, sharedNgrams } from "./echo";
 //
 // GROUP 2 is the commentary contract: a variant that reads like a template,
 // echoes the corpus, hedges, or repeats a recent shape is rejected exactly
-// like a fabricated number, per the owner's contract ("if a variant reads
-// like a template, the validator should reject it as much as it rejects a
-// fabricated number").
+// like a fabricated number.
 //
-// The never-list check is checkRegister, REUSED not rewritten: it was
-// recalibrated 2026-07-27 after bare-word matching produced 3 false positives
-// and 0 true ones. Every pattern added here follows the same law — match
-// CONSTRUCTIONS, never bare words — and ships with the known false-positive
-// corpus as test fixtures.
+// HARDENED 2026-07-28 after an adversarial bypass hunt (45-agent review)
+// broke the first version six ways. The holes and their closures, kept here
+// because each is a lesson in how "obviously safe" allowances compose into
+// fabrication licenses:
+//
+//  1. Unconditional scale-up (n*1e3/1e6/1e9 for every payload number) let
+//     lagDays 45 legitimize "45,000 shares" and "$45 billion". Scale-up is
+//     GONE: draftNumbers already resolves "1.2M" to 1200000, so the allowed
+//     set never needs inflated variants; only the guarded scale-DOWN stays
+//     (payload 1200000 licenses a bare "1.2"; nothing licenses upward).
+//  2. Raw substring fallback (payloadJson.includes) let "$100,000" pass as a
+//     prefix of 1000001. The verbatim path now requires a non-digit char in
+//     the token (times, codes like "8-K") AND digit-boundary matching.
+//  3. Spelled-out numbers ("nine million", "forty-six") were invisible to
+//     the digit regex. A word-number parser now evaluates them into the same
+//     membership check; relative quantities ("double", "half of the") are
+//     rejected outright — a relative quantity is arithmetic, and the model
+//     never does arithmetic.
+//  4. Date-component explosion (2026-06-03 -> 2026, 6, 3) let the model
+//     recombine components into wrong dates ("July 3"). Dates are validated
+//     STRUCTURALLY: date phrases are extracted, matched against payload
+//     dates as (y, m, d) tuples, and consumed before the numeric pass; ISO
+//     strings no longer leak their components as free integers.
+//  5. Magnitude-only matching let payload numbers be re-issued in any unit
+//     ("45%" from lagDays 45). Percent/bps claims now check a percent-keyed
+//     allowed set built from field NAMES, not just values.
+//  6. entityCheck's prefix skip (^Senate...) exempted fabricated
+//     institutions ("Senate Ethics Committee"); substring containment let
+//     $ROE pass via "Jane Roe". Furniture is now an exact-string set derived
+//     from ARCHETYPES attributions; tickers/CAPS match case-SENSITIVELY with
+//     token boundaries; hyphenated surnames match as compound names.
+//
+// The never-list check is checkRegister, REUSED not rewritten (recalibrated
+// 2026-07-27: match CONSTRUCTIONS, never bare words). Every pattern bank
+// here follows that law and ships with its false-positive corpus as tests.
 
 export interface ValidationIssue {
   readonly rule: string;
@@ -35,126 +64,343 @@ export type Variant = "dry" | "sharp" | "commentary";
 // ---------------------------------------------------------------------------
 
 const SCALE_WORDS: ReadonlyArray<readonly [RegExp, number]> = [
-  [/\b(billion|bn|B)\b/i, 1e9],
-  [/\b(million|mm|M)\b/i, 1e6],
-  [/\b(thousand|K)\b/i, 1e3],
+  [/^(billion|bn|B)$/i, 1e9],
+  [/^(million|mm|M)$/i, 1e6],
+  [/^(thousand|K)$/i, 1e3],
 ];
 
 function canon(n: number): string {
-  // One canonical spelling per value; tolerate float noise from scale math.
   return Number(n.toPrecision(12)).toString();
 }
 
-/**
- * Every numeric value derivable from the payload, in canonical form.
- * Includes scale variants both ways (1200000 -> 1.2, 1.2M -> 1200000) so
- * "the model restated a payload number at a different scale" stays legal
- * while "the model produced a number from nowhere" cannot.
- */
-export function allowedNumbers(payload: Payload): Set<string> {
-  const allowed = new Set<string>();
-  const addWithScales = (n: number): void => {
-    if (!Number.isFinite(n)) return;
-    allowed.add(canon(n));
-    if (Math.abs(n) >= 1000) for (const [, f] of SCALE_WORDS) allowed.add(canon(n / f));
-    for (const [, f] of SCALE_WORDS) allowed.add(canon(n * f));
-    allowed.add(canon(Math.abs(n)));
-  };
-  const walk = (v: unknown): void => {
-    if (typeof v === "number") addWithScales(v);
-    else if (typeof v === "string") {
-      // Pull every number out of payload strings: dates ("2026-06-03" ->
-      // 2026, 6, 3), bands ("$1,000,001 - $5,000,000"), times, CIKs.
-      for (const m of v.matchAll(/\d[\d,]*\.?\d*/g)) {
-        addWithScales(Number(m[0].replace(/,/g, "")));
-      }
-    } else if (Array.isArray(v)) v.forEach(walk);
-    else if (v && typeof v === "object") Object.values(v).forEach(walk);
-  };
-  walk(payload);
-  return allowed;
+const ISO_DATETIME_RE = /\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?Z?)?/g;
+
+export interface PayloadFacts {
+  /** Canonical numeric values the payload actually states. */
+  readonly numbers: Set<string>;
+  /** Values under percent-ish field names — the only numbers claimable as % or bps. */
+  readonly percents: Set<string>;
+  /** Dates the payload states, as "m-d" and "y-m-d" keys. */
+  readonly dates: Set<string>;
+  readonly json: string;
 }
 
-/** Numeric tokens in a draft, with the scale word (if adjacent) applied. */
-export function draftNumbers(text: string): Array<{ raw: string; value: number }> {
-  const out: Array<{ raw: string; value: number }> = [];
-  // Number plus optional attached scale suffix or following scale word.
+const PERCENT_KEY_RE = /(pct|percent|rate|yield|yoy|mom|qoq|bps|ratio|share|coverage|cover|change|chg|alloc)/i;
+
+export function payloadFacts(payload: Payload): PayloadFacts {
+  const numbers = new Set<string>();
+  const percents = new Set<string>();
+  const dates = new Set<string>();
+
+  const addNumber = (n: number, percentContext: boolean): void => {
+    if (!Number.isFinite(n)) return;
+    numbers.add(canon(n));
+    numbers.add(canon(Math.abs(n)));
+    // Guarded scale-DOWN only: a large payload number licenses its short form
+    // ("1.2" for 1200000). NOTHING licenses upward — that was CRITICAL #1.
+    if (Math.abs(n) >= 1000) for (const [, f] of SCALE_WORDS) numbers.add(canon(n / f));
+    if (percentContext) {
+      percents.add(canon(n));
+      percents.add(canon(Math.abs(n)));
+    }
+  };
+
+  const walkString = (v: string, percentContext: boolean): void => {
+    // Structural dates first, then strip them so their components never
+    // enter the numeric set as free integers (bypass #4).
+    for (const m of v.matchAll(ISO_DATETIME_RE)) {
+      const [y, mo, d] = m[0].slice(0, 10).split("-").map(Number);
+      dates.add(`${mo}-${d}`);
+      dates.add(`${y}-${mo}-${d}`);
+      addNumber(y!, false); // the year alone is a legitimate standalone claim
+    }
+    const stripped = v.replace(ISO_DATETIME_RE, " ");
+    for (const m of stripped.matchAll(/\d[\d,]*\.?\d*/g)) {
+      addNumber(Number(m[0].replace(/,/g, "")), percentContext);
+    }
+    // "2.4%" inside a payload string is a percent claim wherever it lives.
+    for (const m of stripped.matchAll(/(\d[\d,]*\.?\d*)\s*%/g)) {
+      percents.add(canon(Number(m[1]!.replace(/,/g, ""))));
+    }
+  };
+
+  const walk = (v: unknown, keyPath: string): void => {
+    const percentContext = PERCENT_KEY_RE.test(keyPath);
+    if (typeof v === "number") addNumber(v, percentContext);
+    else if (typeof v === "string") walkString(v, percentContext);
+    else if (Array.isArray(v)) v.forEach((x) => walk(x, keyPath));
+    else if (v && typeof v === "object") {
+      for (const [k, x] of Object.entries(v)) walk(x, k);
+    }
+  };
+  walk(payload, "");
+  return { numbers, percents, dates, json: JSON.stringify(payload) };
+}
+
+const MONTHS: Record<string, number> = {
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+  jan: 1, feb: 2, mar: 3, apr: 4, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12,
+};
+
+const MONTH_NAME = Object.keys(MONTHS).join("|");
+// "June 3", "June 3, 2026", "3 June", ISO, M/D and M/D/YYYY.
+const DATE_PHRASE_RE = new RegExp(
+  `\\b(?:(${MONTH_NAME})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?` +
+    `|(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTH_NAME})\\.?(?:,?\\s+(\\d{4}))?` +
+    `|(\\d{4})-(\\d{2})-(\\d{2})` +
+    `|(\\d{1,2})/(\\d{1,2})(?:/(\\d{2,4}))?)\\b`,
+  "gi",
+);
+
+/** Validate every date phrase in the draft against the payload's dates, and
+ *  return the text with those phrases consumed (bypass #4). */
+export function dateCheck(text: string, facts: PayloadFacts): { issues: ValidationIssue[]; remainder: string } {
+  const issues: ValidationIssue[] = [];
+  const remainder = text.replace(
+    DATE_PHRASE_RE,
+    (raw, mn1, d1, y1, d2, mn2, y2, yIso, mIso, dIso, mSlash, dSlash, ySlash) => {
+      let m: number | undefined, d: number | undefined, y: number | undefined;
+      if (mn1) [m, d, y] = [MONTHS[String(mn1).toLowerCase()], Number(d1), y1 ? Number(y1) : undefined];
+      else if (mn2) [m, d, y] = [MONTHS[String(mn2).toLowerCase()], Number(d2), y2 ? Number(y2) : undefined];
+      else if (yIso) [y, m, d] = [Number(yIso), Number(mIso), Number(dIso)];
+      else {
+        const yy = ySlash ? Number(ySlash) : undefined;
+        [m, d, y] = [Number(mSlash), Number(dSlash), yy !== undefined && yy < 100 ? yy + 2000 : yy];
+      }
+      const ok = y !== undefined ? facts.dates.has(`${y}-${m}-${d}`) : facts.dates.has(`${m}-${d}`);
+      if (!ok) issues.push({ rule: "number", detail: `date "${String(raw)}" does not match any payload date` });
+      return " ";
+    },
+  );
+  return { issues, remainder };
+}
+
+// --- spelled-out numbers (bypass #3) ---------------------------------------
+
+const WORD_UNITS: Record<string, number> = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50,
+  sixty: 60, seventy: 70, eighty: 80, ninety: 90, dozen: 12,
+};
+const WORD_SCALES: Record<string, number> = { hundred: 100, thousand: 1e3, million: 1e6, billion: 1e9 };
+const RELATIVE_WORDS =
+  /\b(doubl(?:e|ed|ing)|tripl(?:e|ed|ing)|halv(?:e|ed|ing)|half\s+(?:of\s+)?(?:the|that|its)|a\s+(?:third|quarter|fifth)\s+of|twice)\b/i;
+const QUANTITY_NOUN = /^(share|filing|trade|contract|day|week|month|year|percent|point|bp|bps|dollar|post|buyer|seller|member|halt)s?$/i;
+
+export function wordNumberCheck(text: string, facts: PayloadFacts): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const rel = RELATIVE_WORDS.exec(text);
+  if (rel) {
+    issues.push({ rule: "number", detail: `relative quantity "${rel[0]}" — payload numbers only, never derived ones` });
+  }
+  const words = text.toLowerCase().split(/[^a-z0-9-]+/);
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]!;
+    const compound = w.includes("-") ? w.split("-") : null;
+    let value: number | undefined;
+    let consumed = 1;
+    if (compound && compound.length === 2 && WORD_UNITS[compound[0]!] !== undefined && WORD_UNITS[compound[1]!] !== undefined) {
+      value = WORD_UNITS[compound[0]!]! + WORD_UNITS[compound[1]!]!; // forty-six
+    } else if (WORD_UNITS[w] !== undefined) {
+      value = WORD_UNITS[w]!;
+    } else {
+      continue;
+    }
+    const next = words[i + 1];
+    if (next && WORD_SCALES[next] !== undefined) {
+      value *= WORD_SCALES[next]!; // "nine million"
+      consumed = 2;
+    } else if (value <= 9) {
+      // Small units are everyday English ("no one filed"). They only count
+      // as numeric claims when they quantify something.
+      if (!QUANTITY_NOUN.test(next ?? "")) continue;
+    }
+    if (!facts.numbers.has(canon(value))) {
+      issues.push({
+        rule: "number",
+        detail: `spelled-out "${words.slice(i, i + consumed).join(" ")}" (${value}) does not appear in the payload`,
+      });
+    }
+    i += consumed - 1;
+  }
+  return issues;
+}
+
+// --- digit tokens ----------------------------------------------------------
+
+export function draftNumbers(text: string): Array<{ raw: string; value: number; unit: "percent" | "plain" }> {
+  const out: Array<{ raw: string; value: number; unit: "percent" | "plain" }> = [];
   for (const m of text.matchAll(/\$?(\d[\d,]*\.?\d*)\s*(%|bps|billion|bn|million|mm|thousand|[MKB]\b)?/g)) {
     const base = Number(m[1]!.replace(/,/g, ""));
     if (!Number.isFinite(base)) continue;
     let value = base;
+    let unit: "percent" | "plain" = "plain";
     const suffix = m[2];
-    if (suffix && !/^(%|bps)$/i.test(suffix)) {
-      for (const [re, f] of SCALE_WORDS) if (re.test(suffix)) value = base * f;
+    if (suffix) {
+      if (/^(%|bps)$/i.test(suffix)) unit = "percent";
+      else for (const [re, f] of SCALE_WORDS) if (re.test(suffix)) value = base * f;
     }
-    out.push({ raw: m[0].trim(), value });
+    out.push({ raw: m[0].trim(), value, unit });
   }
   return out;
 }
 
-export function numberCheck(text: string, payload: Payload): ValidationIssue[] {
-  const allowed = allowedNumbers(payload);
-  const payloadJson = JSON.stringify(payload);
-  const issues: ValidationIssue[] = [];
-  for (const { raw, value } of draftNumbers(text)) {
-    if (allowed.has(canon(value))) continue;
-    // Verbatim fallback: "19:50" or "2026-06-03" style tokens ride whole.
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function numberCheck(text: string, payload: Payload, precomputed?: PayloadFacts): ValidationIssue[] {
+  const facts = precomputed ?? payloadFacts(payload);
+  // Dates first, structurally, consuming their tokens.
+  const { issues, remainder: afterDates } = dateCheck(text, facts);
+  // Times next ("19:50"): ISO timestamps no longer leak 19 and 50 as free
+  // integers, so a time claim must match a payload timestamp verbatim,
+  // digit-bounded, and is then consumed whole.
+  const remainder = afterDates.replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, (t) => {
+    if (!new RegExp(`(?<![0-9])${escapeRegExp(t)}(?![0-9])`).test(facts.json)) {
+      issues.push({ rule: "number", detail: `time "${t}" does not appear in the payload` });
+    }
+    return " ";
+  });
+  for (const { raw, value, unit } of draftNumbers(remainder)) {
+    if (unit === "percent") {
+      // A % or bps claim must come from a percent-context payload field
+      // (bypass #5: lagDays 45 must never become "45%").
+      if (facts.percents.has(canon(value))) continue;
+      issues.push({ rule: "number", detail: `"${raw}" is not a percent the payload states` });
+      continue;
+    }
+    if (facts.numbers.has(canon(value))) continue;
+    // Verbatim fallback, TIGHTENED (bypass #2): only tokens carrying a
+    // non-digit character (times like 19:50, codes like 8-K), matched with
+    // digit boundaries so "100000" can never ride inside "1000001".
     const bare = raw.replace(/[$,]/g, "");
-    if (bare !== "" && payloadJson.includes(bare)) continue;
+    if (/[^0-9.]/.test(bare) && new RegExp(`(?<![0-9])${escapeRegExp(bare)}(?![0-9])`).test(facts.json)) continue;
     issues.push({ rule: "number", detail: `"${raw}" does not appear in the payload` });
   }
+  issues.push(...wordNumberCheck(remainder, facts));
   return issues;
 }
 
-/** Words that look like entities but are the wire's own furniture. */
-const ENTITY_WHITELIST = new Set([
-  // attribution + regulator vocabulary
-  "SEC", "EDGAR", "BLS", "FDA", "CFTC", "FTC", "FCA", "ECB", "FOMC", "DOJ",
-  "NYSE", "OTC", "IPO", "ET", "UTC", "CIK", "CEO", "CFO", "COO", "CTO", "GDP", "CPI", "PPI", "PCE",
-  "LUDP", "LUDS", "USD", "EUR", "GBP",
-  // form vocabulary
-  "PTR", "EFD",
-  // months + days (dates render as words)
-  "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST",
-  "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
-  "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY",
-]);
+// --- entities --------------------------------------------------------------
 
-/**
- * Every ticker, ALL-CAPS token, and multi-word proper noun in the draft must
- * exist in the payload. Single capitalized words are NOT checked — sentence
- * starts make them hopeless — which is a known, accepted gap: a fabricated
- * single-word name sneaks past this check but not past the owner's eyes, and
- * the number/attribution checks bound the damage.
- */
-export function entityCheck(text: string, payload: Payload): ValidationIssue[] {
-  const payloadJson = JSON.stringify(payload).toLowerCase();
-  const issues: ValidationIssue[] = [];
-  const flag = (kind: string, token: string): void => {
-    if (!payloadJson.includes(token.toLowerCase())) {
-      issues.push({ rule: "entity", detail: `${kind} "${token}" does not appear in the payload` });
+/** Wire furniture that is never an entity claim: the attribution strings
+ *  themselves (derived from the archetype table, never a drifting hand list)
+ *  plus regulator/format vocabulary. */
+function furnitureSet(): Set<string> {
+  const out = new Set<string>([
+    "SEC", "EDGAR", "BLS", "FDA", "CFTC", "FTC", "FCA", "ECB", "FOMC", "DOJ",
+    "NYSE", "OTC", "IPO", "ET", "UTC", "CIK", "CEO", "CFO", "COO", "CTO", "GDP", "CPI", "PPI", "PCE",
+    "LUDP", "LUDS", "USD", "EUR", "GBP", "PTR", "EFD",
+    "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST",
+    "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
+    "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY",
+  ]);
+  for (const a of Object.values(ARCHETYPES)) {
+    const attr: unknown = a.attribution;
+    const strings = typeof attr === "string" ? [attr] : Object.values((attr as { map?: Record<string, string> }).map ?? {});
+    for (const s of strings) {
+      const phrase = s.replace(/^per\s+/i, "");
+      out.add(phrase.toUpperCase());
+      for (const w of phrase.split(/\s+/)) out.add(w.toUpperCase());
     }
-  };
-  for (const m of text.matchAll(/\$([A-Z]{1,5})\b/g)) flag("ticker", m[1]!);
-  // Strip $TICKERs before the ALL-CAPS pass so one bad ticker is one issue,
-  // not two.
+  }
+  return out;
+}
+
+const FURNITURE = furnitureSet();
+
+/** Token-bounded existence check against the payload JSON — substring
+ *  containment let $ROE pass via "Jane Roe" (bypass #16). Tickers and CAPS
+ *  match case-SENSITIVELY: "Roe" in the payload never licenses "ROE". */
+function inPayload(json: string, token: string, caseSensitive: boolean): boolean {
+  const re = new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(token)}(?![A-Za-z0-9])`, caseSensitive ? "" : "i");
+  return re.test(json);
+}
+
+export function entityCheck(text: string, payload: Payload, precomputed?: PayloadFacts): ValidationIssue[] {
+  const json = (precomputed ?? payloadFacts(payload)).json;
+  const issues: ValidationIssue[] = [];
+  for (const m of text.matchAll(/\$([A-Z]{1,5})\b/g)) {
+    if (!inPayload(json, m[1]!, true)) {
+      issues.push({ rule: "entity", detail: `ticker "$${m[1]}" does not appear in the payload` });
+    }
+  }
   const withoutTickers = text.replace(/\$[A-Z]{1,5}\b/g, "");
   for (const m of withoutTickers.matchAll(/\b([A-Z]{2,})\b/g)) {
-    if (!ENTITY_WHITELIST.has(m[1]!)) flag("all-caps token", m[1]!);
+    if (FURNITURE.has(m[1]!)) continue;
+    if (!inPayload(json, m[1]!, true)) {
+      issues.push({ rule: "entity", detail: `all-caps token "${m[1]}" does not appear in the payload` });
+    }
   }
-  for (const m of text.matchAll(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b/g)) {
-    // "per Senate eFD" style attribution is furniture, not an entity claim.
-    if (/^(Senate|House|Federal Register|Form|Schedule)\b/.test(m[1]!)) continue;
-    flag("name", m[1]!);
+  // Multi-word proper nouns INCLUDING hyphenated compounds ("Ocasio-Cortez");
+  // space-only matching split those into unchecked single words (bypass #19).
+  for (const m of text.matchAll(/\b([A-Z][a-z]+(?:[-\s][A-Z][a-z]+)+)\b/g)) {
+    const name = m[1]!;
+    // Exact furniture phrases only — a PREFIX skip exempted "Senate Ethics
+    // Committee" wholesale (bypass #6).
+    if (FURNITURE.has(name.toUpperCase())) continue;
+    if (!inPayload(json, name, false)) {
+      issues.push({ rule: "entity", detail: `name "${name}" does not appear in the payload` });
+    }
   }
   return issues;
 }
 
-/**
- * Structural law (persona.md section 3): fact block first, carrying the
- * attribution; at most ONE further segment (the beat / the take), separated
- * by a blank line; never blended.
- */
+// --- sourcing, urls, structure, length -------------------------------------
+
+/** Non-negotiable #2 enforced mechanically (finding #18): secondary-sourcing
+ *  constructions, and any "per X" whose X is not one of OUR records. */
+const SOURCING_PATTERNS: readonly RegExp[] = [
+  /\breportedly\b/i,
+  /\bsources?\s+(say|said|tell|told|familiar)\b/i,
+  /\baccording to (reports|people|sources|a report)\b/i,
+  /\bciting\b/i,
+  /\bmedia reports?\b/i,
+];
+
+function allowedAttributions(): string[] {
+  // The rate-phrase senses of "per" are English, not attribution; without
+  // them "250 posts per day" reads as citing an outlet named Day.
+  const out: string[] = [
+    "per Skeptic's tape",
+    "per day", "per week", "per month", "per year", "per annum",
+    "per share", "per contract", "per ounce", "per barrel", "per rolling",
+  ];
+  for (const a of Object.values(ARCHETYPES)) {
+    const attr: unknown = a.attribution;
+    if (typeof attr === "string") out.push(attr);
+    else out.push(...Object.values((attr as { map?: Record<string, string> }).map ?? {}));
+  }
+  return out;
+}
+
+const ALLOWED_ATTRIBUTIONS = allowedAttributions();
+
+export function sourcingCheck(text: string): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const hit = SOURCING_PATTERNS.find((re) => re.test(text));
+  if (hit) issues.push({ rule: "sourcing", detail: `secondary sourcing: ${String(hit.exec(text)?.[0])}` });
+  // Every "per ..." must be one of our attributions — "per Bloomberg" is
+  // republishing wearing our furniture.
+  for (const m of text.matchAll(/\bper\s+\S[^.,\n]*/gi)) {
+    if (!ALLOWED_ATTRIBUTIONS.some((a) => m[0].toLowerCase().startsWith(a.toLowerCase()))) {
+      issues.push({ rule: "sourcing", detail: `attribution "${m[0].slice(0, 40)}" is not one of our records` });
+    }
+  }
+  return issues;
+}
+
+/** The model receives no URL and must emit none; the source link rides in a
+ *  reply (p2r-05). Belt to that brace (finding #10). */
+export function urlCheck(text: string): ValidationIssue[] {
+  return /(?:https?:\/\/|\bwww\.|\bt\.co\b)/i.test(text)
+    ? [{ rule: "url", detail: "URLs never ride in the post body; the source goes in the reply" }]
+    : [];
+}
+
 export function structuralCheck(text: string): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const segments = text.split(/\n\n+/);
@@ -171,8 +417,6 @@ export function lengthCheck(text: string, variant: Variant): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const w = weightedLength(text);
   if (w > POST_TEXT_LIMIT) issues.push({ rule: "length", detail: `${w} weighted chars, limit ${POST_TEXT_LIMIT}` });
-  // The commentary contract's floor: an "opinion piece" of 90 chars is a
-  // wire post that lost its way. dry/sharp have no floor by design.
   if (variant === "commentary" && w < 200) {
     issues.push({ rule: "length", detail: `commentary is ${w} weighted chars; contract is 200-280` });
   }
@@ -180,37 +424,32 @@ export function lengthCheck(text: string, variant: Variant): ValidationIssue[] {
 }
 
 // ---------------------------------------------------------------------------
-// GROUP 2 — the commentary contract
+// GROUP 1.5 — imputation (the defamation surface)
 // ---------------------------------------------------------------------------
 
-/**
- * Hedge CONSTRUCTIONS. Bare "may"/"could" are legal English and legal quotes
- * of filing language ("prior financials may not be relied upon" is the
- * record's own sentence). What's banned is the desk hedging its OWN claim.
- */
-/**
- * Motive/knowledge imputation CONSTRUCTIONS (persona.md never-list). This is
- * the defamation surface: a named human with a real disclosed trade plus a
- * sentence saying they knew. checkRegister does not cover it (advice only),
- * and the hedge check does not either — a plain declarative "they knew" is
- * not a hedge. Found missing by the fallback-chain test, which fed
- * "The senator knew exactly what was coming" through the full gate and
- * watched it pass.
- */
 const MOTIVE_PATTERNS: readonly RegExp[] = [
-  /\b\w+\s+knew\b/i, // "they knew", "the senator knew"
+  /\b\w+\s+knew\b/i,
   /\bknown all along\b/i,
+  /\bknows?\s+(exactly\s+)?(what|when|something)\b/i,
+  /\b(was|were|is|are)\s+aware\b/i,
+  /\bhad reason to\b/i,
+  /\btiming\s+(speaks|says|tells|is everything)\b/i,
+  /\bspeaks for itself\b/i,
   /\bconveniently\b/i,
   /\bquietly\s+(filed|sold|bought|dumped|exited|moved)\b/i,
-  /\bcoordinat(ed|ion)\b/i,
+  /\bcoordinat(ed|ion|ing)\b/i,
   /\b(not|no)\s+a\s+coincidence\b/i,
-  /\bfront[- ]?ran\b/i,
+  /\bfront[- ]?r(an|un|unning)\b/i,
 ];
 
 export function motiveCheck(text: string): ValidationIssue[] {
   const hit = MOTIVE_PATTERNS.find((re) => re.test(text));
   return hit ? [{ rule: "motive", detail: `imputed knowledge/motive: ${String(hit.exec(text)?.[0])}` }] : [];
 }
+
+// ---------------------------------------------------------------------------
+// GROUP 2 — the commentary contract
+// ---------------------------------------------------------------------------
 
 const HEDGE_PATTERNS: readonly RegExp[] = [
   /\b(?:this|that|it|which)\s+(?:may|might|could)\s+(?:suggest|indicate|signal|mean|imply)\b/i,
@@ -228,11 +467,6 @@ export function hedgeCheck(text: string): ValidationIssue[] {
   return hit ? [{ rule: "hedge", detail: `hedge construction: ${String(hit.exec(text)?.[0])}` }] : [];
 }
 
-/**
- * Bot cadence: N sentences of near-identical length read as generated text
- * even when each sentence is fine alone. Also the triple anaphora ("Not X.
- * Not Y. Not Z.") — the single most recognizable LLM tic.
- */
 export function cadenceCheck(text: string): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const sentences = text.split(/[.!?]\s+|\n+/).map((s) => s.trim()).filter((s) => s.length > 0);
@@ -252,10 +486,6 @@ export function cadenceCheck(text: string): ValidationIssue[] {
   return issues;
 }
 
-/**
- * Template echo (commentary only): commentary sharing an 8-gram with the
- * template draft for the same item is the template wearing a coat of paint.
- */
 export function templateEchoCheck(text: string, templateDraft: string): ValidationIssue[] {
   const shared = sharedNgrams(templateDraft, text);
   return shared.length > 0
@@ -263,29 +493,24 @@ export function templateEchoCheck(text: string, templateDraft: string): Validati
     : [];
 }
 
-/** Corpus echo: any salted 8-gram of the draft present in echo_ngrams. */
-export async function corpusEchoCheck(
-  db: D1Database,
-  text: string,
-): Promise<{ issues: ValidationIssue[]; corpusEmpty: boolean }> {
+/** Probed once per RUN, not per variant — a COUNT(*) per variant was a full
+ *  table scan up to 18x per run (finding #22). */
+export async function corpusHasData(db: D1Database): Promise<boolean> {
+  const row = await db.prepare(`SELECT 1 AS x FROM echo_ngrams LIMIT 1`).first<{ x: number }>();
+  return row !== null;
+}
+
+export async function corpusEchoCheck(db: D1Database, text: string): Promise<ValidationIssue[]> {
   const hashes = [...ngramHashes(text)];
-  if (hashes.length === 0) return { issues: [], corpusEmpty: false };
-  const any = await db.prepare(`SELECT COUNT(*) AS n FROM echo_ngrams`).first<{ n: number }>();
-  if (!any || any.n === 0) return { issues: [], corpusEmpty: true }; // fail-open, logged by the caller
+  if (hashes.length === 0) return [];
   const placeholders = hashes.map((_, i) => `?${i + 1}`).join(",");
   const hit = await db
     .prepare(`SELECT hash FROM echo_ngrams WHERE hash IN (${placeholders}) LIMIT 1`)
     .bind(...hashes)
     .first<{ hash: string }>();
-  return {
-    issues: hit ? [{ rule: "corpus_echo", detail: "an 8-gram matches the studied corpus" }] : [],
-    corpusEmpty: false,
-  };
+  return hit ? [{ rule: "corpus_echo", detail: "an 8-gram matches the studied corpus" }] : [];
 }
 
-/** Recent-shape collisions, CROSS-archetype by design: 18 structurally
- *  identical posts across five archetypes is the pattern that got the
- *  Threads account banned; a same-archetype check would have passed it. */
 export async function collisionCheck(
   db: D1Database,
   queueId: number,
@@ -294,8 +519,7 @@ export async function collisionCheck(
 ): Promise<ValidationIssue[]> {
   const issues: ValidationIssue[] = [];
   // queue_id <> this row: the three variants of ONE item are alternatives
-  // (only one posts), so dry and commentary opening identically is fine;
-  // two different POSTS opening identically is the pattern.
+  // (only one posts); two different POSTS sharing a shape is the pattern.
   const recentSkeletons = await db
     .prepare(`SELECT skeleton_hash FROM generations WHERE status = 'valid' AND queue_id <> ?1 ORDER BY id DESC LIMIT 40`)
     .bind(queueId)
@@ -325,31 +549,34 @@ export interface ValidateOptions {
   readonly templateDraft: string;
   readonly skeletonHash: string;
   readonly openerHash: string;
+  /** Probed once per run via corpusHasData(); false = skip the echo query. */
+  readonly corpusPopulated: boolean;
 }
 
-export interface ValidateResult {
-  readonly issues: ValidationIssue[];
-  /** True when echo_ngrams is empty — the caller logs it once per run. */
-  readonly corpusEmpty: boolean;
-}
-
-/** The full gate a variant must clear before the owner sees it. */
-export async function validateVariant(db: D1Database, text: string, opts: ValidateOptions): Promise<ValidateResult> {
+/**
+ * The full gate. ORDER IS CONTRACT (finding #36): group-1 issues precede
+ * group-2 so the recorded status names the doctrine failure over the style
+ * failure when both fire — an audit row saying rejected:cadence when the
+ * draft also fabricated a number would bury the finding that matters.
+ */
+export async function validateVariant(db: D1Database, text: string, opts: ValidateOptions): Promise<ValidationIssue[]> {
+  const facts = payloadFacts(opts.payload);
   const issues: ValidationIssue[] = [
     // Group 1 — the floor.
-    ...numberCheck(text, opts.payload),
-    ...entityCheck(text, opts.payload),
+    ...numberCheck(text, opts.payload, facts),
+    ...entityCheck(text, opts.payload, facts),
+    ...sourcingCheck(text),
+    ...urlCheck(text),
+    ...motiveCheck(text),
     ...structuralCheck(text),
     ...checkRegister(text, opts.archetype),
     ...lengthCheck(text, opts.variant),
-    ...motiveCheck(text),
-    // Group 2 — the contract (sync parts).
+    // Group 2 — the contract.
     ...hedgeCheck(text),
     ...cadenceCheck(text),
   ];
   if (opts.variant === "commentary") issues.push(...templateEchoCheck(text, opts.templateDraft));
   issues.push(...(await collisionCheck(db, opts.queueId, opts.skeletonHash, opts.openerHash)));
-  const corpus = await corpusEchoCheck(db, text);
-  issues.push(...corpus.issues);
-  return { issues, corpusEmpty: corpus.corpusEmpty };
+  if (opts.corpusPopulated) issues.push(...(await corpusEchoCheck(db, text)));
+  return issues;
 }

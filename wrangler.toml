@@ -33,3 +33,8 @@ CONTACT_EMAIL = "admin@spechawk.ai"
 POSTING_ENABLED = "false"
 # Owner's private chat; the only chat the approval bot listens to.
 TELEGRAM_CHAT_ID = "6504147349"
+# Generation model id (P2-R). Declared HERE because Workers Builds re-applies
+# [vars] on every merge deploy — a dashboard-set value would be wiped. Empty =
+# generation holds and the queue accumulates; the owner sets the real id in a
+# PR alongside `wrangler secret put OPENROUTER_API_KEY`.
+OPENROUTER_MODEL = ""
