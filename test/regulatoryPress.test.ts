@@ -131,6 +131,27 @@ describe("poll end-to-end", () => {
   });
 });
 
+describe("Bank of Japan", () => {
+  it("parses JST (+0900) stamps, a fifth timestamp convention here", async () => {
+    const BOJ = (await import("./fixtures/boj-whatsnew.xml.fixture?raw")).default;
+    const items = parsePressFeed(BOJ);
+    expect(items.length).toBeGreaterThan(30);
+    expect(items[0]?.publishedIso).toMatch(/Z$/); // normalized to UTC
+    expect(BOJ).toContain("+0900");
+  });
+
+  it("filters conference and research notices, keeps policy releases", async () => {
+    const BOJ = (await import("./fixtures/boj-whatsnew.xml.fixture?raw")).default;
+    const src = PRESS_SOURCES.find((s) => s.id === "press_boj")!;
+    const items = parsePressFeed(BOJ);
+    const dropped = items.filter((i) => !isNewsworthy(src, i));
+    // The live feed genuinely carries an IMES conference notice.
+    expect(dropped.some((i) => /IMES/i.test(i.title))).toBe(true);
+    // ...and a statistics release still passes.
+    expect(items.some((i) => isNewsworthy(src, i))).toBe(true);
+  });
+});
+
 describe("enforcement wire (live fixtures)", () => {
   it("parses all three enforcement feeds", async () => {
     const SEC_ADMIN = (await import("./fixtures/sec-admin-proceedings.xml.fixture?raw")).default;
