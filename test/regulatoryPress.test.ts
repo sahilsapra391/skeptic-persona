@@ -130,3 +130,40 @@ describe("poll end-to-end", () => {
     expect(st?.f).toBe(1);
   });
 });
+
+describe("enforcement wire (live fixtures)", () => {
+  it("parses all three enforcement feeds", async () => {
+    const SEC_ADMIN = (await import("./fixtures/sec-admin-proceedings.xml.fixture?raw")).default;
+    const CFTC = (await import("./fixtures/cftc-enforcement.xml.fixture?raw")).default;
+    const FTC = (await import("./fixtures/ftc-competition.xml.fixture?raw")).default;
+
+    for (const [label, body, minItems] of [
+      ["SEC", SEC_ADMIN, 25],
+      ["CFTC", CFTC, 10],
+      ["FTC", FTC, 30],
+    ] as const) {
+      const items = parsePressFeed(body);
+      expect(items.length, label).toBe(minItems);
+      // Every item must carry the three fields a post needs.
+      for (const i of items) {
+        expect(i.title.length, label).toBeGreaterThan(0);
+        expect(i.link, label).toMatch(/^https?:\/\//);
+        expect(i.publishedIso, label).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      }
+    }
+  });
+
+  it("handles all three date offsets these agencies emit", async () => {
+    // -0400 (SEC/FTC eastern) and +0000 (CFTC) in the same family.
+    const SEC_ADMIN = (await import("./fixtures/sec-admin-proceedings.xml.fixture?raw")).default;
+    const CFTC = (await import("./fixtures/cftc-enforcement.xml.fixture?raw")).default;
+    expect(parsePressFeed(SEC_ADMIN)[0]?.publishedIso).toMatch(/Z$/);
+    expect(parsePressFeed(CFTC)[0]?.publishedIso).toMatch(/Z$/);
+  });
+
+  it("these feeds carry no categories, so everything is newsworthy by config", () => {
+    const src = PRESS_SOURCES.find((s) => s.id === "press_sec_enforcement")!;
+    expect(src.categories).toEqual([]);
+    expect(isNewsworthy(src, { title: "X v. Y", link: "https://sec.gov/x", publishedIso: "2026-07-27T00:00:00.000Z", categories: [], guid: "g" })).toBe(true);
+  });
+});
