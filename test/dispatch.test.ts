@@ -247,3 +247,91 @@ describe("paid-tier budget", () => {
     expect(errors.map((e) => e.index)).toEqual([2]);
   });
 });
+
+describe("starvation guard", () => {
+  async function seedJob(name: string, priority: number, dueAt: string) {
+    await env.DB.prepare(
+      `INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority) VALUES (?1, ?2, 'hourly', 1, ?3)
+       ON CONFLICT(name) DO UPDATE SET due_at = excluded.due_at, priority = excluded.priority, enabled = 1`,
+    )
+      .bind(name, dueAt, priority)
+      .run();
+  }
+
+  it("runs a long-starved low-priority job ahead of fresh high-priority work", async () => {
+    // THE PRODUCTION BUG. The tick has a TIME budget as well as a count
+    // limit, so when it breaks early it always breaks at the same place and
+    // whatever sits below the cut never runs again. Observed 2026-07-28:
+    // issuer_refresh (priority 90) had never run once, while priority-50 jobs
+    // due every minute cycled ahead of it forever.
+    const now = new Date("2026-07-28T16:00:00.000Z");
+    await env.DB.prepare("DELETE FROM jobs").run();
+    await seedJob("starved", 90, "2026-07-28T00:00:00.000Z"); // 16h overdue
+    for (let i = 0; i < 12; i++) {
+      await seedJob(`fresh_${i}`, 50, "2026-07-28T15:59:59.000Z"); // due this second
+    }
+
+    const ran: string[] = [];
+    for (const name of ["starved", ...Array.from({ length: 12 }, (_, i) => `fresh_${i}`)]) {
+      registry[name] = async () => {
+        ran.push(name);
+      };
+    }
+
+    await tick(env as never, now);
+    // Without the guard the starved job sorts 13th of 13 and is cut by the
+    // LIMIT before the time budget even matters.
+    expect(ran).toContain("starved");
+  });
+
+  it("leaves normal ordering alone when nothing is starving", async () => {
+    const now = new Date("2026-07-28T16:00:00.000Z");
+    await env.DB.prepare("DELETE FROM jobs").run();
+    await seedJob("low", 90, "2026-07-28T15:59:00.000Z"); // 1 min overdue
+    await seedJob("high", 10, "2026-07-28T15:59:00.000Z");
+
+    const ran: string[] = [];
+    for (const name of ["low", "high"]) {
+      registry[name] = async () => {
+        ran.push(name);
+      };
+    }
+    await tick(env as never, now);
+    // Neither is starving, so priority still decides who goes first.
+    expect(ran[0]).toBe("high");
+  });
+});
+
+describe("the starvation guard never delays latency-critical work", () => {
+  it("keeps the poster first even when backlog has been starving for hours", async () => {
+    const now = new Date("2026-07-28T16:00:00.000Z");
+    await env.DB.prepare("DELETE FROM jobs").run();
+    const ran: string[] = [];
+    // Backlog starved far past STARVATION_MS, and enough of it to fill a tick.
+    for (let i = 0; i < MAX_JOBS_PER_TICK; i++) {
+      const name = `starving${String(i).padStart(2, "0")}`;
+      registry[name] = async () => {
+        ran.push(name);
+      };
+      await env.DB.prepare(
+        "INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority) VALUES (?1, ?2, 'hourly', 1, 90)",
+      )
+        .bind(name, "2026-07-20T00:00:00.000Z")
+        .run();
+    }
+    registry["poster"] = async () => {
+      ran.push("poster");
+    };
+    // Barely due, but latency-critical: worthless a minute late.
+    await env.DB.prepare(
+      "INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority) VALUES ('poster', ?1, 'every_5m', 1, 0)",
+    )
+      .bind("2026-07-28T15:59:59.000Z")
+      .run();
+
+    await tick(env as never, now);
+    expect(ran[0]).toBe("poster");
+    // And the starving work still gets its turn in the same tick.
+    expect(ran.length).toBeGreaterThan(1);
+  });
+});
