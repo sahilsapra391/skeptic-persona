@@ -47,6 +47,12 @@ export const PRESS_SOURCES: readonly PressSource[] = [
     id: "press_cftc_enforcement",
     authority: "CFTC",
     attribution: "per CFTC",
+    // PARKED 2026-07-28: this host 403s Cloudflare Worker egress while
+    // returning 200 to the same declared UA from a residential connection.
+    // SEC and FTC were polled in the same tick and both succeeded, so the
+    // block is host-specific. Left registered on a daily probe so it
+    // self-recovers if the block lifts. CFTC *positioning* is unaffected —
+    // that is publicreporting.cftc.gov, a different host.
     url: "https://www.cftc.gov/RSS/RSSENF/rssenf.xml",
     categories: [],
   },
