@@ -39,3 +39,42 @@ export function fmtUsd(n: number): string {
 export function fmtNum(n: number): string {
   return n.toLocaleString("en-US");
 }
+
+/**
+ * Days between a filing date and a transaction date, both date-only.
+ * Lives here because BOTH chambers need it and the disclosure lag is the
+ * editorial point of a PTR post — two implementations would eventually
+ * disagree about how late a trade was reported.
+ */
+export function lagDays(filedIso: string, txnDate: string): number | null {
+  if (!filedIso) return null;
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(txnDate.trim());
+  if (!m) return null;
+  const txnIso = `${m[3]}-${m[1]}-${m[2]}`;
+  const diff = new Date(filedIso).getTime() - new Date(txnIso).getTime();
+  if (!Number.isFinite(diff)) return null;
+  return Math.round(diff / 86_400_000);
+}
+
+/**
+ * Ratio between a band's upper and lower bound ("$1,001 - $15,000" -> ~15).
+ * Gates the "The range is doing a lot of work." escalation beat: a wide band
+ * is a parsed property of the disclosure, not an inference about the trade.
+ */
+export function bandWidth(band: string): number | null {
+  const nums = band.match(/[\d,]+/g);
+  if (!nums || nums.length < 2) return null;
+  const lo = Number(nums[0]!.replace(/,/g, ""));
+  const hi = Number(nums[nums.length - 1]!.replace(/,/g, ""));
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+  return hi - lo;
+}
+
+export function bandSpan(band: string): number | null {
+  const nums = band.match(/[\d,]+/g);
+  if (!nums || nums.length < 2) return null;
+  const lo = Number(nums[0]!.replace(/,/g, ""));
+  const hi = Number(nums[nums.length - 1]!.replace(/,/g, ""));
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo <= 0) return null;
+  return Math.round((hi / lo) * 10) / 10;
+}

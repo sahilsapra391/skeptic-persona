@@ -65,6 +65,37 @@ read.**
 
 Both live fixtures now assert `countTxnMarkers(text) === parseHousePtrText(text).length`.
 
+## Live extraction run, 2026-07-28
+
+Four e-filed PDFs pulled from production `items` and run through
+`scripts/extract_house_pdfs.py` (pypdf 5.1.0) end to end:
+
+| DocID | Member | Pages | Markers | Parsed |
+|---|---|---|---|---|
+| 20035068 | Pete Sessions | 1 | 1 | 1 |
+| 20034963 | Jared Moskowitz | 3 | 16 | 16 |
+| 20035075 | Sam T. Liccardo (fund) | 1 | 1 | 1 |
+| 20034736 | Sam T. Liccardo (NVDA) | 1 | 1 | 1 |
+
+All four decrypt with an empty owner password and carry a real text layer.
+
+**Two of the four initially failed, and the completeness check is why we
+know.** They contained shapes neither original fixture had:
+
+1. **`S (partial)` type token** — the pattern required a bare capital letter,
+   so filing 20034736 parsed 0 of 1 transactions.
+2. **Amount band wrapped across two lines** — `"...07/22/2026$15,001 -"` then
+   `"$50,000"`. The pattern required a complete band at end of line.
+3. (Cosmetic, same run) a non-traded asset `Opportunity Fund II (GLAS Funds,
+   LP) [HN]` kept a stranded `[HN` because the tail pattern required a ticker
+   before the bracket. The parenthesis there is part of the fund's NAME —
+   reading it as a ticker would have invented one.
+
+Both parsing failures were silent by nature: the filing would have been logged
+with zero transactions and simply never posted. `countTxnMarkers` disagreeing
+with the parser is what surfaced them. Both shapes are now permanent fixtures
+(`house-ptr-partial-wrapped`, `house-ptr-untraded`).
+
 ## Why the courier, not the Worker
 
 A Worker has no PDF library and the project allows zero runtime npm

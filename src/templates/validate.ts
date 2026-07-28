@@ -59,8 +59,15 @@ export function checkRegister(text: string, archetype?: ArchetypeId): RegisterIs
     issues.push({ rule: "advice", detail: "advice language" });
   }
   const attribution = archetype ? ARCHETYPES[archetype]?.attribution : undefined;
-  if (attribution && !text.includes(attribution)) {
-    issues.push({ rule: "attribution", detail: `missing "${attribution}"` });
+  if (attribution !== undefined) {
+    // A multi-source archetype (CONGRESS_PTR spans both chambers) is checked
+    // against the CLOSED set: the text must cite one of the sources we
+    // declared. Which one is correct for this payload is the renderer's job;
+    // the validator's job is that a citation from our own set is present.
+    const accepted = typeof attribution === "string" ? [attribution] : Object.values(attribution.map);
+    if (!accepted.some((a) => text.includes(a))) {
+      issues.push({ rule: "attribution", detail: `missing one of ${accepted.map((a) => `"${a}"`).join(", ")}` });
+    }
   }
   return issues;
 }

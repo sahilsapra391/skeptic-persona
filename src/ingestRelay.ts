@@ -5,6 +5,7 @@ import { insertItem, SCORE_LOG_ONLY, SCORE_POSTABLE } from "./lib/db";
 import { parseAuctions, scoreAuction, draftAuction, SOURCE as TREASURY_SOURCE, TREASURY_PAGE } from "./ingesters/treasury";
 import { parsePressFeed, PRESS_SOURCES, isNewsworthy, draftPress } from "./ingesters/regulatoryPress";
 import { ingestEfdRow, parseEfdRows, SOURCE as SENATE_SOURCE, type EfdRow } from "./ingesters/senatePtr";
+import { applyHousePtrText, SOURCE as HOUSE_SOURCE } from "./ingesters/housePtr";
 import { enqueueForApproval } from "./pipeline/enqueue";
 import { isFreshAtIngest } from "./ingesters/shared";
 import { iso } from "./lib/time";
@@ -33,7 +34,21 @@ export interface RelayPayload {
 }
 
 /** Sources this relay knows how to ingest. Anything else is rejected. */
-export const RELAY_SOURCES = new Set<string>([TREASURY_SOURCE, "press_cftc_enforcement", SENATE_SOURCE]);
+export const RELAY_SOURCES = new Set<string>([TREASURY_SOURCE, "press_cftc_enforcement", SENATE_SOURCE, HOUSE_SOURCE]);
+
+/** GET this to learn which House PDFs still need extracting. */
+export const PENDING_PATH = "/ingest/pending/house_ptr";
+
+/** Bounded so one run cannot spend an hour of Actions time on a backlog. */
+const PENDING_LIMIT = 20;
+
+/**
+ * Give up after this many extraction attempts on one document. Without a
+ * cap a scanned PDF that will NEVER yield text is re-downloaded every day
+ * forever. Raising the cap (or clearing pdfAttempts) re-enables a document
+ * after a parser fix.
+ */
+const MAX_PDF_ATTEMPTS = 3;
 
 /**
  * Senate eFD needs THREE things the Worker cannot fetch: a session handshake,
@@ -127,6 +142,74 @@ async function ingestPress(env: Env, sourceId: string, body: string, now: Date):
  * Drain whatever the relay just made postable. Deliberately capped low: a
  * courier delivering a backlog must not fire twenty Telegram cards at once.
  */
+/**
+ * Documents the courier should fetch: House PTRs we indexed from the ZIP but
+ * whose transactions we have never read.
+ *
+ * Returns the source_url we already stored rather than a docId the courier
+ * would rebuild a URL from — one URL construction, in the ingester, tested.
+ */
+export async function handleIngestPending(request: Request, env: Env): Promise<Response> {
+  const denied = authFailure(request, env);
+  if (denied) return denied;
+
+  const rows = await env.DB.prepare(
+    `SELECT external_id AS docId, source_url AS url FROM items
+      WHERE source = ?1
+        AND json_valid(payload)
+        AND json_extract(payload, '$.transactions') IS NULL
+        AND json_extract(payload, '$.efiled') = 1
+        AND COALESCE(json_extract(payload, '$.pdfAttempts'), 0) < ?2
+      ORDER BY id DESC LIMIT ?3`,
+  )
+    .bind(HOUSE_SOURCE, MAX_PDF_ATTEMPTS, PENDING_LIMIT)
+    .all<{ docId: string; url: string }>();
+
+  return Response.json({ docs: rows.results });
+}
+
+interface HouseDoc {
+  docId: string;
+  text: string;
+}
+
+/**
+ * Apply extracted PDF text to the matching House items.
+ *
+ * The courier sends text; every judgement about it (completeness, scoring,
+ * drafting) happens here, on the code the tests cover.
+ */
+async function ingestHouse(env: Env, body: string, now: Date): Promise<number> {
+  const parsed = JSON.parse(body) as { docs?: unknown };
+  if (!Array.isArray(parsed.docs)) throw new Error("house_ptr: body has no docs array");
+
+  let applied = 0;
+  for (const raw of parsed.docs) {
+    const doc = raw as Partial<HouseDoc>;
+    if (typeof doc?.docId !== "string" || typeof doc?.text !== "string") {
+      throw new Error("house_ptr: doc missing docId or text");
+    }
+    const outcome = await applyHousePtrText(env, doc.docId, doc.text, now);
+    if (outcome.status === "queued" || outcome.status === "logged") {
+      applied += 1;
+      continue;
+    }
+    // Every non-apply is counted so a document that can never yield text
+    // stops being fetched. Counting happens HERE, not in the parser, because
+    // "we tried and failed" is relay state, not a property of the text.
+    await env.DB.prepare(
+      `UPDATE items
+          SET payload = json_set(payload, '$.pdfAttempts', COALESCE(json_extract(payload, '$.pdfAttempts'), 0) + 1,
+                                          '$.pdfLastFailure', ?2)
+        WHERE source = ?1 AND external_id = ?3 AND json_valid(payload)`,
+    )
+      .bind(HOUSE_SOURCE, outcome.status, doc.docId)
+      .run();
+    log("warn", "house_ptr extraction not applied", { docId: doc.docId, outcome: outcome.status });
+  }
+  return applied;
+}
+
 async function drain(env: Env, source: string, now: Date): Promise<number> {
   const budget = newTickBudget();
   const pending = await env.DB.prepare(
@@ -137,7 +220,11 @@ async function drain(env: Env, source: string, now: Date): Promise<number> {
     .all<{ id: number; source_url: string; payload: string }>();
   let sent = 0;
   const archetype =
-    source === TREASURY_SOURCE ? "TREASURY_AUCTION" : source === SENATE_SOURCE ? "CONGRESS_PTR" : "REGULATORY_NEWS";
+    source === TREASURY_SOURCE
+      ? "TREASURY_AUCTION"
+      : source === SENATE_SOURCE || source === HOUSE_SOURCE
+        ? "CONGRESS_PTR"
+        : "REGULATORY_NEWS";
   for (const row of pending.results) {
     if (!budget.take(1)) break;
     const payload = JSON.parse(row.payload) as Record<string, unknown>;
@@ -148,7 +235,12 @@ async function drain(env: Env, source: string, now: Date): Promise<number> {
   return sent;
 }
 
-export async function handleIngestRelay(request: Request, env: Env, now: Date = new Date()): Promise<Response> {
+/**
+ * One auth check for every relay endpoint. Returns a Response to send, or
+ * null to proceed. Shared so a new endpoint cannot accidentally ship without
+ * the timing-safe compare.
+ */
+function authFailure(request: Request, env: Env): Response | null {
   const secret = env.INGEST_SECRET;
   if (!secret) {
     log("warn", "ingest relay hit but INGEST_SECRET is not configured");
@@ -160,6 +252,12 @@ export async function handleIngestRelay(request: Request, env: Env, now: Date = 
     log("warn", "ingest relay auth failure");
     return new Response("unauthorized", { status: 401 });
   }
+  return null;
+}
+
+export async function handleIngestRelay(request: Request, env: Env, now: Date = new Date()): Promise<Response> {
+  const denied = authFailure(request, env);
+  if (denied) return denied;
 
   let payload: RelayPayload;
   try {
@@ -185,7 +283,9 @@ export async function handleIngestRelay(request: Request, env: Env, now: Date = 
         ? await ingestTreasury(env, payload.body, now)
         : payload.source === SENATE_SOURCE
           ? await ingestSenate(env, payload.body, now)
-          : await ingestPress(env, payload.source, payload.body, now);
+          : payload.source === HOUSE_SOURCE
+            ? await ingestHouse(env, payload.body, now)
+            : await ingestPress(env, payload.source, payload.body, now);
     const queued = await drain(env, payload.source, now);
     log("info", "ingest relay accepted", {
       source: payload.source,

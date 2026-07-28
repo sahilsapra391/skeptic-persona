@@ -106,6 +106,23 @@ export function pickBeat(
   return fresh[seed % fresh.length] ?? null;
 }
 
+/**
+ * Resolve an archetype's attribution against the payload.
+ *
+ * A plain string is the common case. A map means the archetype serves more
+ * than one primary source (CONGRESS_PTR covers both chambers), and the
+ * payload names which. The map is closed: the payload picks a key, it can
+ * never supply the citation text, so a malformed payload cannot invent a
+ * source. Absent or unrecognised key -> null -> the caller refuses to render.
+ */
+export function resolveAttribution(archetype: Archetype, payload: Payload): string | null {
+  const a = archetype.attribution;
+  if (typeof a === "string") return a;
+  const key = payload[a.field];
+  if (typeof key !== "string") return null;
+  return Object.prototype.hasOwnProperty.call(a.map, key) ? (a.map[key] ?? null) : null;
+}
+
 export function renderPost(
   archetype: Archetype,
   payload: Payload,
@@ -117,6 +134,12 @@ export function renderPost(
   const buildable = archetype.skeletons
     .map((s) => ({ skeleton: s, out: s.build(payload) }))
     .filter((x): x is { skeleton: (typeof archetype.skeletons)[number]; out: NonNullable<ReturnType<(typeof archetype.skeletons)[number]["build"]>> } => x.out !== null);
+  // Attribution before anything else: an archetype serving two chambers must
+  // never inherit the other one's source. Unresolvable means no post, not a
+  // guessed citation — every post carries its OWN source (non-negotiable #2).
+  const attribution = resolveAttribution(archetype, payload);
+  if (attribution === null) return { ok: false, reason: "no_attribution" };
+
   if (buildable.length === 0) return { ok: false, reason: "no_eligible_skeleton" };
 
   const freshSkeletons = buildable.filter((b) => !rotation.recentSkeletons.includes(b.skeleton.id));
@@ -136,7 +159,7 @@ export function renderPost(
     if (lines.some((l) => l.includes("\n\n"))) continue;
     // Attribution attaches to the HEAD line — the claim — not to whatever
     // item title happens to be last (persona.md §6).
-    lines[0] = `${lines[0]}, ${archetype.attribution}`;
+    lines[0] = `${lines[0]}, ${attribution}`;
     const block = lines.join("\n");
     if (weightedLength(block) <= POST_TEXT_LIMIT) {
       chosen = candidate;
