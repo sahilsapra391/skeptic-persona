@@ -4,7 +4,7 @@ import { buildUserAgent, politeFetch, type PoliteResponse } from "../lib/http";
 import { decodeEntities, extractAll, extractFirst } from "../lib/xml";
 import { getSourceState, insertItem, putSourceState, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
-import { bandSpan, bandWidth, isFreshDateOnly, lagDays } from "./shared";
+import { bandSpan, bandWidth, isFreshDateOnly, lagDays, mdyToIso } from "./shared";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -184,10 +184,12 @@ export async function ingestEfdRow(
         chamber: "senate",
         factLine: draft,
         who: row.display.replace(/\s*\(Senator\)\s*$/, ""),
-        tradeLine: txns
-          .slice(0, 3)
-          .map((t) => `${t.type} ${t.amount}, ${t.ticker ?? t.assetName.slice(0, 40)} (${t.transactionDate})`)
-          .join("; "),
+        // The "+N more" is NOT cosmetic. The ptr.whoWhen skeleton renders
+        // tradeLine alone, and on a filing with many trades the honest
+        // factLine is over budget, so whoWhen is the skeleton that actually
+        // ships. Without the marker the post reads as the member's complete
+        // activity while trades are simply gone.
+        tradeLine: tradeLineOf(txns),
         tradeDate: newest?.transactionDate ?? null,
         amountBand: newest?.amount ?? null,
         singleTxn: txns.length === 1,
@@ -224,19 +226,29 @@ export function parsePtrTable(html: string): EfdTxn[] {
 
 /** MM/DD/YYYY (date-only, as eFD serves it) -> ISO at UTC midnight. */
 export function efdDateToIso(mdY: string): string {
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(mdY.trim());
-  if (!m) return "";
-  return `${m[3]}-${m[1]!.padStart(2, "0")}-${m[2]!.padStart(2, "0")}T00:00:00.000Z`;
+  return mdyToIso(mdY);
 }
 
 
 /** Tier A draft; the disclosure-lag line is the built-in editorial (all parsed). */
+function senateClause(t: EfdTxn): string {
+  const what = t.ticker ?? (t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName);
+  return `${t.type} ${t.amount}, ${what} (${t.transactionDate})`;
+}
+
+/**
+ * The trade list as a template slot, ALWAYS carrying its own elision marker.
+ * A truncated list that does not say it is truncated is a complete-looking
+ * post with trades missing.
+ */
+export function tradeLineOf(txns: EfdTxn[]): string {
+  const shown = txns.slice(0, 3).map(senateClause).join("; ");
+  return txns.length > 3 ? `${shown} +${txns.length - 3} more` : shown;
+}
+
 export function draftSenatePtr(row: EfdRow, txns: EfdTxn[], filedIso: string): string {
   const who = row.display.replace(/\s*\(Senator\)\s*$/, "");
-  const shown = txns.slice(0, 3).map((t) => {
-    const what = t.ticker ?? (t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName);
-    return `${t.type} ${t.amount}, ${what} (${t.transactionDate})`;
-  });
+  const shown = txns.slice(0, 3).map(senateClause);
   const more = txns.length > 3 ? ` +${txns.length - 3} more` : "";
   // "After the LATEST trade" = the smallest per-transaction lag (the newest
   // trade is the one closest to the filing date).

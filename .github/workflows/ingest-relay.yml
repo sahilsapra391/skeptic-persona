@@ -218,12 +218,16 @@ jobs:
           jq -r '.docs[] | [.docId, .url] | @tsv' pending.json > work.tsv
           while IFS=$'\t' read -r docId url; do
             [ -z "$docId" ] && continue
-            curl -sS -L --max-time 60 -A "$UA" -o "pdfs/${docId}.pdf" "$url" || {
-              echo "::warning::download failed for ${docId}"; continue; }
+            # -f: a 404 error PAGE must not be written as if it were a PDF.
+            # A missing file is reported to the Worker by the extractor, which
+            # is what makes the retry counter advance.
+            curl -fsS -L --max-time 60 -A "$UA" -o "pdfs/${docId}.pdf" "$url" || {
+              echo "::warning::download failed for ${docId}"; rm -f "pdfs/${docId}.pdf"; }
             sleep 1
           done < work.tsv
-          python3 scripts/extract_house_pdfs.py pdfs bundle.json
-          echo "extracted=$(jq '.docs | length' bundle.json)" >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/extract_house_pdfs.py pending.json pdfs bundle.json
+          echo "reported=$(jq '.docs | length' bundle.json)" >> "$GITHUB_STEP_SUMMARY"
+          echo "withText=$(jq '[.docs[] | select(.text != "")] | length' bundle.json)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Relay to Worker
         env:
@@ -231,9 +235,10 @@ jobs:
           WORKER_URL: ${{ secrets.WORKER_URL }}
         run: |
           set -euo pipefail
-          # Nothing extracted is a normal quiet day, not a failure.
+          # No documents OFFERED is a normal quiet day. Documents offered but
+          # unreadable still relay, so the Worker counts the attempt.
           if [ "$(jq '.docs | length' bundle.json)" = "0" ]; then
-            echo "no documents extracted; nothing to relay"; exit 0
+            echo "no documents pending; nothing to relay"; exit 0
           fi
           jq -Rs --arg source "house_ptr" \
                  --arg fetchedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

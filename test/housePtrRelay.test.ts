@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import MULTI from "./fixtures/house-ptr-multi.text.fixture?raw";
 import SINGLE from "./fixtures/house-ptr-single.text.fixture?raw";
 import { INGEST_PATH, PENDING_PATH } from "../src/ingestRelay";
-import { SOURCE as HOUSE_SOURCE } from "../src/ingesters/housePtr";
+import { pollHousePtr, SOURCE as HOUSE_SOURCE } from "../src/ingesters/housePtr";
 import { insertItem, SCORE_LOG_ONLY } from "../src/lib/db";
 
 const URL_BASE = "https://worker.local";
@@ -190,5 +190,43 @@ describe("house_ptr extraction relay", () => {
     expect((await post({ source: HOUSE_SOURCE, body: JSON.stringify({}) })).status).toBe(422);
     expect((await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: 1 }] }) })).status).toBe(422);
     expect((await post({ source: HOUSE_SOURCE, body: "not json" })).status).toBe(422);
+  });
+});
+
+describe("house_ptr items past the relay's drain limit still reach the queue", () => {
+  it("pollHousePtr drains the backlog the relay could not enqueue", async () => {
+    // THE BUG: drain() enqueues at most 3 per relay request, and house_ptr
+    // was the one congressional source with no second drain — pollHousePtr
+    // never looked at status='new'. Surplus postable filings sat unqueued
+    // AND invisible to the pending endpoint (their transactions are set).
+    const docs = ["20260200", "20260201", "20260202", "20260203", "20260204"];
+    for (const d of docs) await seedIndexRow(d, NOW);
+
+    const res = await post({
+      source: HOUSE_SOURCE,
+      body: JSON.stringify({ docs: docs.map((d) => ({ docId: d, text: SINGLE })) }),
+    });
+    expect(res.status).toBe(200);
+
+    const stranded = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM items WHERE source = ?1 AND status = 'new' AND external_id IN (${docs
+        .map(() => "?")
+        .join(",")})`,
+    )
+      .bind(HOUSE_SOURCE, ...docs)
+      .first<{ n: number }>();
+    // The relay drains 3; the rest are the backlog this test exists for.
+    expect(stranded!.n).toBeGreaterThan(0);
+
+    await pollHousePtr(env as never, NOW);
+
+    const after = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM items WHERE source = ?1 AND status = 'new' AND external_id IN (${docs
+        .map(() => "?")
+        .join(",")})`,
+    )
+      .bind(HOUSE_SOURCE, ...docs)
+      .first<{ n: number }>();
+    expect(after!.n).toBeLessThan(stranded!.n);
   });
 });
