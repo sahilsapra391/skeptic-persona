@@ -1,4 +1,5 @@
 import { evaluateGate } from "./gate";
+import { POST_TEXT_LIMIT, weightedLength } from "./length";
 import type { Archetype, Beat, MediaRef, Payload } from "./types";
 
 // The renderer. Pure and synchronous: payload + rotation state in, post out.
@@ -7,7 +8,6 @@ import type { Archetype, Beat, MediaRef, Payload } from "./types";
 // screenshotted alone, so the beat is always separated by a blank line and is
 // always the last thing in the post.
 
-export const THREADS_TEXT_LIMIT = 500;
 const BEAT_SEPARATOR = "\n\n";
 
 export interface RotationState {
@@ -138,7 +138,7 @@ export function renderPost(
     // item title happens to be last (persona.md §6).
     lines[0] = `${lines[0]}, ${archetype.attribution}`;
     const block = lines.join("\n");
-    if (block.length <= THREADS_TEXT_LIMIT) {
+    if (weightedLength(block) <= POST_TEXT_LIMIT) {
       chosen = candidate;
       factBlock = block;
       break;
@@ -151,7 +151,7 @@ export function renderPost(
     const withBeat = `${factBlock}${BEAT_SEPARATOR}${picked.text}`;
     // The fact block is never sacrificed for a beat: if the post would
     // exceed the limit, the beat is what gets dropped.
-    if (withBeat.length <= THREADS_TEXT_LIMIT) text = withBeat;
+    if (weightedLength(withBeat) <= POST_TEXT_LIMIT) text = withBeat;
   }
 
   return {

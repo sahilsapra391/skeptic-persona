@@ -3,7 +3,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import PERSONA_DOC from "../docs/persona.md?raw";
 import { ARCHETYPES, PENDING_BEATS } from "../src/templates/archetypes";
 import { evaluateGate, gateFields } from "../src/templates/gate";
-import { fillSlots, pickBeat, renderPost, seedHash, THREADS_TEXT_LIMIT } from "../src/templates/render";
+import { fillSlots, pickBeat, renderPost, seedHash } from "../src/templates/render";
+import { POST_TEXT_LIMIT, weightedLength } from "../src/templates/length";
 import type { Archetype, ArchetypeId, Beat } from "../src/templates/types";
 import { GATE_OPS } from "../src/templates/types";
 import { loadRotation, renderForQueue } from "../src/templates";
@@ -119,11 +120,11 @@ describe("doctrine: structural law (fact first, beat last, never blended)", () =
   });
 
   it("the fact block is never sacrificed for a beat (beat drops if over budget)", () => {
-    const huge = "x".repeat(THREADS_TEXT_LIMIT - 20);
+    const huge = "x".repeat(POST_TEXT_LIMIT - 20);
     const r = renderPost(ARCHETYPES.CONGRESS_PTR, { factLine: huge, lagDays: 40 }, { seed: "s" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.text.length).toBeLessThanOrEqual(THREADS_TEXT_LIMIT);
+    expect(weightedLength(r.text)).toBeLessThanOrEqual(POST_TEXT_LIMIT);
     expect(r.beatId).toBeNull();
   });
 
@@ -139,7 +140,7 @@ describe("doctrine: structural law (fact first, beat last, never blended)", () =
     );
     expect(r.ok, "should fall back to the lead skeleton, not fail").toBe(true);
     if (!r.ok) return;
-    expect(r.text.length).toBeLessThanOrEqual(THREADS_TEXT_LIMIT);
+    expect(weightedLength(r.text)).toBeLessThanOrEqual(POST_TEXT_LIMIT);
   });
 
   it("in a MULTI-LINE fact block, attribution is on the head line, not the last item", () => {
