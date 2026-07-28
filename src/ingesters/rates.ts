@@ -156,10 +156,15 @@ export const RATE_SOURCES: readonly RateSource[] = [
     // IADB requires an explicit window; a rolling year keeps the CSV small
     // while still carrying enough history to see the previous level.
     buildUrl: (now) => {
-      const from = new Date(now.getTime() - 365 * 86_400_000);
+      // Dateto is YESTERDAY, not today. IADB returned HTTP 500 on four
+      // consecutive overnight polls when asked for a same-day window before
+      // the series had a value for that date. A rate that moves a handful of
+      // times a year loses nothing from a one-day lag.
+      const to = new Date(now.getTime() - 86_400_000);
+      const from = new Date(to.getTime() - 365 * 86_400_000);
       return (
         "https://www.bankofengland.co.uk/boeapps/iadb/fromshowcolumns.asp?csv.x=yes" +
-        `&Datefrom=${boeDate(from)}&Dateto=${boeDate(now)}` +
+        `&Datefrom=${boeDate(from)}&Dateto=${boeDate(to)}` +
         "&SeriesCodes=IUDBEDR&CSVF=TN&UsingCodes=Y&VPD=Y&VFD=N"
       );
     },
