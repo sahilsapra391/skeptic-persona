@@ -247,7 +247,7 @@ async function reconcileClaims(
   const stale = await env.DB.prepare(
     `SELECT p.id, p.queue_id, COALESCE(q.edited_text, q.draft_text) AS text
      FROM post_log p JOIN queue q ON q.id = p.queue_id
-     WHERE p.platform_post_id IS NULL AND p.posted_at < ?1
+     WHERE p.platform_post_id IS NULL AND p.posted_manually = 0 AND p.posted_at < ?1
      ORDER BY p.id LIMIT 5`,
   )
     .bind(iso(new Date(now.getTime() - 120_000)))

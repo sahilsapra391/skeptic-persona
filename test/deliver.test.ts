@@ -1,6 +1,6 @@
 import { env, fetchMock, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { buildCard, deliverCards } from "../src/rag/deliver";
+import { buildCard, deliverCards, resolveVariantText } from "../src/rag/deliver";
 import { createQueueEntry, decideQueueEntry, insertItem, SCORE_POSTABLE } from "../src/lib/db";
 import { iso } from "../src/lib/time";
 
@@ -54,6 +54,11 @@ beforeAll(() => {
     .persist();
 });
 
+async function cycleOf(queueId: number): Promise<number> {
+  const r = await env.DB.prepare(`SELECT MAX(id) AS c FROM generations WHERE queue_id = ?1`).bind(queueId).first<{ c: number }>();
+  return r!.c;
+}
+
 async function seedTerminal(
   externalId: string,
   terminal: { variant: "dry" | "sharp" | "commentary" | "none"; text: string; status: string }[],
@@ -105,26 +110,33 @@ describe("buildCard", () => {
       { variant: "dry", text: "dry text, per Senate eFD", status: "valid" },
       { variant: "commentary", text: "commentary text long enough to matter, per Senate eFD", status: "valid" },
     ]);
-    const card = await buildCard(env.DB, qid, "CONGRESS_PTR", "valid", "fallback");
+    const cy = await cycleOf(qid);
+    const card = await buildCard(env.DB, qid, "CONGRESS_PTR", "valid", cy);
     expect(card.text.indexOf("commentary")).toBeLessThan(card.text.indexOf("dry"));
-    expect(card.buttons[0]!.map((b) => b.callback_data)).toEqual([`c:c:${qid}`, `c:d:${qid}`]);
-    expect(card.buttons[1]!.map((b) => b.callback_data)).toEqual([`ce:${qid}`, `g:${qid}`]);
+    expect(card.buttons[0]!.map((b) => b.callback_data)).toEqual([`c:c:${qid}:${cy}`, `c:d:${qid}:${cy}`]);
+    expect(card.buttons[1]!.map((b) => b.callback_data)).toEqual([`ce:${qid}:${cy}`, `g:${qid}:${cy}`]);
     expect(card.held).toBe(false);
   });
 
-  it("fallback_template: single Copy draft button carrying the template text", async () => {
-    const qid = await seedTerminal("C-fb", [{ variant: "none", text: "the template text, per Senate eFD", status: "fallback_template" }]);
-    const card = await buildCard(env.DB, qid, "CONGRESS_PTR", "fallback_template", "the template text, per Senate eFD");
-    expect(card.copyable.template).toBe("the template text, per Senate eFD");
-    expect(card.buttons[0]!.map((b) => b.callback_data)).toEqual([`c:t:${qid}`]);
+  it("fallback_template: card shows the RE-RENDERED text from generations, not the stale queue draft", async () => {
+    // Review findings #4/#7/#8: the fallback_template row may carry a text
+    // generation re-rendered under the current budget; queue.draft_text may
+    // be the over-budget original. Card AND copy must both use the former.
+    const qid = await seedTerminal("C-fb", [{ variant: "none", text: "the RE-RENDERED text, per Senate eFD", status: "fallback_template" }]);
+    const cy = await cycleOf(qid);
+    const card = await buildCard(env.DB, qid, "CONGRESS_PTR", "fallback_template", cy);
+    expect(card.text).toContain("the RE-RENDERED text, per Senate eFD");
+    expect(card.text).not.toContain("Draft text, per Senate eFD");
+    expect(await resolveVariantText(env.DB, qid, "template")).toBe("the RE-RENDERED text, per Senate eFD");
+    expect(card.buttons[0]!.map((b) => b.callback_data)).toEqual([`c:t:${qid}:${cy}`]);
   });
 
   it("fallback_blocked: HELD, no copy buttons at all", async () => {
     const qid = await seedTerminal("C-held", [{ variant: "none", text: "", status: "fallback_blocked" }]);
-    const card = await buildCard(env.DB, qid, "CONGRESS_PTR", "fallback_blocked", "broken");
+    const card = await buildCard(env.DB, qid, "CONGRESS_PTR", "fallback_blocked", await cycleOf(qid));
     expect(card.held).toBe(true);
     expect(card.text).toContain("HELD");
-    expect(JSON.stringify(card.buttons)).not.toContain("c:");
+    expect(JSON.stringify(card.buttons)).not.toContain('"c:');
   });
 });
 
@@ -154,6 +166,15 @@ describe("deliverCards", () => {
     expect(await env.DB.prepare(`SELECT * FROM cards WHERE queue_id = ?1`).bind(qid).first()).not.toBeNull();
   });
 
+  it("rejected:payload rows get a HELD card instead of stranding silently", async () => {
+    const qid = await seedTerminal("D-badpayload", [{ variant: "none", text: "", status: "rejected:payload" }]);
+    const before = snap();
+    await deliverCards(env, NOW);
+    expect(SEND.calls.length).toBe(before.s + 1);
+    expect(String(SEND.calls.at(-1)!.text)).toContain("does not parse");
+    expect(await env.DB.prepare(`SELECT * FROM cards WHERE queue_id = ?1`).bind(qid).first()).not.toBeNull();
+  });
+
   it("api_error (non-terminal) rows get NO card yet", async () => {
     await seedTerminal("D-pending", [{ variant: "none", text: "", status: "api_error" }]);
     const before = snap();
@@ -163,31 +184,47 @@ describe("deliverCards", () => {
 });
 
 describe("card flows through the real webhook", () => {
-  async function delivered(externalId: string, text = "the commentary, per Senate eFD"): Promise<number> {
+  async function delivered(externalId: string, text = "the commentary, per Senate eFD"): Promise<{ qid: number; cy: number }> {
     const qid = await seedTerminal(externalId, [{ variant: "commentary", text, status: "valid" }]);
     await deliverCards(env, NOW);
-    return qid;
+    return { qid, cy: await cycleOf(qid) };
   }
 
-  it("Copy: mono pre-block with EXACT text, chosen_variant recorded, Posted? follows", async () => {
-    const qid = await delivered("W-copy");
+  it("Copy: mono pre-block with EXACT text, Posted? keyboard carries cycle AND variant", async () => {
+    const { qid, cy } = await delivered("W-copy");
     const before = snap();
-    await tap(`c:c:${qid}`);
-    // Two sends: the mono text, then the Posted? prompt.
+    await tap(`c:c:${qid}:${cy}`);
     expect(SEND.calls.length).toBe(before.s + 2);
     const mono = SEND.calls[before.s]!;
     expect(mono.text).toBe("the commentary, per Senate eFD");
     expect(JSON.stringify(mono.entities)).toContain('"pre"');
     const posted = SEND.calls[before.s + 1]!;
-    expect(JSON.stringify(posted.reply_markup)).toContain(`p:y:${qid}`);
-    const card = await env.DB.prepare(`SELECT chosen_variant FROM cards WHERE queue_id = ?1`).bind(qid).first<{ chosen_variant: string }>();
-    expect(card!.chosen_variant).toBe("commentary");
+    expect(JSON.stringify(posted.reply_markup)).toContain(`p:y:${qid}:${cy}:c`);
   });
 
-  it("Posted=yes: post_log manual row with the copied text, items.status posted, re-tap is a no-op", async () => {
-    const qid = await delivered("W-yes");
-    await tap(`c:c:${qid}`);
-    await tap(`p:y:${qid}`);
+  it("STALE-CYCLE tap does nothing (the review's fabricated-post CRITICAL)", async () => {
+    const { qid, cy } = await delivered("W-stale");
+    // Regenerate wipes; re-seed + redeliver mints a HIGHER cycle.
+    await tap(`g:${qid}:${cy}`);
+    await env.DB.prepare(
+      `INSERT INTO generations (queue_id, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
+       VALUES (?1,'commentary','fresh text, per Senate eFD','sk','op','valid',1,?2)`,
+    ).bind(qid, iso(NOW)).run();
+    await deliverCards(env, NOW);
+    const newCy = await cycleOf(qid);
+    expect(newCy).toBeGreaterThan(cy);
+    // A tap from the OLD cycle: acked as stale, no state change, no post_log.
+    const before = snap();
+    await tap(`p:y:${qid}:${cy}:c`);
+    expect(String(ACK.calls.at(-1)!.text)).toContain("Stale");
+    expect(SEND.calls.length).toBe(before.s);
+    expect(await env.DB.prepare(`SELECT * FROM post_log WHERE queue_id = ?1`).bind(qid).first()).toBeNull();
+  });
+
+  it("Posted=yes: post_log manual row with the TAPPED PROMPT's text, items posted, re-tap no-op", async () => {
+    const { qid, cy } = await delivered("W-yes");
+    await tap(`c:c:${qid}:${cy}`);
+    await tap(`p:y:${qid}:${cy}:c`);
     const row = await env.DB.prepare(
       `SELECT posted_manually, final_text, platform_post_id FROM post_log WHERE queue_id = ?1`,
     ).bind(qid).first<{ posted_manually: number; final_text: string; platform_post_id: string | null }>();
@@ -198,16 +235,16 @@ describe("card flows through the real webhook", () => {
     expect(item!.status).toBe("posted");
     // Re-tap: UNIQUE(queue_id) makes it a no-op, acked as already recorded.
     const before = snap();
-    await tap(`p:y:${qid}`);
+    await tap(`p:y:${qid}:${cy}:c`);
     expect(ACK.calls.length).toBe(before.a + 1);
     expect((await env.DB.prepare(`SELECT COUNT(*) AS n FROM post_log WHERE queue_id = ?1`).bind(qid).first<{ n: number }>())!.n).toBe(1);
   });
 
   it("Posted=modified: force-reply captures the ACTUAL text verbatim", async () => {
-    const qid = await delivered("W-mod");
-    await tap(`c:c:${qid}`);
+    const { qid, cy } = await delivered("W-mod");
+    await tap(`c:c:${qid}:${cy}`);
     const before = snap();
-    await tap(`p:m:${qid}`);
+    await tap(`p:m:${qid}:${cy}:c`);
     expect(SEND.calls.length).toBe(before.s + 1); // the force-reply prompt
     const promptId = 900 + SEND.calls.length;
     const actual = "what I actually posted after tweaking, no register gate applies here";
@@ -218,33 +255,54 @@ describe("card flows through the real webhook", () => {
     expect(card!.posted_state).toBe("modified");
   });
 
-  it("Posted=skipped: recorded, no post_log row", async () => {
-    const qid = await delivered("W-skip");
-    await tap(`c:c:${qid}`);
-    await tap(`p:k:${qid}`);
+  it("Posted=skipped: recorded, no post_log row — and skip-then-yes still records honestly", async () => {
+    const { qid, cy } = await delivered("W-skip");
+    await tap(`c:c:${qid}:${cy}`);
+    await tap(`p:k:${qid}:${cy}:c`);
     expect(await env.DB.prepare(`SELECT * FROM post_log WHERE queue_id = ?1`).bind(qid).first()).toBeNull();
     const card = await env.DB.prepare(`SELECT posted_state FROM cards WHERE queue_id = ?1`).bind(qid).first<{ posted_state: string }>();
     expect(card!.posted_state).toBe("skipped");
+    // The owner changes their mind and posts after all: allowed, recorded.
+    await tap(`p:y:${qid}:${cy}:c`);
+    expect(await env.DB.prepare(`SELECT posted_manually FROM post_log WHERE queue_id = ?1`).bind(qid).first()).toMatchObject({ posted_manually: 1 });
+    expect((await env.DB.prepare(`SELECT posted_state FROM cards WHERE queue_id = ?1`).bind(qid).first<{ posted_state: string }>())!.posted_state).toBe("yes");
   });
 
-  it("Regenerate: wipes generations + cards for a fresh cycle, refuses after posted", async () => {
-    const qid = await delivered("W-regen");
-    await tap(`g:${qid}`);
+  it("REGENERATE refuses while a Posted-edited capture is pending (the review's vanishing-reply CRITICAL)", async () => {
+    const { qid, cy } = await delivered("W-pending");
+    await tap(`c:c:${qid}:${cy}`);
+    await tap(`p:m:${qid}:${cy}:c`); // capture now in flight
+    await tap(`g:${qid}:${cy}`);
+    expect(String(ACK.calls.at(-1)!.text)).toContain("pending");
+    // Nothing was wiped: the capture can still complete.
+    expect(await env.DB.prepare(`SELECT * FROM cards WHERE queue_id = ?1`).bind(qid).first()).not.toBeNull();
+    const promptId = 900 + SEND.calls.length;
+    await reply(promptId, "the text as actually posted");
+    expect((await env.DB.prepare(`SELECT final_text FROM post_log WHERE queue_id = ?1`).bind(qid).first<{ final_text: string }>())!.final_text).toBe("the text as actually posted");
+  });
+
+  it("Regenerate: wipes for a fresh cycle; refuses after posted; EDIT refuses after posted too", async () => {
+    const { qid, cy } = await delivered("W-regen");
+    await tap(`g:${qid}:${cy}`);
     expect((await env.DB.prepare(`SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1`).bind(qid).first<{ n: number }>())!.n).toBe(0);
     expect(await env.DB.prepare(`SELECT * FROM cards WHERE queue_id = ?1`).bind(qid).first()).toBeNull();
 
-    const qid2 = await delivered("W-regen2");
-    await tap(`c:c:${qid2}`);
-    await tap(`p:y:${qid2}`);
-    await tap(`g:${qid2}`);
-    // Posted rows are history; regenerate refuses.
+    const { qid: qid2, cy: cy2 } = await delivered("W-regen2");
+    await tap(`c:c:${qid2}:${cy2}`);
+    await tap(`p:y:${qid2}:${cy2}:c`);
+    await tap(`g:${qid2}:${cy2}`);
     expect((await env.DB.prepare(`SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1`).bind(qid2).first<{ n: number }>())!.n).toBeGreaterThan(0);
+    // Edit gets the same history rule (review finding: it lacked the guard).
+    const before = snap();
+    await tap(`ce:${qid2}:${cy2}`);
+    expect(String(ACK.calls.at(-1)!.text)).toContain("already posted");
+    expect(SEND.calls.length).toBe(before.s); // no edit prompt was sent
   });
 
   it("card Edit: register-gated reply updates edited_text and restarts the cycle", async () => {
-    const qid = await delivered("W-edit");
+    const { qid, cy } = await delivered("W-edit");
     const before = snap();
-    await tap(`ce:${qid}`);
+    await tap(`ce:${qid}:${cy}`);
     const promptId = 900 + SEND.calls.length;
     expect(SEND.calls.length).toBe(before.s + 1);
 
@@ -253,12 +311,15 @@ describe("card flows through the real webhook", () => {
     expect((await env.DB.prepare(`SELECT edited_text FROM queue WHERE id = ?1`).bind(qid).first<{ edited_text: string | null }>())!.edited_text).toBeNull();
 
     // A clean edit lands, and the cycle restarts (no generations, no card).
-    await tap(`ce:${qid}`);
+    await tap(`ce:${qid}:${cy}`);
     const promptId2 = 900 + SEND.calls.length;
     await reply(promptId2, "Corrected text with the lag of 45 days spelled right, per Senate eFD");
     const q = await env.DB.prepare(`SELECT edited_text, state FROM queue WHERE id = ?1`).bind(qid).first<{ edited_text: string; state: string }>();
     expect(q!.edited_text).toContain("Corrected text");
     expect(q!.state).toBe("edited");
+    // Hand-written text has no skeleton (same rule as applyEditReply).
+    const rot = await env.DB.prepare(`SELECT skeleton_id, beat_id FROM queue WHERE id = ?1`).bind(qid).first<{ skeleton_id: string | null; beat_id: string | null }>();
+    expect(rot).toEqual({ skeleton_id: null, beat_id: null });
     expect((await env.DB.prepare(`SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1`).bind(qid).first<{ n: number }>())!.n).toBe(0);
     expect(await env.DB.prepare(`SELECT * FROM cards WHERE queue_id = ?1`).bind(qid).first()).toBeNull();
   });

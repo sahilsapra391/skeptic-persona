@@ -12,6 +12,10 @@ CREATE TABLE cards (
   queue_id INTEGER PRIMARY KEY REFERENCES queue(id),
   telegram_message_id INTEGER,
   delivered_at TEXT NOT NULL,
+  -- The cycle token: MAX(generations.id) at delivery time. AUTOINCREMENT ids
+  -- are never reused, so a Regenerate/Edit wipe + re-generation always mints
+  -- a higher cycle; every button carries it and a mismatched tap is stale.
+  cycle INTEGER NOT NULL DEFAULT 0,
   -- 'commentary' | 'sharp' | 'dry' | 'template' once a Copy button is tapped.
   chosen_variant TEXT,
   -- 'yes' | 'modified' | 'skipped' once the owner answers Posted?.

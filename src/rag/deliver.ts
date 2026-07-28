@@ -6,29 +6,32 @@ import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
 // The copy-out card (docs/p2r-plan.md Part E): once a queue row reaches a
-// terminal generation state, the owner gets ONE Telegram card carrying every
-// valid variant (or the template fallback), with Copy buttons. Tapping Copy
-// answers with the chosen text as a monospace pre block — one-tap copy on
-// mobile — and swaps the card's keyboard to the Posted? capture.
+// terminal generation state, the owner gets ONE Telegram card per CYCLE
+// carrying every valid variant (or the fallback), with Copy buttons.
 //
-// Crash-safety is the cards row's ABSENCE: a failed send inserts nothing, so
-// the next tick retries. Same selection shape as the generation lifecycle.
+// THE CYCLE TOKEN (added after the 30-agent card review broke the first
+// version's state machine): every button carries `MAX(generations.id)` for
+// the row at delivery time. AUTOINCREMENT ids are never reused, so a
+// Regenerate/Edit wipe followed by re-generation always mints a HIGHER
+// cycle. A tap whose cycle doesn't match the live cards row is answered as
+// stale and does nothing — a leftover "✅ Posted" button from a superseded
+// card can no longer fabricate a post_log row (review CRITICAL #2), and the
+// deliverCards-vs-webhook wipe race resolves itself because delivery
+// replaces any cards row whose cycle is behind (INSERT OR REPLACE keyed on
+// queue_id; finding #23).
 //
-// fallback_blocked rows get a HELD card with no copy buttons: the row's
-// alert already fired, and the card exists so the owner has a handle to
-// Edit/Regenerate from, not so they can copy something broken.
+// Crash-safety is unchanged: a failed send writes nothing, the next tick
+// retries.
 
 export type CardVariant = "commentary" | "sharp" | "dry" | "template";
 
-/** callback_data stays tiny (64-byte API cap): c:<c|s|d|t>:<qid>. */
+/** callback_data stays tiny (64-byte API cap): c:<c|s|d|t>:<qid>:<cycle>. */
 export const VARIANT_CODE: Record<CardVariant, string> = { commentary: "c", sharp: "s", dry: "d", template: "t" };
 export const CODE_VARIANT: Record<string, CardVariant> = { c: "commentary", s: "sharp", d: "dry", t: "template" };
 
 export interface CardContent {
   readonly text: string;
   readonly buttons: TgInlineButton[][];
-  /** variant -> copyable text; what the Copy tap answers with. */
-  readonly copyable: Partial<Record<CardVariant, string>>;
   readonly held: boolean;
 }
 
@@ -36,7 +39,8 @@ interface TerminalRow {
   queue_id: number;
   archetype: string;
   terminal_status: string;
-  fallback_text: string;
+  cycle: number;
+  stale_card: number;
 }
 
 interface VariantRow {
@@ -44,13 +48,72 @@ interface VariantRow {
   text: string;
 }
 
-export async function buildCard(db: D1Database, queueId: number, archetype: string, terminalStatus: string, fallbackText: string): Promise<CardContent> {
-  const copyable: Partial<Record<CardVariant, string>> = {};
+/**
+ * SINGLE HOME for "what text does this variant stand for" — the card builder
+ * and the webhook's Copy/Posted handlers all resolve through here, so the
+ * text the owner copies is byte-identical to the text the card displayed
+ * (review findings #4/#7/#8: the webhook used to read queue text while the
+ * card displayed the re-rendered fallback from generations).
+ */
+export async function resolveVariantText(db: D1Database, queueId: number, variant: CardVariant): Promise<string | null> {
+  if (variant === "template") {
+    // The fallback_template row carries the text generation actually settled
+    // on (possibly re-rendered under the current budget); the raw queue text
+    // is only the answer when generation never wrote one (exemplar gate).
+    const g = await db
+      .prepare(
+        `SELECT text FROM generations
+         WHERE queue_id = ?1 AND variant = 'none' AND status = 'fallback_template' AND text <> ''
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .bind(queueId)
+      .first<{ text: string }>();
+    if (g) return g.text;
+    const q = await db
+      .prepare(`SELECT COALESCE(edited_text, draft_text) AS t FROM queue WHERE id = ?1`)
+      .bind(queueId)
+      .first<{ t: string }>();
+    return q?.t ?? null;
+  }
+  const g = await db
+    .prepare(`SELECT text FROM generations WHERE queue_id = ?1 AND variant = ?2 AND status = 'valid' ORDER BY attempt DESC LIMIT 1`)
+    .bind(queueId, variant)
+    .first<{ text: string }>();
+  return g?.text ?? null;
+}
+
+export async function buildCard(
+  db: D1Database,
+  queueId: number,
+  archetype: string,
+  terminalStatus: string,
+  cycle: number,
+): Promise<CardContent> {
   const sections: string[] = [];
   const copyRow: TgInlineButton[] = [];
+  const actionRow: TgInlineButton[] = [
+    { text: "✏️ Edit", callback_data: `ce:${queueId}:${cycle}` },
+    { text: "🔁 Regenerate", callback_data: `g:${queueId}:${cycle}` },
+  ];
+
+  if (terminalStatus === "fallback_blocked") {
+    return {
+      text: `🛑 #${queueId} ${archetype}\n\nHELD: generation failed and the template fallback fails the register. Nothing here is copy-ready — Edit to fix the text, or Regenerate.`,
+      buttons: [actionRow],
+      held: true,
+    };
+  }
+  if (terminalStatus === "rejected:payload") {
+    // Stranded-row fix (findings #12/#17/#20): unparseable payload is
+    // terminal for generation, but the owner still gets a handle.
+    return {
+      text: `🛑 #${queueId} ${archetype}\n\nHELD: this item's stored payload does not parse, so nothing can be generated or rendered from it. This needs a code/data fix; Regenerate will retry after one lands.`,
+      buttons: [[{ text: "🔁 Regenerate", callback_data: `g:${queueId}:${cycle}` }]],
+      held: true,
+    };
+  }
 
   if (terminalStatus === "valid") {
-    // Latest valid text per variant (highest attempt wins).
     const rows = await db
       .prepare(
         `SELECT variant, text FROM generations
@@ -65,56 +128,44 @@ export async function buildCard(db: D1Database, queueId: number, archetype: stri
     for (const v of ["commentary", "sharp", "dry"] as const) {
       const text = latest.get(v);
       if (!text) continue;
-      copyable[v] = text;
       sections.push(`— ${v} —\n${text}`);
-      copyRow.push({ text: `Copy ${v}`, callback_data: `c:${VARIANT_CODE[v]}:${queueId}` });
+      copyRow.push({ text: `Copy ${v}`, callback_data: `c:${VARIANT_CODE[v]}:${queueId}:${cycle}` });
     }
   }
 
-  if (terminalStatus === "fallback_blocked") {
-    return {
-      text: `🛑 #${queueId} ${archetype}\n\nHELD: generation failed and the template fallback fails the register. Nothing here is copy-ready — Edit to fix the text, or Regenerate.`,
-      buttons: [[
-        { text: "✏️ Edit", callback_data: `ce:${queueId}` },
-        { text: "🔁 Regenerate", callback_data: `g:${queueId}` },
-      ]],
-      copyable,
-      held: true,
-    };
-  }
-
   if (copyRow.length === 0) {
-    // fallback_template / skipped_no_exemplar: the template draft stands.
-    copyable.template = fallbackText;
-    const label = terminalStatus === "skipped_no_exemplar" ? "template draft (no exemplar for this archetype yet)" : "template draft (generation fell back)";
-    sections.push(`— ${label} —\n${fallbackText}`);
-    copyRow.push({ text: "Copy draft", callback_data: `c:t:${queueId}` });
+    const text = await resolveVariantText(db, queueId, "template");
+    const label =
+      terminalStatus === "skipped_no_exemplar"
+        ? "template draft (no exemplar for this archetype yet)"
+        : "template draft (generation fell back)";
+    sections.push(`— ${label} —\n${text ?? ""}`);
+    copyRow.push({ text: "Copy draft", callback_data: `c:t:${queueId}:${cycle}` });
   }
 
   return {
     text: `#${queueId} ${archetype} — pick a variant, paste to X, then answer Posted?\n\n${sections.join("\n\n")}`,
-    buttons: [copyRow, [
-      { text: "✏️ Edit", callback_data: `ce:${queueId}` },
-      { text: "🔁 Regenerate", callback_data: `g:${queueId}` },
-    ]],
-    copyable,
+    buttons: [copyRow, actionRow],
     held: false,
   };
 }
 
-export const POSTED_BUTTONS: TgInlineButton[][] = [];
-
-export function postedButtons(queueId: number): TgInlineButton[][] {
+/** The Posted? keyboard carries the VARIANT whose text was copied, so the
+ *  answer records the text of the prompt the owner is actually answering —
+ *  chosen_variant as a mutable slot let Copy A / Copy B / tap A's prompt
+ *  record B's text (review finding #3). */
+export function postedButtons(queueId: number, cycle: number, variant: CardVariant): TgInlineButton[][] {
+  const v = VARIANT_CODE[variant];
   return [[
-    { text: "✅ Posted", callback_data: `p:y:${queueId}` },
-    { text: "✏️ Posted, edited", callback_data: `p:m:${queueId}` },
-    { text: "⏭ Skipped", callback_data: `p:k:${queueId}` },
+    { text: "✅ Posted", callback_data: `p:y:${queueId}:${cycle}:${v}` },
+    { text: "✏️ Posted, edited", callback_data: `p:m:${queueId}:${cycle}:${v}` },
+    { text: "⏭ Skipped", callback_data: `p:k:${queueId}:${cycle}:${v}` },
   ]];
 }
 
 /**
- * Deliver cards for queue rows whose generation reached a terminal state.
- * Runs inside the generation job's tick, after runGeneration.
+ * Deliver cards for queue rows whose generation reached a terminal state and
+ * whose live cards row (if any) belongs to an older cycle.
  */
 export async function deliverCards(env: Env, now: Date, budget: TickBudget = newTickBudget()): Promise<void> {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
@@ -122,35 +173,38 @@ export async function deliverCards(env: Env, now: Date, budget: TickBudget = new
   const due = await env.DB.prepare(
     `SELECT q.id AS queue_id, q.archetype,
             g.status AS terminal_status,
-            COALESCE(NULLIF(g.text, ''), COALESCE(q.edited_text, q.draft_text)) AS fallback_text
+            MAX(g.id) AS cycle,
+            COALESCE(c.cycle, -1) <> MAX(g.id) AND c.queue_id IS NOT NULL AS stale_card
      FROM queue q
      JOIN generations g ON g.queue_id = q.id
-       AND (g.status = 'valid' OR g.status LIKE 'fallback%' OR g.status LIKE 'skipped%')
+       AND (g.status = 'valid' OR g.status LIKE 'fallback%' OR g.status LIKE 'skipped%' OR g.status = 'rejected:payload')
      LEFT JOIN cards c ON c.queue_id = q.id
-     WHERE q.state IN ('approved', 'edited') AND c.queue_id IS NULL
+     WHERE q.state IN ('approved', 'edited')
+       AND (c.posted_state IS NULL OR c.posted_state = 'skipped')
      GROUP BY q.id
+     HAVING c.queue_id IS NULL OR c.cycle <> MAX(g.id)
      ORDER BY q.decided_at
      LIMIT 5`,
   ).all<TerminalRow>();
 
   for (const row of due.results) {
     if (!budget.take(1, { reserved: true })) break;
-    const card = await buildCard(env.DB, row.queue_id, row.archetype, row.terminal_status, row.fallback_text);
+    const card = await buildCard(env.DB, row.queue_id, row.archetype, row.terminal_status, row.cycle);
     let messageId: number | null = null;
     try {
       const sent = await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, card.text, { buttons: card.buttons });
       messageId = sent.message_id;
     } catch (e) {
-      // No cards row -> retried next tick. Logged so a persistent failure
-      // is visible in the tail rather than an eternal silent retry.
       log("error", "card delivery failed; will retry", { queueId: row.queue_id, error: String(e) });
       continue;
     }
+    // OR REPLACE: a stale-cycle row (including one INSERTed by a delivery
+    // that raced a Regenerate wipe) is superseded, never a blocker.
     await env.DB.prepare(
-      `INSERT OR IGNORE INTO cards (queue_id, telegram_message_id, delivered_at) VALUES (?1, ?2, ?3)`,
+      `INSERT OR REPLACE INTO cards (queue_id, telegram_message_id, delivered_at, cycle) VALUES (?1, ?2, ?3, ?4)`,
     )
-      .bind(row.queue_id, messageId, iso(now))
+      .bind(row.queue_id, messageId, iso(now), row.cycle)
       .run();
-    log("info", "card delivered", { queueId: row.queue_id, held: card.held });
+    log("info", "card delivered", { queueId: row.queue_id, cycle: row.cycle, held: card.held, replacedStale: Boolean(row.stale_card) });
   }
 }
