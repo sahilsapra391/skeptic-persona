@@ -12,6 +12,7 @@ import { pollFederalRegister } from "./ingesters/federalRegister";
 import { pollCftc } from "./ingesters/cftc";
 import { pollSchedule13 } from "./ingesters/schedule13d";
 import { makePressHandler, PRESS_SOURCES } from "./ingesters/regulatoryPress";
+import { pollEdgarReconcile } from "./ingesters/edgarReconcile";
 import { pollNasdaqHalts, pollNyseHalts } from "./ingesters/halts";
 import { pollHousePtr } from "./ingesters/housePtr";
 import { pollSenatePtr } from "./ingesters/senatePtr";
@@ -94,6 +95,7 @@ export function registerJobs(): void {
   registry["cftc_cot"] = pollCftc;
   registry["sec_schedule13"] = pollSchedule13;
   for (const src of PRESS_SOURCES) registry[src.id] = makePressHandler(src);
+  registry["edgar_reconcile"] = pollEdgarReconcile;
   registry["senate_ptr"] = pollSenatePtr;
   registry["house_ptr"] = pollHousePtr;
   registry["fed_press"] = pollFedPress;
