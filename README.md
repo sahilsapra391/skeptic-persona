@@ -130,3 +130,36 @@ Resume with:
 ```bash
 wrangler kv key delete kill_switch --binding KV --remote
 ```
+
+## Ingest relay (blocked sources)
+
+Five sources answer from a residential connection and fail from Cloudflare
+Worker egress, each differently: Senate eFD 403s datacenter IPs, NSE India
+resets on our declared UA, treasury.gov fails the TLS handshake (525) on two
+hosts, and www.cftc.gov 403s. See `docs/verification/` for the evidence.
+
+For those, GitHub Actions fetches the bytes and POSTs them to the Worker,
+which parses them with the same code every other source uses. The Action is a
+courier; no parsing logic is duplicated in CI.
+
+### Owner setup (one-time, when the Actions quota resets 2026-08-01)
+
+1. Generate a secret and set it on the Worker:
+
+   ```bash
+   openssl rand -hex 32
+   ```
+
+   ```bash
+   npx wrangler secret put INGEST_SECRET
+   ```
+
+2. Add the same value as a GitHub repository secret named `INGEST_SECRET`,
+   plus `WORKER_URL` set to `https://skeptic-persona.sahilsapra391.workers.dev`
+   (Settings -> Secrets and variables -> Actions).
+
+3. Uncomment the `schedule:` block in
+   `.github/workflows/ingest-relay.yml`.
+
+Until step 1 is done the endpoint returns 503 and ingests nothing, so
+deploying this ahead of the secret is safe.

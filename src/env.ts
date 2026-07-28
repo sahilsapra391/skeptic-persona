@@ -11,6 +11,8 @@ export interface Env {
   QUEUE_TTL_HOURS?: string;
   /** Ms between batched queue notifications (Telegram asks ≤1 msg/s per chat). Default 1100; tests use 0. */
   QUEUE_NOTIFY_SPACING_MS?: string;
+  /** Shared secret for the GitHub Actions ingest relay (blocked sources). */
+  INGEST_SECRET?: string;
   /** Wall-clock ms a tick may run before it stops starting new jobs (default 60000). */
   TICK_TIME_BUDGET_MS?: string;
   /** BLS watcher tight-poll tuning (defaults 2500 / 90000; tests shrink them). */
