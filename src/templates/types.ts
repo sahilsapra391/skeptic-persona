@@ -25,6 +25,7 @@ export type ArchetypeId =
   | "POSITIONING"
   | "OWNERSHIP_STAKE"
   | "REGULATORY_NEWS"
+  | "SETTLEMENT_FAILURE"
   | "HALT";
 
 /** Beat tiers. `signature` is deliberately outside normal rotation
