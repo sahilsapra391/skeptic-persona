@@ -26,4 +26,7 @@ export interface Env {
   THREADS_APP_SECRET?: string;
   /** Editorial posts/day cap (default 25). Unused while the publish path is parked. */
   POST_DAILY_CAP?: string;
+  // Generation (P2-R p2r-04). Key is a secret; model id is config, never code.
+  OPENROUTER_API_KEY?: string;
+  OPENROUTER_MODEL?: string;
 }

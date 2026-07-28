@@ -136,7 +136,10 @@ export function entityCheck(text: string, payload: Payload): ValidationIssue[] {
     }
   };
   for (const m of text.matchAll(/\$([A-Z]{1,5})\b/g)) flag("ticker", m[1]!);
-  for (const m of text.matchAll(/\b([A-Z]{2,})\b/g)) {
+  // Strip $TICKERs before the ALL-CAPS pass so one bad ticker is one issue,
+  // not two.
+  const withoutTickers = text.replace(/\$[A-Z]{1,5}\b/g, "");
+  for (const m of withoutTickers.matchAll(/\b([A-Z]{2,})\b/g)) {
     if (!ENTITY_WHITELIST.has(m[1]!)) flag("all-caps token", m[1]!);
   }
   for (const m of text.matchAll(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b/g)) {
@@ -185,6 +188,30 @@ export function lengthCheck(text: string, variant: Variant): ValidationIssue[] {
  * of filing language ("prior financials may not be relied upon" is the
  * record's own sentence). What's banned is the desk hedging its OWN claim.
  */
+/**
+ * Motive/knowledge imputation CONSTRUCTIONS (persona.md never-list). This is
+ * the defamation surface: a named human with a real disclosed trade plus a
+ * sentence saying they knew. checkRegister does not cover it (advice only),
+ * and the hedge check does not either — a plain declarative "they knew" is
+ * not a hedge. Found missing by the fallback-chain test, which fed
+ * "The senator knew exactly what was coming" through the full gate and
+ * watched it pass.
+ */
+const MOTIVE_PATTERNS: readonly RegExp[] = [
+  /\b\w+\s+knew\b/i, // "they knew", "the senator knew"
+  /\bknown all along\b/i,
+  /\bconveniently\b/i,
+  /\bquietly\s+(filed|sold|bought|dumped|exited|moved)\b/i,
+  /\bcoordinat(ed|ion)\b/i,
+  /\b(not|no)\s+a\s+coincidence\b/i,
+  /\bfront[- ]?ran\b/i,
+];
+
+export function motiveCheck(text: string): ValidationIssue[] {
+  const hit = MOTIVE_PATTERNS.find((re) => re.test(text));
+  return hit ? [{ rule: "motive", detail: `imputed knowledge/motive: ${String(hit.exec(text)?.[0])}` }] : [];
+}
+
 const HEDGE_PATTERNS: readonly RegExp[] = [
   /\b(?:this|that|it|which)\s+(?:may|might|could)\s+(?:suggest|indicate|signal|mean|imply)\b/i,
   /\b(?:appears?|seems?)\s+to\b/i,
@@ -261,18 +288,24 @@ export async function corpusEchoCheck(
  *  Threads account banned; a same-archetype check would have passed it. */
 export async function collisionCheck(
   db: D1Database,
+  queueId: number,
   skeletonHash: string,
   openerHash: string,
 ): Promise<ValidationIssue[]> {
   const issues: ValidationIssue[] = [];
+  // queue_id <> this row: the three variants of ONE item are alternatives
+  // (only one posts), so dry and commentary opening identically is fine;
+  // two different POSTS opening identically is the pattern.
   const recentSkeletons = await db
-    .prepare(`SELECT skeleton_hash FROM generations WHERE status = 'valid' ORDER BY id DESC LIMIT 40`)
+    .prepare(`SELECT skeleton_hash FROM generations WHERE status = 'valid' AND queue_id <> ?1 ORDER BY id DESC LIMIT 40`)
+    .bind(queueId)
     .all<{ skeleton_hash: string }>();
   if (recentSkeletons.results.some((r) => r.skeleton_hash === skeletonHash)) {
     issues.push({ rule: "skeleton_collision", detail: "shape matches one of the last 40 valid variants" });
   }
   const recentOpeners = await db
-    .prepare(`SELECT opener_hash FROM generations WHERE status = 'valid' ORDER BY id DESC LIMIT 20`)
+    .prepare(`SELECT opener_hash FROM generations WHERE status = 'valid' AND queue_id <> ?1 ORDER BY id DESC LIMIT 20`)
+    .bind(queueId)
     .all<{ opener_hash: string }>();
   if (recentOpeners.results.some((r) => r.opener_hash === openerHash)) {
     issues.push({ rule: "opener_collision", detail: "opener matches one of the last 20 valid variants" });
@@ -285,6 +318,7 @@ export async function collisionCheck(
 // ---------------------------------------------------------------------------
 
 export interface ValidateOptions {
+  readonly queueId: number;
   readonly variant: Variant;
   readonly archetype: ArchetypeId;
   readonly payload: Payload;
@@ -308,12 +342,13 @@ export async function validateVariant(db: D1Database, text: string, opts: Valida
     ...structuralCheck(text),
     ...checkRegister(text, opts.archetype),
     ...lengthCheck(text, opts.variant),
+    ...motiveCheck(text),
     // Group 2 — the contract (sync parts).
     ...hedgeCheck(text),
     ...cadenceCheck(text),
   ];
   if (opts.variant === "commentary") issues.push(...templateEchoCheck(text, opts.templateDraft));
-  issues.push(...(await collisionCheck(db, opts.skeletonHash, opts.openerHash)));
+  issues.push(...(await collisionCheck(db, opts.queueId, opts.skeletonHash, opts.openerHash)));
   const corpus = await corpusEchoCheck(db, text);
   issues.push(...corpus.issues);
   return { issues, corpusEmpty: corpus.corpusEmpty };
