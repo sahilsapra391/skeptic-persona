@@ -58,6 +58,18 @@ export const PRESS_SOURCES: readonly PressSource[] = [
     categories: [],
   },
   {
+    id: "press_boj",
+    authority: "Bank of Japan",
+    attribution: "per Bank of Japan",
+    // English "What's New". Verified 2026-07-28: 39 items, JST offsets
+    // (+0900) — a FIFTH timestamp convention in this pipeline.
+    url: "https://www.boj.or.jp/en/rss/whatsnew.xml",
+    categories: [],
+    // The feed mixes policy with conference notices and research bulletins.
+    // Those are not market events and would take a queue slot each.
+    skipTitle: /^\(IMES|Newsletter|Conference|Speech at|Opening Remarks/i,
+  },
+  {
     id: "press_fca",
     authority: "UK FCA",
     attribution: "per UK FCA",
