@@ -8,16 +8,22 @@ import { fmtUsd } from "./shared";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
-// US Treasury auction results (TreasuryDirect TA_WS). Live-verified
-// 2026-07-27T22:42Z: 200, 17,934 bytes, 5 auctions, results posted the same
-// day they were held.
+// US Treasury auction results, via the Fiscal Data API.
 //
-// Highest numbers-per-byte source in the roadmap: no HTML, no auth, no WAF,
-// and ~90 typed fields per auction. Every figure a post could cite is a named
-// JSON field, which is exactly the shape the template engine's no-prose rule
-// wants.
+// HOST CHANGE 2026-07-28. The original endpoint, treasurydirect.gov/TA_WS,
+// works from a residential connection but returns **HTTP 525** from
+// Cloudflare Worker egress — a TLS handshake failure between Cloudflare and
+// that origin. Six consecutive production polls failed with:
+//   treasury 525 type=text/plain body=error code: 525
+// Not a bot block and not a code bug: the handshake never completes, so no
+// amount of header tuning would help. api.fiscaldata.treasury.gov is the
+// same issuer's modern API gateway carrying the same auction results.
+//
+// Still the highest numbers-per-byte source available: no auth, no HTML, and
+// every citable figure is a named JSON field.
 export const TREASURY_AUCTIONS =
-  "https://www.treasurydirect.gov/TA_WS/securities/auctioned?format=json&pagesize=40";
+  "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/auctions_query" +
+  "?sort=-auction_date&page%5Bsize%5D=40";
 export const TREASURY_PAGE = "https://www.treasurydirect.gov/auctions/announcements-data-results/";
 
 export const SOURCE = "treasury_auction";
@@ -60,7 +66,9 @@ export interface TreasuryAuction {
 const num = (v: unknown): number | null => {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
   const s = String(v ?? "").trim();
-  if (s === "") return null;
+  // Fiscal Data serves absent values as the STRING "null", not JSON null.
+  // Treating that as a number would print NaN, or worse, coerce to 0.
+  if (s === "" || s.toLowerCase() === "null") return null;
   const n = Number.parseFloat(s);
   return Number.isFinite(n) ? n : null;
 };
@@ -73,16 +81,17 @@ export function auctionDateToIso(v: unknown): string | null {
 }
 
 export function parseAuctions(body: string): TreasuryAuction[] {
-  const rows = JSON.parse(body) as Array<Record<string, unknown>>;
+  const doc = JSON.parse(body) as { data?: Array<Record<string, unknown>> };
+  const rows = doc.data;
   if (!Array.isArray(rows)) return [];
   const out: TreasuryAuction[] = [];
   for (const r of rows) {
     const cusip = String(r.cusip ?? "").trim();
-    const auctionDate = auctionDateToIso(r.auctionDate);
+    const auctionDate = auctionDateToIso(r.auction_date);
     if (!cusip || !auctionDate) continue;
 
-    const competitiveAccepted = num(r.competitiveAccepted);
-    const indirectBidderAccepted = num(r.indirectBidderAccepted);
+    const competitiveAccepted = num(r.comp_accepted);
+    const indirectBidderAccepted = num(r.indirect_bidder_accepted);
     // Derived from two parsed fields and nothing else; null when either is
     // absent, so a post can never imply a share we did not compute.
     const indirectPct =
@@ -92,21 +101,21 @@ export function parseAuctions(body: string): TreasuryAuction[] {
 
     out.push({
       cusip,
-      securityType: String(r.securityType ?? "").trim(),
-      securityTerm: String(r.securityTerm ?? "").trim(),
+      securityType: String(r.security_type ?? "").trim(),
+      securityTerm: String(r.security_term ?? "").trim(),
       auctionDate,
-      issueDate: auctionDateToIso(r.issueDate),
-      offeringAmount: num(r.offeringAmount),
-      highYield: num(r.highYield),
-      bidToCoverRatio: num(r.bidToCoverRatio),
-      allocationPercentage: num(r.allocationPercentage),
-      competitiveTendered: num(r.competitiveTendered),
+      issueDate: auctionDateToIso(r.issue_date),
+      offeringAmount: num(r.offering_amt),
+      highYield: num(r.high_yield),
+      bidToCoverRatio: num(r.bid_to_cover_ratio),
+      allocationPercentage: num(r.allocation_pctage),
+      competitiveTendered: num(r.comp_tendered),
       competitiveAccepted,
       indirectBidderAccepted,
-      directBidderAccepted: num(r.directBidderAccepted),
-      primaryDealerAccepted: num(r.primaryDealerAccepted),
-      interestRate: num(r.interestRate),
-      pricePer100: num(r.pricePer100),
+      directBidderAccepted: num(r.direct_bidder_accepted),
+      primaryDealerAccepted: num(r.primary_dealer_accepted),
+      interestRate: num(r.int_rate),
+      pricePer100: num(r.price_per100),
       indirectPct,
     });
   }
@@ -115,8 +124,10 @@ export function parseAuctions(body: string): TreasuryAuction[] {
 
 export function scoreAuction(a: TreasuryAuction): number {
   // A result we cannot quantify is never postable: the whole product here is
-  // the numbers.
-  if (a.bidToCoverRatio === null || a.highYield === null) return SCORE_LOG_ONLY;
+  // the numbers. NOTE bid-to-cover only — bills price on a discount rate and
+  // carry high_yield = null, and an ANNOUNCED auction has null results until
+  // it is held, which is how future-dated rows exclude themselves.
+  if (a.bidToCoverRatio === null) return SCORE_LOG_ONLY;
   // Bills print several times a week and rarely carry a story.
   if (!NOTABLE_TYPES.has(a.securityType)) return SCORE_LOG_ONLY;
   if (a.bidToCoverRatio <= WEAK_COVER) return SCORE_AUTO_ALERT;
