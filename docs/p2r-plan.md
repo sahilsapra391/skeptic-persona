@@ -68,11 +68,16 @@ instead: no third-party text in the repo, check still runs.
 - `runPoster` returns early behind a parked-platform guard; the publish call,
   quota guard and token-invalid alerting stop firing.
 - `reconcileClaims` short-circuits. With the account gone its `listRecentPosts`
-  read fails every run and writes noise into `source_state.last_error`. It
-  already fails safe, so this is hygiene, not a bug fix.
+  read fails on every run. The cost is a recurring warn line and nothing more:
+  the poster never calls `recordSourceError`, so no `source_state.last_error`
+  row is written, and the reconciler catches its own failure and returns, so
+  `jobs.consecutive_failures` never increments either. Hygiene, not a bug fix.
 - `refreshThreadsToken` disabled; the token dies 2026-09-25 regardless.
 - OAuth routes removed from the worker's fetch handler.
-- `threads_token_refresh` deleted from the `jobs` table (migration 0026).
+- `poster` and `threads_token_refresh` set to `enabled = 0` in the `jobs`
+  table (migration 0026). Disabled, not deleted: the rows are history and
+  re-enabling them is one of the three un-park steps. **Both rows still exist**
+  — anything later seeding a job must not assume the names are free.
 - `src/lib/threads.ts`, `src/threadsOauth.ts` and the publish half of
   `src/poster.ts` stay on disk with a dated header recording the ban, the
   appeal, and what to re-enable if it succeeds.
@@ -80,7 +85,7 @@ instead: no third-party text in the repo, check still runs.
   pattern so they self-recover. If Threads returns from appeal, the same shape
   applies.
 
-Acceptance: suite green; scheduler runs with the Threads job absent; the 18
+Acceptance: suite green; scheduler runs with both Threads jobs disabled; the 18
 historical `post_log` rows still resolve; no network call to any Meta host on
 any code path.
 
