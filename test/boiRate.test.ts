@@ -153,12 +153,10 @@ describe("single-observation source, end to end", () => {
       "SELECT archetype, draft_text FROM queue ORDER BY id DESC LIMIT 1",
     ).first<{ archetype: string; draft_text: string }>();
     expect(card?.archetype).toBe("RATE_DECISION");
-    // RATE_DECISION carries the generic issuer attribution; the fact line
-    // names the country and the source link is boi.org.il. Naming each bank
-    // individually is a follow-up (see the closed attribution map added for
-    // CONGRESS_PTR), not a correctness gap.
-    expect(card?.draft_text).toContain("per the central bank");
-    expect(card?.draft_text).toContain("Israel");
+    // The bank is cited BY NAME, selected from the closed map on
+    // payload.country. It used to read "per the central bank".
+    expect(card?.draft_text).toContain("per the Bank of Israel");
+    expect(card?.draft_text).not.toContain("per the central bank");
     // Every number in the card came from a parsed field or from a level we
     // recorded ourselves. Nothing here is inferred.
     expect(card?.draft_text).toContain("3.75%");

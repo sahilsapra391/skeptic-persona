@@ -9,6 +9,7 @@ import { recordFacts } from "../lookback";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
+import { RATE_ATTRIBUTION } from "./rateAttribution";
 
 // Central-bank policy rates, as a DECLARATIVE family rather than one ingester
 // per country. Every source here answers the same question — "what is the
@@ -151,7 +152,7 @@ export const RATE_SOURCES: readonly RateSource[] = [
     id: "rate_boi",
     country: "Israel",
     label: "Bank of Israel interest rate",
-    attribution: "per the Bank of Israel",
+    attribution: RATE_ATTRIBUTION["Israel"]!,
     // 112 bytes of exact JSON, the cleanest rate endpoint in this file. It
     // carries NO history, only the current level, which is why the
     // single-observation capability exists.
@@ -173,7 +174,7 @@ export const RATE_SOURCES: readonly RateSource[] = [
     id: "rate_rba",
     country: "Australia",
     label: "Cash Rate Target",
-    attribution: "per the Reserve Bank of Australia",
+    attribution: RATE_ATTRIBUTION["Australia"]!,
     // The F1 statistical table, which is the RBA's own machine-readable
     // publication of the series. 304KB and served with Last-Modified.
     url: "https://www.rba.gov.au/statistics/tables/csv/f1-data.csv",
@@ -184,7 +185,7 @@ export const RATE_SOURCES: readonly RateSource[] = [
     id: "rate_boc",
     country: "Canada",
     label: "Target for the overnight rate",
-    attribution: "per Bank of Canada",
+    attribution: RATE_ATTRIBUTION["Canada"]!,
     url: "https://www.bankofcanada.ca/valet/observations/V39079/json?recent=10",
     sourceUrl: "https://www.bankofcanada.ca/rates/interest-rates/canadian-interest-rates/",
     parse: (body) => {
@@ -201,7 +202,7 @@ export const RATE_SOURCES: readonly RateSource[] = [
     id: "rate_riksbank",
     country: "Sweden",
     label: "Policy rate",
-    attribution: "per Sveriges Riksbank",
+    attribution: RATE_ATTRIBUTION["Sweden"]!,
     // The API requires a from-date; a rolling window keeps the response small.
     url: "https://api.riksbank.se/swea/v1/Observations/SECBREPOEFF/2026-01-01",
     sourceUrl: "https://www.riksbank.se/en-gb/statistics/policy-rate-exchange-rates-and-other-interest-rates/",
@@ -217,7 +218,7 @@ export const RATE_SOURCES: readonly RateSource[] = [
     id: "rate_bcb",
     country: "Brazil",
     label: "Selic target",
-    attribution: "per Banco Central do Brasil",
+    attribution: RATE_ATTRIBUTION["Brazil"]!,
     url: "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/20?formato=json",
     sourceUrl: "https://www.bcb.gov.br/en/monetarypolicy/selicrate",
     parse: (body) => {
@@ -233,7 +234,7 @@ export const RATE_SOURCES: readonly RateSource[] = [
     id: "rate_sarb",
     country: "South Africa",
     label: "SARB Policy Rate",
-    attribution: "per South African Reserve Bank",
+    attribution: RATE_ATTRIBUTION["South Africa"]!,
     url: "https://custom.resbank.co.za/SarbWebApi/WebIndicators/CurrentMarketRates",
     sourceUrl: "https://www.resbank.co.za/en/home/what-we-do/monetary-policy",
     parse: (body) => {
@@ -249,7 +250,7 @@ export const RATE_SOURCES: readonly RateSource[] = [
     id: "rate_boe",
     country: "United Kingdom",
     label: "Bank Rate",
-    attribution: "per Bank of England",
+    attribution: RATE_ATTRIBUTION["United Kingdom"]!,
     // IADB requires an explicit window; a rolling year keeps the CSV small
     // while still carrying enough history to see the previous level.
     buildUrl: (now) => {
@@ -296,7 +297,7 @@ export const RATE_SOURCES: readonly RateSource[] = [
     id: "rate_ecb",
     country: "Euro area",
     label: "Main refinancing operations rate",
-    attribution: "per European Central Bank",
+    attribution: RATE_ATTRIBUTION["Euro area"]!,
     // SDMX-CSV: flat header + one row per observation. csvdata is far cheaper
     // to parse than the JSON variant's nested structure blocks.
     url:
@@ -323,7 +324,7 @@ export const RATE_SOURCES: readonly RateSource[] = [
     id: "rate_norges",
     country: "Norway",
     label: "Key policy rate",
-    attribution: "per Norges Bank",
+    attribution: RATE_ATTRIBUTION["Norway"]!,
     // SDMX CSV. Verified 2026-07-28: 4.25%, and the delimiter is a
     // SEMICOLON, not a comma — a comma split silently yields one column and
     // zero observations.
@@ -351,7 +352,7 @@ export const RATE_SOURCES: readonly RateSource[] = [
     id: "rate_snb",
     country: "Switzerland",
     label: "SNB policy rate",
-    attribution: "per Swiss National Bank",
+    attribution: RATE_ATTRIBUTION["Switzerland"]!,
     // RSS-CB: this feed carries the NUMBER inside the feed (cb:value), so no
     // second fetch is needed. Verified 2026-07-27.
     url: "https://www.snb.ch/public/en/rss/interestRates",
