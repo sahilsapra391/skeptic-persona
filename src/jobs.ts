@@ -7,7 +7,7 @@ import { pollForm4 } from "./ingesters/form4";
 import { pollForm144 } from "./ingesters/form144";
 import { makeRateHandler, RATE_SOURCES } from "./ingesters/rates";
 import { pollTreasury } from "./ingesters/treasury";
-import { pollFdaRecalls } from "./ingesters/fdaRecalls";
+import { FDA_SOURCES, makeFdaHandler } from "./ingesters/fdaRecalls";
 import { pollFederalRegister } from "./ingesters/federalRegister";
 import { pollCftc } from "./ingesters/cftc";
 import { pollSchedule13 } from "./ingesters/schedule13d";
@@ -93,7 +93,7 @@ export function registerJobs(): void {
   // One job per rate source: each carries its own cadence and failure state.
   for (const src of RATE_SOURCES) registry[src.id] = makeRateHandler(src);
   registry["treasury_auction"] = pollTreasury;
-  registry["fda_drug_recall"] = pollFdaRecalls;
+  for (const src of FDA_SOURCES) registry[src.id] = makeFdaHandler(src);
   registry["federal_register"] = pollFederalRegister;
   registry["cftc_cot"] = pollCftc;
   registry["sec_schedule13"] = pollSchedule13;
