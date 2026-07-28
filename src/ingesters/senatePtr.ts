@@ -111,6 +111,91 @@ function cellText(cell: string): string {
   return decodeEntities(t.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Ingest ONE eFD row given its already-fetched detail HTML.
+ *
+ * Extracted so the blocked direct poller and the GitHub Actions relay run the
+ * SAME code. Senate eFD 403s Cloudflare egress, so the courier fetches; but a
+ * second copy of this scoring and drafting logic would drift from this one
+ * the first time either changed, and drift here means a wrong number in a
+ * post about a senator's trade.
+ */
+export async function ingestEfdRow(
+  env: Env,
+  row: EfdRow,
+  detailHtml: string | null,
+  now: Date,
+): Promise<"inserted" | "duplicate" | "skipped"> {
+  const filedIso = efdDateToIso(row.filedDate);
+  const viewUrl = `${BASE}/search/view/${row.kind}/${row.uuid}/`;
+
+  if (row.kind === "paper") {
+    // Scanned images; no table to parse. Lake-only, never guessed at.
+    const res = await insertItem(
+      env.DB,
+      {
+        source: SOURCE,
+        externalId: row.uuid,
+        category: "congress",
+        eventAt: filedIso || null,
+        sourceUrl: viewUrl,
+        payload: { kind: "paper", display: row.display, firstName: row.firstName, lastName: row.lastName, filedDate: row.filedDate },
+        score: SCORE_LOG_ONLY,
+        status: "logged",
+      },
+      now,
+    );
+    return res.outcome;
+  }
+
+  if (detailHtml === null) return "skipped";
+
+  const txns = parsePtrTable(detailHtml);
+  const parsedOk = txns.length > 0;
+  const dated = txns.filter((t) => lagDays(filedIso, t.transactionDate) !== null);
+  const newest = dated
+    .slice()
+    .sort((a, b) => (lagDays(filedIso, a.transactionDate)! < lagDays(filedIso, b.transactionDate)! ? -1 : 1))[0];
+  const minLag = newest ? lagDays(filedIso, newest.transactionDate) : null;
+  const fresh = isFreshDateOnly(filedIso, now);
+  const draft = parsedOk ? draftSenatePtr(row, txns, filedIso) : "";
+
+  const res = await insertItem(
+    env.DB,
+    {
+      source: SOURCE,
+      externalId: row.uuid,
+      category: "congress",
+      eventAt: filedIso || null,
+      sourceUrl: viewUrl,
+      payload: {
+        kind: "ptr",
+        display: row.display,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        filedDate: row.filedDate,
+        transactions: txns,
+        factLine: draft,
+        who: row.display.replace(/\s*\(Senator\)\s*$/, ""),
+        tradeLine: txns
+          .slice(0, 3)
+          .map((t) => `${t.type} ${t.amount}, ${t.ticker ?? t.assetName.slice(0, 40)} (${t.transactionDate})`)
+          .join("; "),
+        tradeDate: newest?.transactionDate ?? null,
+        amountBand: newest?.amount ?? null,
+        singleTxn: txns.length === 1,
+        lagDays: minLag,
+        bandSpanRatio: bandSpan(newest?.amount ?? ""),
+        bandWidthUsd: bandWidth(newest?.amount ?? ""),
+      },
+      score: parsedOk ? SCORE_POSTABLE : SCORE_LOG_ONLY,
+      status: parsedOk && fresh ? "new" : "logged",
+    },
+    now,
+  );
+  return res.outcome;
+}
+
 export function parsePtrTable(html: string): EfdTxn[] {
   const out: EfdTxn[] = [];
   for (const row of extractAll(html, "tr")) {

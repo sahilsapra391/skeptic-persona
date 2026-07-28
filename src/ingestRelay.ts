@@ -4,6 +4,7 @@ import { newTickBudget } from "./lib/budget";
 import { insertItem, SCORE_LOG_ONLY, SCORE_POSTABLE } from "./lib/db";
 import { parseAuctions, scoreAuction, draftAuction, SOURCE as TREASURY_SOURCE, TREASURY_PAGE } from "./ingesters/treasury";
 import { parsePressFeed, PRESS_SOURCES, isNewsworthy, draftPress } from "./ingesters/regulatoryPress";
+import { ingestEfdRow, parseEfdRows, SOURCE as SENATE_SOURCE, type EfdRow } from "./ingesters/senatePtr";
 import { enqueueForApproval } from "./pipeline/enqueue";
 import { isFreshAtIngest } from "./ingesters/shared";
 import { iso } from "./lib/time";
@@ -32,7 +33,37 @@ export interface RelayPayload {
 }
 
 /** Sources this relay knows how to ingest. Anything else is rejected. */
-export const RELAY_SOURCES = new Set<string>([TREASURY_SOURCE, "press_cftc_enforcement"]);
+export const RELAY_SOURCES = new Set<string>([TREASURY_SOURCE, "press_cftc_enforcement", SENATE_SOURCE]);
+
+/**
+ * Senate eFD needs THREE things the Worker cannot fetch: a session handshake,
+ * the search POST, and one detail page per filing. So the courier does all of
+ * it and delivers a bundle — the search JSON plus a map of uuid -> detail
+ * HTML. Everything after that is the same code the direct poller runs.
+ */
+export interface SenateBundle {
+  search: unknown;
+  details: Record<string, string>;
+}
+
+async function ingestSenate(env: Env, body: string, now: Date): Promise<number> {
+  const bundle = JSON.parse(body) as SenateBundle;
+  const rows: EfdRow[] = parseEfdRows(bundle.search);
+  if (rows.length === 0) throw new Error("senate bundle: search parsed to zero rows");
+  const details = bundle.details ?? {};
+
+  let inserted = 0;
+  for (const row of rows) {
+    // A missing detail page is SKIPPED, not guessed at: the courier may have
+    // been rate-limited mid-run, and an item inserted without its
+    // transactions would look complete while claiming nothing.
+    const html = row.kind === "paper" ? null : (details[row.uuid] ?? null);
+    if (row.kind !== "paper" && html === null) continue;
+    const outcome = await ingestEfdRow(env, row, html, now);
+    if (outcome === "inserted") inserted += 1;
+  }
+  return inserted;
+}
 
 async function ingestTreasury(env: Env, body: string, now: Date): Promise<number> {
   const auctions = parseAuctions(body);
@@ -105,7 +136,8 @@ async function drain(env: Env, source: string, now: Date): Promise<number> {
     .bind(source, SCORE_POSTABLE)
     .all<{ id: number; source_url: string; payload: string }>();
   let sent = 0;
-  const archetype = source === TREASURY_SOURCE ? "TREASURY_AUCTION" : "REGULATORY_NEWS";
+  const archetype =
+    source === TREASURY_SOURCE ? "TREASURY_AUCTION" : source === SENATE_SOURCE ? "CONGRESS_PTR" : "REGULATORY_NEWS";
   for (const row of pending.results) {
     if (!budget.take(1)) break;
     const payload = JSON.parse(row.payload) as Record<string, unknown>;
@@ -151,7 +183,9 @@ export async function handleIngestRelay(request: Request, env: Env, now: Date = 
     const inserted =
       payload.source === TREASURY_SOURCE
         ? await ingestTreasury(env, payload.body, now)
-        : await ingestPress(env, payload.source, payload.body, now);
+        : payload.source === SENATE_SOURCE
+          ? await ingestSenate(env, payload.body, now)
+          : await ingestPress(env, payload.source, payload.body, now);
     const queued = await drain(env, payload.source, now);
     log("info", "ingest relay accepted", {
       source: payload.source,
