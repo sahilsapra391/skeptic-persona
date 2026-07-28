@@ -138,13 +138,29 @@ evan_stockmktnewz 1,342, unusual_whales 1,739, spectator_index 2,765.
 
 ## Addendum (2026-07-28, style-pack distillation): the congress coverage is thinner than the topic count
 
-The 154-post congress figure above counts topic mentions. Isolating posts that
-are actually TRADE-DISCLOSURE shaped (member + trade verb or disclosure
-mechanics, text-only, <= 280 chars) leaves **13 posts, all from one account**,
-and they share a single shape: alarm opener ("BREAKING:"), an editorial frame
-line ("Look at this." / "This is unusual."), then member + verb + amount +
-ticker + date, occasionally with a temporal-proximity clause joining the trade
-to an outside event.
+**Correction (same day):** the first version of this addendum said "13 of
+175", mixing two keyword banks and two base sets; a review caught it. The
+numbers below are re-measured under ONE definition and supersede both earlier
+pairings (the coverage table's 154 used the original topic bank without
+"capitol"; the differences are regex variants and change no conclusion).
+
+Definition: base set = usable posts (text-only, <= 280 chars, no media, not a
+reply, not a quote); congress = matching
+`\b(congress|senator|congressman|congresswoman|pelosi|periodic transaction|capitol)\b`
+(case-insensitive); trade-shaped = additionally matching
+`(bought|purchased|sold|dumped|disclos\w+|financial disclosure|periodic transaction|stock trade)`.
+
+Result: **174 congress posts, of which 9 are trade-disclosure shaped** (all
+from one account). The 9 share a single shape: alarm opener ("BREAKING:"), an
+editorial frame line ("Look at this." / "This is unusual."), then member +
+verb + amount + ticker + date, occasionally with a temporal-proximity clause
+joining the trade to an outside event. Register stats on the 174: 52% open
+ALL-CAPS, 40% open "BREAKING".
+
+Two further measurements the style pack cites, recorded here so they stop
+being folklore: evan_stockmktnewz carries an image on **1,992 of 2,504 posts
+(79%)**; spectator_index's usable-set length is **median 89 chars (p25 68,
+p75 122)**.
 
 Consequences for the style pack (src/rag/stylepack.ts):
 
