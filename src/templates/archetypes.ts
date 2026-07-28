@@ -812,6 +812,49 @@ const ownershipStake: Archetype = {
 };
 
 // ---------------------------------------------------------------------------
+// REGULATORY_NEWS (regulator press releases — NUMBERLESS by construction)
+
+const regulatoryNews: Archetype = {
+  id: "REGULATORY_NEWS",
+  // Per-authority attribution rides in the fact line, which names the body.
+  attribution: "per the issuing authority",
+  skeletons: [
+    {
+      id: "reg.headline",
+      build: (p) => {
+        const line = str(p, "factLine");
+        return line ? { lines: [line] } : null;
+      },
+    },
+    {
+      id: "reg.authorityFirst",
+      build: (p) => {
+        const authority = str(p, "authority");
+        const title = str(p, "title");
+        if (!authority || !title) return null;
+        return { lines: [`${title}. Announced by ${authority}`] };
+      },
+    },
+  ],
+  // These sources carry no parsed numbers, so the beats carry none either.
+  // A template that cannot interpolate a figure cannot invent one.
+  beats: [
+    {
+      id: "reg.primary",
+      text: "The announcement itself, not a report of it.",
+      tier: "base",
+      when: { op: "has", field: "authority" },
+    },
+    {
+      id: "reg.dateStamped",
+      text: "Published {publishedIso}.",
+      tier: "base",
+      when: { op: "has", field: "publishedIso" },
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // HALT
 
 const halt: Archetype = {
@@ -891,5 +934,6 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   POLICY_ACTION: policyAction,
   POSITIONING: positioning,
   OWNERSHIP_STAKE: ownershipStake,
+  REGULATORY_NEWS: regulatoryNews,
   HALT: halt,
 };

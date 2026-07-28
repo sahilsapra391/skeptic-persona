@@ -241,6 +241,16 @@ practice ("See Item 3 above", "Not applicable") and are never read for a
 figure. Amendments restate a position we may already have posted, so they
 carry no beat.
 
+### REGULATORY NEWS (regulator press releases)
+- `The announcement itself, not a report of it.`
+- `Published {date}.` [publication timestamp parsed]
+
+These feeds carry no numbers, so the templates are NUMBERLESS BY
+CONSTRUCTION: they have no slot a figure could occupy and physically cannot
+emit one. Selection is by the feed's own category (FCA tags Press Releases
+separately from Blogs) and by skipping routine digests ("Daily News
+27 / 07 / 2026"), which is a visibility decision that never appears in a post.
+
 ### HALT
 - `Pending is the whole disclosure.` [T1]
 - `The band did what the band does.` [LUDP/LUDS]
