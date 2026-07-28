@@ -134,10 +134,21 @@ export interface BeatGuard {
 
 export type Payload = Record<string, unknown>;
 
+/**
+ * Attribution selected from a CLOSED map keyed by a payload field, for
+ * archetypes that serve more than one primary source. The value set is fixed
+ * at authoring time: a payload can choose among these strings, never supply
+ * one. An unknown or absent key resolves to null and the render fails.
+ */
+export interface AttributionMap {
+  readonly field: string;
+  readonly map: Readonly<Record<string, string>>;
+}
+
 export interface Archetype {
   readonly id: ArchetypeId;
   /** Mandatory attribution, appended to the fact block by the renderer. */
-  readonly attribution: string;
+  readonly attribution: string | AttributionMap;
   /** At least two skeletons or the rotation invariant is unsatisfiable. */
   readonly skeletons: readonly [Skeleton, Skeleton, ...Skeleton[]];
   readonly beats: readonly Beat[];
