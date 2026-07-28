@@ -1,0 +1,32 @@
+{
+ "taxonomy": "dei",
+ "tag": "EntityPublicFloat",
+ "ccp": "CY2025Q2I",
+ "uom": "USD",
+ "data": [
+  {
+   "accn": "0001045810-26-000021",
+   "cik": 1045810,
+   "entityName": "NVIDIA CORP",
+   "loc": "US-CA",
+   "end": "2025-07-25",
+   "val": 4000000000000
+  },
+  {
+   "accn": "0001683168-26-003039",
+   "cik": 1109262,
+   "entityName": "Allied Energy, Inc.",
+   "loc": "CA-ON",
+   "end": "2025-06-30",
+   "val": 267279445
+  },
+  {
+   "accn": "x",
+   "cik": 9999001,
+   "entityName": "PRE IPO SPINOFF INC",
+   "loc": "US-DE",
+   "end": "2025-06-30",
+   "val": 0
+  }
+ ]
+}

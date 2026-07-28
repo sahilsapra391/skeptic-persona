@@ -175,11 +175,30 @@ export const MAX_ENQUEUES_PER_RUN = 10;
 
 export { isFreshAtIngest, STALE_AT_INGEST_HOURS } from "./shared";
 import { isFreshAtIngest } from "./shared";
+import { keepIssuer, lookupIssuer, minFloatUsd } from "./issuers";
+
+/** Test seam: drive the real ingest path with hand-built entries. */
+export function ingestForTest(env: Env, entries: Edgar8kEntry[], now: Date = new Date()): Promise<number> {
+  return ingestEntries(env, entries, now);
+}
 
 async function ingestEntries(env: Env, entries: Edgar8kEntry[], now: Date): Promise<number> {
   let inserted = 0;
+  const floor = minFloatUsd(env);
   for (const entry of entries) {
-    const score = scoreEntry(entry);
+    let score = scoreEntry(entry);
+
+    // ISSUER GATE. EDGAR's filer universe is mostly funds, trusts and shells;
+    // measured on 2026-07-28, 17% of live 8-K items came from filers with no
+    // listing at all and another 29% from issuers under the float floor.
+    // Those filings still land in the lake, they just stop interrupting.
+    //
+    // Fails OPEN: an issuer we cannot find has not been shown to be small.
+    const gate = keepIssuer(await lookupIssuer(env, entry.cik), floor);
+    if (!gate.keep) {
+      score = Math.min(score, SCORE_LOG_ONLY);
+      log("debug", "8-K suppressed by issuer gate", { cik: entry.cik, company: entry.company, reason: gate.reason });
+    }
     const result = await insertItem(
       env.DB,
       {
