@@ -1,7 +1,9 @@
 import type { Env } from "../env";
 import { newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
-import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
+import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE ,
+  recordSourceError,
+} from "../lib/db";
 import { recordFacts } from "../lookback";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtNum } from "./shared";
@@ -175,6 +177,7 @@ export async function pollCftc(env: Env, now: Date = new Date(), budget: TickBud
     state.consecutiveFailures += 1;
     state.lastPolledAt = iso(now);
     await putSourceState(env.DB, state);
+    await recordSourceError(env.DB, SOURCE, e, now);
     log("error", "cftc poll failed", { error: String(e), failures: state.consecutiveFailures });
     return;
   }

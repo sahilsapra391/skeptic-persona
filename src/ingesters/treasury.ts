@@ -1,7 +1,9 @@
 import type { Env } from "../env";
 import { newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
-import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
+import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE ,
+  recordSourceError,
+} from "../lib/db";
 import { recordFacts } from "../lookback";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtUsd } from "./shared";
@@ -21,9 +23,14 @@ import { log } from "../lib/log";
 //
 // Still the highest numbers-per-byte source available: no auth, no HTML, and
 // every citable figure is a named JSON field.
+// page[size]=12, not 40. VERIFIED CAUSE of the follow-on failure: at 40 the
+// response is ~147 KB and the Worker request timed out
+// ("TimeoutError: The operation was aborted due to timeout", 10 consecutive
+// polls). Twelve rows is ~45 KB and still covers several days of auctions on
+// a job that runs every 30 minutes, so nothing is missed.
 export const TREASURY_AUCTIONS =
   "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/auctions_query" +
-  "?sort=-auction_date&page%5Bsize%5D=40";
+  "?sort=-auction_date&page%5Bsize%5D=12";
 export const TREASURY_PAGE = "https://www.treasurydirect.gov/auctions/announcements-data-results/";
 
 export const SOURCE = "treasury_auction";
@@ -162,7 +169,9 @@ export async function pollTreasury(
   try {
     const res = await politeFetch(TREASURY_AUCTIONS, {
       userAgent: buildUserAgent(env.CONTACT_EMAIL),
-      timeoutMs: 20_000,
+      // 30s: this origin is measurably slower from Worker egress than from a
+      // residential connection, where the same request completes in 0.7s.
+      timeoutMs: 30_000,
     });
     if (!res.ok) {
       // Self-explaining failure: three polls failed in production with no way
@@ -235,6 +244,7 @@ export async function pollTreasury(
     state.consecutiveFailures += 1;
     state.lastPolledAt = iso(now);
     await putSourceState(env.DB, state);
+    await recordSourceError(env.DB, SOURCE, e, now);
     log("error", "treasury poll failed", { error: String(e), failures: state.consecutiveFailures });
     return;
   }

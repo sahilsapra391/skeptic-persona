@@ -2,7 +2,9 @@ import type { Env } from "../env";
 import { newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
 import { decodeEntities, extractAll, extractFirst, stripBom } from "../lib/xml";
-import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
+import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE ,
+  recordSourceError,
+} from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { isFreshAtIngest } from "./shared";
 import { iso } from "../lib/time";
@@ -143,6 +145,7 @@ export function makePressHandler(src: PressSource) {
       state.consecutiveFailures += 1;
       state.lastPolledAt = iso(now);
       await putSourceState(env.DB, state);
+      await recordSourceError(env.DB, src.id, e, now);
       log("error", "regulatory press poll failed", { source: src.id, error: String(e) });
       return;
     }

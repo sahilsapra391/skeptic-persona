@@ -20,6 +20,28 @@ egress-failure mode, after Senate eFD (403 to datacenter IPs) and NSE India
 **Resolution:** switched to Treasury's own modern API gateway,
 `api.fiscaldata.treasury.gov`, which carries the same auction results.
 
+## SECOND FAILURE, different cause: TIMEOUT (not a block)
+
+The Fiscal Data host then failed ten consecutive polls with a DIFFERENT
+error, captured 2026-07-28T03:20Z:
+
+```
+TimeoutError: The operation was aborted due to timeout
+```
+
+At `page[size]=40` the response is ~147 KB, and that request does not
+complete inside the 20-second budget from Worker egress — the same request
+takes **0.7 s** from a residential connection. This origin is measurably
+slower from Cloudflare.
+
+**Fix:** `page[size]=12` (~45 KB) and a 30-second timeout. Twelve rows still
+covers several days of auctions on a job that runs every 30 minutes.
+
+**Lesson worth keeping:** two consecutive failures on the same source had two
+completely different causes (TLS handshake, then timeout). Neither was
+visible without the error text, which is why `source_state.last_error` now
+exists.
+
 ---
 
 
