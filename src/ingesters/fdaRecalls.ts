@@ -97,6 +97,61 @@ export function parseRecalls(body: string): FdaRecall[] {
 }
 
 /**
+ * One recall EVENT, as FDA itself identifies it.
+ *
+ * openFDA publishes one record PER PRODUCT, so a single recall arrives as
+ * many near-identical rows: measured 2026-07-28, a 199-record drug window
+ * held 94 events and one Bell Pharmaceuticals recall alone accounted for 11
+ * rows. Ungrouped, that is eleven approval cards for one recall.
+ */
+export interface FdaRecallEvent extends FdaRecall {
+  /** Records FDA published under this event, classification and reason. */
+  productCount: number;
+  /** Every product in the group, in the order FDA served them. */
+  products: string[];
+}
+
+/**
+ * Collapse per-product records into events.
+ *
+ * The key is FDA's own event_id PLUS classification and reason, and that is
+ * not belt-and-braces. Measured across a 307-record food window and a
+ * 199-record drug window: recalling_firm, status, recall_initiation_date and
+ * report_date NEVER vary inside an event_id, but classification varies in
+ * about 9% of multi-record events and reason_for_recall in 12-25%. Grouping
+ * on event_id alone would therefore print one classification over products
+ * FDA graded differently, which is a mis-statement of the agency's own call.
+ *
+ * With the composite key, every merged field is consistent by construction:
+ * zero inconsistent groups across both windows.
+ */
+export function groupRecalls(recalls: readonly FdaRecall[]): FdaRecallEvent[] {
+  const groups = new Map<string, FdaRecallEvent>();
+  for (const r of recalls) {
+    const key = eventKey(r);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.productCount += 1;
+      existing.products.push(r.product);
+      continue;
+    }
+    groups.set(key, { ...r, productCount: 1, products: [r.product] });
+  }
+  return [...groups.values()];
+}
+
+/**
+ * Stable identity for one event-classification-reason group.
+ *
+ * The reason is truncated but included: if FDA restates why a product was
+ * pulled, that is a different claim and deserves its own item rather than
+ * silently reusing the old one.
+ */
+export function eventKey(r: FdaRecall): string {
+  return `${r.eventId}:${r.classification}:${r.reason.slice(0, 60)}`;
+}
+
+/**
  * Grading uses FDA's OWN classification, never our reading of the reason
  * text. Class I is FDA's term for a reasonable probability of serious harm.
  */
@@ -108,12 +163,16 @@ export function scoreRecall(r: FdaRecall): number {
 }
 
 /** Tier A: FDA's fields, verbatim. The reason text is the agency's wording. */
-export function draftRecall(r: FdaRecall): string {
+export function draftRecall(r: FdaRecall | FdaRecallEvent): string {
   // Truncate with a single character rather than "...": a period-collapsing
   // cleanup would eat an ellipsis, and the join below already normalises
   // trailing periods per part.
   const product = r.product.length > 90 ? `${r.product.slice(0, 89)}\u2026` : r.product;
-  const parts = [`FDA ${r.classification} recall: ${r.firm}`, product, `Reason: ${r.reason}`];
+  // A grouped event names one product and SAYS how many more it covers. A
+  // count without the marker would read as a single-product recall.
+  const count = "productCount" in r ? r.productCount : 1;
+  const listed = count > 1 ? `${product} +${count - 1} more products` : product;
+  const parts = [`FDA ${r.classification} recall: ${r.firm}`, listed, `Reason: ${r.reason}`];
   if (r.initiatedIso) parts.push(`Initiated ${r.initiatedIso}`);
   return parts.map((p) => p.replace(/\.\s*$/, "")).join(". ");
 }
@@ -138,13 +197,17 @@ export async function pollFdaRecalls(
     const recalls = parseRecalls(res.body);
     if (recalls.length === 0) throw new Error("parsed to zero recalls");
 
-    for (const r of recalls) {
+    // One card per EVENT, not per product record.
+    const events = groupRecalls(recalls);
+    log("info", "fda recalls grouped", { records: recalls.length, events: events.length });
+
+    for (const r of events) {
       const score = scoreRecall(r);
       const result = await insertItem(
         env.DB,
         {
           source: SOURCE,
-          externalId: `${r.eventId}:${r.product.slice(0, 40)}`,
+          externalId: eventKey(r),
           category: "recall",
           eventAt: r.reportedIso ? `${r.reportedIso}T00:00:00.000Z` : null,
           sourceUrl: FDA_PAGE,
