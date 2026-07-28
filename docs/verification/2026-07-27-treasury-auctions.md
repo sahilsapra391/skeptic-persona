@@ -1,9 +1,57 @@
-# Verification: TreasuryDirect auction results — 2026-07-27T22:42Z
+# Verification: US Treasury auctions — 2026-07-27 / 2026-07-28
 
-`https://www.treasurydirect.gov/TA_WS/securities/auctioned?format=json&pagesize=40`
+## HOST CHANGE: treasurydirect.gov FAILS from Cloudflare Workers (HTTP 525)
 
-**HTTP 200, 17,934 bytes, 5 auctions.** No auth, no WAF, no HTML anywhere in
-the path. Declared UA `Skeptic Wire admin@spechawk.ai`.
+The original endpoint, `https://www.treasurydirect.gov/TA_WS/securities/auctioned`,
+returns **200 from a residential connection** and **HTTP 525 from Cloudflare
+Worker egress**. Six consecutive production polls failed. The error, captured
+after the ingester was changed to report status, content-type and body:
+
+```
+treasury 525 type=text/plain; charset=UTF-8 body=error code: 525
+```
+
+**525 is a TLS handshake failure** between Cloudflare and the origin. It is
+not a bot block and not a code bug — the handshake never completes, so no
+header tuning, UA change or retry would help. This is a THIRD distinct
+egress-failure mode, after Senate eFD (403 to datacenter IPs) and NSE India
+(UA-based connection reset).
+
+**Resolution:** switched to Treasury's own modern API gateway,
+`api.fiscaldata.treasury.gov`, which carries the same auction results.
+
+---
+
+
+
+## Fiscal Data endpoint (in use)
+
+`https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/auctions_query?sort=-auction_date&page[size]=40`
+
+**HTTP 200, 147,702 bytes, 40 auctions.** No auth. Declared UA
+`Skeptic Wire admin@spechawk.ai`.
+
+Verified live 2026-07-28T01:10Z, 13-Week Bill cusip 912797SK4, auctioned
+2026-07-27: bid-to-cover **3.06**, $92.0B offered, $279.6B tendered,
+allocation 83.44%, indirect share 66.9%.
+
+### Two shape differences from TA_WS
+
+1. Fields are **snake_case** (`auction_date`, `bid_to_cover_ratio`,
+   `comp_accepted`) and wrapped in a `{ data: [...] }` envelope.
+2. Absent values arrive as the **STRING `"null"`**, not JSON null. Coercing
+   that would print `NaN` or silently become 0, so the parser rejects it
+   explicitly.
+
+### Announced-but-unheld auctions
+
+The newest rows are auctions that have been ANNOUNCED but not yet held, with
+every result field `"null"` (e.g. auction_date 2026-07-29 seen on 07-28).
+Scoring requires a parsed bid-to-cover, so those exclude themselves. Note
+that scoring does NOT require high_yield: bills price on a discount rate and
+legitimately carry `high_yield = "null"`.
+
+### Original TA_WS record (kept for reference)
 
 ## Same-day results confirmed
 
