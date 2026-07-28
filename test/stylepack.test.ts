@@ -76,7 +76,12 @@ describe("anti-patterns are genuinely negative", () => {
     // case it must NOT carry a REAL attribution, so it can never be mistaken
     // for a rendered post shape. "Real" is derived from the archetype table,
     // not a hand-kept list that drifts as attributions are added.
-    const attributions = Object.values(ARCHETYPES).map((a) => a.attribution);
+    // PR #53 makes attribution string-OR-map; normalize so this test survives
+    // both shapes (mirrors checkRegister's own handling, not a reinvention).
+    const attributions = Object.values(ARCHETYPES).flatMap((a): string[] => {
+      const attr: unknown = a.attribution;
+      return typeof attr === "string" ? [attr] : Object.values((attr as { map: Record<string, string> }).map);
+    });
     for (const p of ANTI_PATTERNS) {
       const mechanical = checkRegister(p.example).length > 0;
       const postShaped = attributions.some((attr) => p.example.includes(attr));
