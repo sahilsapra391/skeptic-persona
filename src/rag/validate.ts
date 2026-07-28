@@ -401,11 +401,14 @@ export function urlCheck(text: string): ValidationIssue[] {
     : [];
 }
 
-export function structuralCheck(text: string): ValidationIssue[] {
+export function structuralCheck(text: string, variant: Variant = "dry"): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const segments = text.split(/\n\n+/);
-  if (segments.length > 2) {
-    issues.push({ rule: "structure", detail: `${segments.length} segments; fact block plus at most one take` });
+  // The commentary shape is the OWNER'S, demonstrated in his exemplars:
+  // fact block / short punch / take — three segments. Wire stays fact+beat.
+  const maxSegments = variant === "commentary" ? 3 : 2;
+  if (segments.length > maxSegments) {
+    issues.push({ rule: "structure", detail: `${segments.length} segments; limit ${maxSegments} for ${variant}` });
   }
   if (!/\bper .+/.test(segments[0] ?? "")) {
     issues.push({ rule: "structure", detail: "attribution must ride the fact block, not the take" });
@@ -568,7 +571,7 @@ export async function validateVariant(db: D1Database, text: string, opts: Valida
     ...sourcingCheck(text),
     ...urlCheck(text),
     ...motiveCheck(text),
-    ...structuralCheck(text),
+    ...structuralCheck(text, opts.variant),
     // Payload arg (PR #53): resolves the single correct attribution for
     // chamber-mapped archetypes — the wrong-chamber check comes free.
     ...checkRegister(text, opts.archetype, opts.payload),

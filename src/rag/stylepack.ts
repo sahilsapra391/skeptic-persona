@@ -203,13 +203,153 @@ final clause WITHOUT the first two: the disclosure mechanics ARE the story.
   IS the differentiation.`;
 
 /**
- * Owner-authored exemplars: the only complete posts the generation prompt
- * ever sees as models. EMPTY until the owner writes them (plan: 8-12, one
- * per archetype, congress first). p2r-04 must refuse LLM generation for an
- * archetype with no exemplar and fall back to the template draft — an empty
- * bank here is a hard gate, not a degraded mode.
+ * OWNER EXEMPLARS — the voice to match, owner-authored 2026-07-28, stored
+ * VERBATIM (this bank is the one place the owner's hand outranks every
+ * machine rule; edits here are owner edits or nothing).
+ *
+ * Two registers: "wire" exemplars model dry/sharp (every one fits the
+ * weighted 280); "commentary" exemplars model the take register — the owner
+ * writes it at 296-354 chars, ABOVE the free-tier cap, so they are VOICE
+ * REFERENCES, not postable posts: generated commentary must still land
+ * inside 200-280 and the validator enforces that on OUTPUT. If the account
+ * ever moves to Premium, POST_TEXT_LIMIT is the only constant to revisit.
+ *
+ * Label mapping (owner's labels -> engine archetypes): INSIDER_FORM4 ->
+ * FILING_FORM4, ENFORCEMENT -> REGULATORY_NEWS, GLOBAL_WIRE -> RATE_DECISION;
+ * _COMMENTARY variants share their base archetype (the bank filters per
+ * archetype; both registers ride in the same prompt).
  */
-export const OWNER_EXEMPLARS: ReadonlyArray<{ readonly archetype: ArchetypeId; readonly text: string }> = [];
+export interface OwnerExemplar {
+  readonly archetype: ArchetypeId;
+  readonly register: "wire" | "commentary";
+  readonly text: string;
+}
+
+export const OWNER_EXEMPLARS: readonly OwnerExemplar[] = [
+  { archetype: "CONGRESS_PTR", register: "wire", text: `Senate PTR: $1,000,001 - $5,000,000 purchase in a defense prime, trade date June 3, per Senate eFD.
+Filed July 18.
+Legal, disclosed, and six weeks stale. Working as intended, apparently.` },
+  { archetype: "CONGRESS_PTR", register: "wire", text: `House PTR: $15,001 - $50,000 purchase, trade date May 12, disclosed today, per House Clerk.
+Sixty-one days from trade to public.
+You're reading last quarter's trades and we're calling it transparency.` },
+  { archetype: "CONGRESS_PTR", register: "wire", text: `Senate PTR: sale of $250,001 - $500,000 in a semiconductor name, trade date June 27, filed nine days later, per Senate eFD.
+Nine days.
+Filing on time is so rare in this dataset it's basically a flex.` },
+  { archetype: "CONGRESS_PTR", register: "wire", text: `One House PTR filed today: eleven transactions, seven tickers, trade dates March 4 through May 30, per House Clerk.
+Up to 118 days of lag, all cleared in one afternoon.
+Three months of trading, one PDF, zero consequences.` },
+  { archetype: "CONGRESS_PTR", register: "commentary", text: `House PTR: $50,001 - $100,000 purchase in a defense contractor, trade date April 2, disclosed today, per House Clerk.
+
+Eighty-seven days late. Deadline is 45. Penalty is $200.
+
+Two hundred dollars. You'd pay more to park at the airport for a week. This isn't an enforcement regime, it's a subscription fee for opacity.` },
+  { archetype: "CONGRESS_PTR", register: "commentary", text: `Senate PTR: purchase of $100,001 - $250,000, trade date June 10, filed today, per Senate eFD.
+
+Thirty-nine days late, in a bracket wide enough to hide a house in.
+
+Every account posting a precise dollar figure tonight is guessing. The record gives a range because the range is all anyone filed, and somehow that's the part nobody finds outrageous.` },
+  { archetype: "CONGRESS_PTR", register: "commentary", text: `Paper filing, House PTR. Scanned image, no machine-readable text, per House Clerk.
+
+Public. Not searchable. Not sortable. Technically compliant.
+
+It is 2026 and you can still disclose your stock trades by photograph. Every transparency law keeps one slow lane open, and everyone who uses it knows exactly why it's there.` },
+  { archetype: "FILING_FORM4", register: "wire", text: `Form 4: director bought 25,000 shares of $XYZ at $14.20, open market, Code P, per SEC.
+Position up 31%.
+Nobody buys 25,000 shares by accident. A grant is a paycheck. A P is a decision.` },
+  { archetype: "FILING_FORM4", register: "wire", text: `Form 4: CFO acquired 8,000 shares, Code M, option exercise at a $6.00 strike, per SEC.
+Zero open-market purchases in the document.
+This gets posted as "CFO BUYING" within the hour by someone who didn't open the filing.` },
+  { archetype: "FILING_FORM4", register: "wire", text: `Form 4/A amends a June 14 transaction, per SEC.
+Amended, not withdrawn.
+The original got 400 quote tweets. This will get none.` },
+  { archetype: "INSIDER_CLUSTER", register: "wire", text: `Four Form 4s, same issuer, same week. CFO, COO, two directors. All Code P, all open market, per SEC.
+Four signatures, not one.
+The cluster is the fact. The reason isn't filed and never will be.` },
+  { archetype: "INSIDER_CLUSTER", register: "wire", text: `Three insiders bought $XYZ on the open market inside five sessions. 61,500 shares combined, per SEC.
+Three people, three separate decisions, one week.
+Could be nothing. The filing doesn't say, and anyone telling you it does is selling something.` },
+  { archetype: "FILING_FORM4", register: "commentary", text: `Form 4: CEO sold $4.2M on June 12 under a 10b5-1 plan adopted in March, per SEC.
+
+Scheduled three months out, executed on time, filed on time. The most boring document in finance.
+
+It'll still be posted tonight as a red flag by someone who didn't read past the dollar sign. The scheduled sales are the ones you can see coming. Worry about the other kind.` },
+  { archetype: "FILING_FORM4", register: "commentary", text: `Form 4: director's first open-market purchase since 2021. 40,000 shares, Code P, per SEC.
+
+Four years of taking grants without ever reaching for the checkbook. Then this week.
+
+The filing says what changed and stops there. Everyone who could explain it is legally barred from doing so, which is precisely why the buy is the loudest thing on the page.` },
+  { archetype: "FILING_8K", register: "wire", text: `8-K, Item 4.02: prior financial statements should no longer be relied upon, per SEC.
+Their words, about their own numbers.
+"Do not trust our accounting" is a hell of a thing to file at 4:30 on a Friday.` },
+  { archetype: "FILING_8K", register: "wire", text: `8-K, Item 5.02: CFO departed effective immediately, no successor named, per SEC.
+Both phrases are theirs.
+Planned exits come with a start date for the next guy. This one came with a Tuesday.` },
+  { archetype: "FILING_8K", register: "wire", text: `8-K, Item 1.05: material cybersecurity incident, per SEC.
+They picked 1.05 themselves, which means they called it material.
+The item number is the confession. The rest is drafting.` },
+  { archetype: "FILING_8K", register: "commentary", text: `8-K, Item 4.02, filed after the close: three prior quarters should no longer be relied upon, per SEC.
+
+Second non-reliance filing from this issuer in fourteen months.
+
+One is a mistake. Two is a method. And it went out after the bell on a Friday, which tells you they know exactly how this lands.` },
+  { archetype: "REGULATORY_NEWS", register: "wire", text: `SEC instituted administrative proceedings against a registered adviser over undisclosed fee arrangements, per SEC.
+The order is public. The response isn't filed yet.
+Timeline's already reached a verdict. The respondent hasn't reached a lawyer.` },
+  { archetype: "REGULATORY_NEWS", register: "wire", text: `CFTC filed a complaint alleging manipulation in a physical commodity market, per CFTC.
+Complaint. Allegation. Not a finding.
+That distinction survives exactly zero headlines tonight and you know it.` },
+  { archetype: "REGULATORY_NEWS", register: "commentary", text: `FTC sued to block a merger announced eleven months ago, per FTC.
+
+Eleven months of integration planning, banker fees, and org charts, undone by one filing.
+
+Antitrust risk gets priced on announcement day, ignored by month three, and remembered all at once. Today is the remembering, and somebody's bonus just evaporated.` },
+  { archetype: "HALT", register: "wire", text: `$XYZ halted 14:20 ET. Code T1, news pending, per Nasdaq.
+"News pending" is the entire disclosure.
+For five minutes nobody knows anything, which is the only time this market is fair.` },
+  { archetype: "HALT", register: "wire", text: `$XYZ halted 09:47 ET on LUDP, resumed 09:52, per Nasdaq.
+Five minutes, band tripped, band worked.
+It'll still be described as a crash by three accounts before lunch.` },
+  { archetype: "MACRO_PRINT", register: "wire", text: `CPI +0.4% in June, per BLS. Prior +0.2%. Core +0.3%, above headline a second straight month.
+All three numbers, one release.
+The hot take you read ninety seconds after the print was written before it. There wasn't time for anything else.` },
+  { archetype: "MACRO_PRINT", register: "wire", text: `Nonfarm payrolls +142,000 in June, per BLS. Prior month revised down 31,000.
+Both numbers, same release, same minute.
+One of them gets quoted tomorrow. It's never the revision, and the revision is usually the story.` },
+  { archetype: "RATE_DECISION", register: "wire", text: `RBI holds the repo rate at 6.50%. Inflation projection unchanged at 4.5%, per MPC statement.
+Rate unchanged, projection unchanged.
+Everyone watched the rate. The projection was the only sentence that mattered, same as every meeting.` },
+  { archetype: "RATE_DECISION", register: "wire", text: `ECB holds the deposit facility rate at 2.00%. Third consecutive hold, per ECB.
+Nothing moved.
+A hold is a decision made by people who seriously considered moving. It just doesn't trend.` },
+];
+
+/**
+ * Owner exemplars whose archetype does not EXIST in the engine yet. Not in
+ * the live bank because the exemplar gate keys on real archetype ids; each
+ * moves up verbatim when its feature ships. Owner-authored 2026-07-28.
+ */
+export const PARKED_EXEMPLARS: ReadonlyArray<{ label: string; text: string }> = [
+  // PARKED (FED_STATEMENT_DIFF): the statement-diff engine is unbuilt (persona.md: DISABLED UNTIL BUILT); this exemplar teaches Removed:/Added: lines no payload can ground yet
+  { label: "FED_STATEMENT_DIFF", text: `FOMC statement, changes vs June, per Federal Reserve.
+Removed: "inflation has eased"
+Added: "inflation remains elevated"
+Everything else verbatim.
+Two words moved. That's the entire meeting, and it beats every take written about it.` },
+  // PARKED (TAPE_CHECK): no tape data in the pipeline until P5; 'per Skeptic's tape' has nothing to cite
+  { label: "TAPE_CHECK", text: `0DTE was 58% of SPY options volume today, per Skeptic's tape.
+Most option activity in this market now expires before dinner.
+Whatever this is, it stopped being a hedging market a long time ago.` },
+  // PARKED (NIGHTLY_RITUAL): the Ledger is a P6 scheduled composition, not a per-item archetype
+  { label: "NIGHTLY_RITUAL", text: `Today's verdict: busy on paper, thin on news.
+
+Halts: 3
+Insiders: 41 Form 4s, 2 open-market buys
+Congress: none
+Macro: CPI, per BLS
+
+Forty-one filings. Two were decisions. That ratio is most days, and it's why most days don't need a take.` },
+];
+
 
 /**
  * Deterministic prompt assembly. Same archetype in, same pack out.

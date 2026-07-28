@@ -101,14 +101,14 @@ export function eligibleBeats(archetypeId: ArchetypeId, payload: Payload): strin
 export function buildPrompt(
   archetypeId: ArchetypeId,
   payload: Payload,
-  exemplars: ReadonlyArray<{ archetype: ArchetypeId; text: string }>,
+  exemplars: ReadonlyArray<{ archetype: ArchetypeId; text: string; register?: "wire" | "commentary" }>,
   feedback: readonly string[] = [],
 ): { system: string; user: string } {
   const beats = eligibleBeats(archetypeId, payload);
   const system = [
     stylePackFor(archetypeId),
-    "OWNER EXEMPLARS (the voice to match; these outrank everything above on tone). Their NUMBERS are from PAST filings: reusing any number not in this item's payload fails validation.",
-    ...exemplars.map((e) => `---\n${e.text}\n---`),
+    "OWNER EXEMPLARS (the voice to match; these outrank everything above on tone). Their NUMBERS are from PAST filings: reusing any number not in this item's payload fails validation. Commentary exemplars may run longer than the platform limit: match their VOICE, obey the 200-280 contract.",
+    ...exemplars.map((e) => `--- ${e.register ?? "wire"} ---\n${e.text}\n---`),
     beats.length > 0
       ? `ELIGIBLE BEATS for this item (pre-gated against the payload; you may use AT MOST one, verbatim or not at all):\n${beats.map((b) => `- ${b}`).join("\n")}`
       : "ELIGIBLE BEATS: none. Do not invent a beat.",
@@ -122,7 +122,7 @@ export function buildPrompt(
     `{"dry": "...", "sharp": "...", "commentary": "..."}`,
     "- dry: wire register, 100-140 weighted chars. Fact block + attribution, then at most one eligible beat on its own line.",
     "- sharp: same structure, the escalation register: the sharpest ELIGIBLE beat, compression at maximum.",
-    "- commentary: 200-280 weighted chars. Fact block with attribution FIRST (it must survive being screenshotted alone), blank line, then the take: opinionated, a real point of view, no hedging, no advice, no imputed motive. The take states what the record shows and stops.",
+    "- commentary: 200-280 weighted chars. Fact block with attribution FIRST (it must survive being screenshotted alone), then a blank line, then the take in one or two short segments (a punch line, then the argument): opinionated, a real point of view, no hedging, no advice, no imputed motive. The take states what the record shows and stops.",
     "Rules for all three: attribution on the fact block. No hashtags, no questions, no em-dashes, no BREAKING, no URLs or links of any kind. Numbers exactly as they appear in the payload (bands stay bands).",
     ...(feedback.length > 0
       ? [`PREVIOUS ATTEMPT WAS REJECTED. Fix exactly these and change nothing else:\n${feedback.map((f) => `- ${f}`).join("\n")}`]
@@ -176,7 +176,7 @@ async function alertOwner(env: Env, text: string, budget: TickBudget): Promise<v
 
 export interface GenerationDeps {
   /** Injectable for tests; defaults to the committed bank. */
-  exemplars?: ReadonlyArray<{ archetype: ArchetypeId; text: string }>;
+  exemplars?: ReadonlyArray<{ archetype: ArchetypeId; text: string; register?: "wire" | "commentary" }>;
 }
 
 export async function runGeneration(

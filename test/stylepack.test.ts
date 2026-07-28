@@ -141,10 +141,40 @@ describe("stylePackFor", () => {
     }
   });
 
-  it("exemplar bank is empty until the owner writes them, and the gate is documented", () => {
-    // p2r-04 depends on this: an empty bank must read as "refuse generation,
-    // fall back to template", never as "generate without models".
-    expect(OWNER_EXEMPLARS).toEqual([]);
+  it("the owner exemplar bank is populated, congress-first, and every entry is register-clean", () => {
+    expect(OWNER_EXEMPLARS.length).toBeGreaterThanOrEqual(20);
+    // Congress-first: the signature archetype carries the deepest bank.
+    const byArchetype = new Map<string, number>();
+    for (const e of OWNER_EXEMPLARS) byArchetype.set(e.archetype, (byArchetype.get(e.archetype) ?? 0) + 1);
+    const congressCount = byArchetype.get("CONGRESS_PTR") ?? 0;
+    for (const [a, n] of byArchetype) {
+      expect(congressCount, `${a} outnumbers CONGRESS_PTR`).toBeGreaterThanOrEqual(n);
+    }
+    for (const e of OWNER_EXEMPLARS) {
+      const head = e.text.slice(0, 40).replace(/\n/g, " ");
+      // Register rules that apply to ALL owner text: no em-dash, no hashtag,
+      // no trailing question, no advice construction. (Archetype-less call:
+      // the owner's exemplars abbreviate attributions deliberately. The
+      // LENGTH rule is exempted for commentary — those exemplars run above
+      // the cap BY DESIGN as voice references; output stays validator-capped.)
+      const issues = checkRegister(e.text).filter((i) => e.register === "commentary" && i.rule === "length" ? false : true);
+      expect(issues, head).toEqual([]);
+      // The attribution rides the FIRST segment, always.
+      expect(e.text.split(/\n\n+/)[0], head).toMatch(/\bper [A-Z]/);
+      if (e.register === "wire") {
+        // Wire exemplars are postable as-is.
+        expect(fitsInPost(e.text), head).toBe(true);
+        expect(e.text.split(/\n\n+/).length, head).toBeLessThanOrEqual(2);
+      } else {
+        // Commentary exemplars are VOICE references: the owner writes them
+        // above the platform cap on purpose; output stays validator-capped.
+        expect(e.text.split(/\n\n+/).length, head).toBeLessThanOrEqual(3);
+        expect(e.text.length, head).toBeLessThanOrEqual(360);
+      }
+    }
+  });
+
+  it("the stylepack itself never embeds exemplars (single home: buildPrompt)", () => {
     expect(stylePackFor("CONGRESS_PTR")).not.toContain("OWNER EXEMPLARS");
   });
 });
