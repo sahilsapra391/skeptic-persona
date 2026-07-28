@@ -1,0 +1,1694 @@
+{
+ "meta": {
+  "disclaimer": "openFDA",
+  "results": {
+   "total": 32
+  }
+ },
+ "results": [
+  {
+   "status": "Ongoing",
+   "city": "Santa Fe Springs",
+   "state": "CA",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M005"
+    ],
+    "brand_name": [
+     "TERPENICOL"
+    ],
+    "generic_name": [
+     "UNDECYLENIC ACID"
+    ],
+    "manufacturer_name": [
+     "Blaine Labs Inc."
+    ],
+    "product_ndc": [
+     "63347-600"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "TOPICAL"
+    ],
+    "substance_name": [
+     "UNDECYLENIC ACID"
+    ],
+    "rxcui": [
+     "998329",
+     "2745978"
+    ],
+    "spl_id": [
+     "92f83cae-7224-46f8-a9ac-550118c21f29"
+    ],
+    "spl_set_id": [
+     "a020334e-aac9-4ea5-a0ea-8e5b021fe2eb"
+    ],
+    "package_ndc": [
+     "63347-600-01"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "K3D86KJ24N"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "98731",
+   "recalling_firm": "Blaine Labs Inc",
+   "address_1": "11037 Lockport Pl",
+   "address_2": "N/A",
+   "postal_code": "90670-4634",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Press Release",
+   "distribution_pattern": "Nationwide in the USA",
+   "recall_number": "D-0697-2026",
+   "product_description": "TERPENICOL Antifungal Solution, (Undecylenic (10-Undecenoic) acid 25%), 1.0 Fl Oz (29.6 mL), Manufactured By: Blaine Labs, Inc., 11037 Lockport Place, Santa Fe Springs, CA 90670. NDC 63347-600-01",
+   "product_quantity": "5,801 bottles",
+   "reason_for_recall": "CGMP Deviations; the firm discontinued required stability testing for products on the market still within expiry",
+   "recall_initiation_date": "20260408",
+   "center_classification_date": "20260716",
+   "report_date": "20260708",
+   "code_info": "Lots BL3411R, Exp Date 06/08/2027, BL3468, Exp Date 03/07/2027, & BL3535, Exp Date 09/25/2027."
+  },
+  {
+   "status": "Ongoing",
+   "city": "Santa Fe Springs",
+   "state": "CA",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "98731",
+   "recalling_firm": "Blaine Labs Inc",
+   "address_1": "11037 Lockport Pl",
+   "address_2": "N/A",
+   "postal_code": "90670-4634",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Press Release",
+   "distribution_pattern": "Nationwide in the USA",
+   "recall_number": "D-0698-2026",
+   "product_description": "Fungal Fusion ERADICATION Solution, Antifungal & Antimicrobial Kit. Contains, 1x2 oz bottle Fungal Fusion Antifungal (Miconazole Nitrate) Cream, 1x2oz  bottle Fungal Fusion Antifungal Solution (25% Undecylenic Acid) and 1x1oz bottle of Fungal Fusion Eradication Antimicrobial Show Spray (isopropyl Alcohol, D-Limonene, Undecylenic Acid).  Manufactured By: Blaine Labs, Inc., 11037 Lockport Place, Santa Fe Springs, CA 90670, Manufactured for Doctor's Inc",
+   "product_quantity": "1,500 bottles",
+   "reason_for_recall": "CGMP Deviations; the firm discontinued required stability testing for products on the market still within expiry",
+   "recall_initiation_date": "20260408",
+   "center_classification_date": "20260716",
+   "report_date": "20260708",
+   "code_info": "Lot BL3572, Exp 04/16/2028"
+  },
+  {
+   "status": "Ongoing",
+   "city": "Santa Fe Springs",
+   "state": "CA",
+   "country": "United States",
+   "classification": "Class I",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "98731",
+   "recalling_firm": "Blaine Labs Inc",
+   "address_1": "11037 Lockport Pl",
+   "address_2": "N/A",
+   "postal_code": "90670-4634",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Press Release",
+   "distribution_pattern": "Nationwide in the USA",
+   "recall_number": "D-0692-2026",
+   "product_description": "Revitaderm Wound Care Gel, Benzalkonium Chloride 0.1%, packaged in 1.0 FL OZ (37 mL) bottle, shorter twist cap, Manufactured By: Blaine Labs, Inc. 11037 Lockport Place Santa Fe Springs, CA 90670, NDC 63347-120-02.",
+   "product_quantity": "1,171 - 1 oz bottles",
+   "reason_for_recall": "Microbial contamination of Non-Sterile Product: samples identified the presence of Lysinibacillus fusiformis and other Bacillus spp",
+   "recall_initiation_date": "20260408",
+   "center_classification_date": "20260716",
+   "report_date": "20260708",
+   "code_info": "Lot#: BL3608, Exp. 07/01/28."
+  },
+  {
+   "status": "Ongoing",
+   "city": "Santa Fe Springs",
+   "state": "CA",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M005"
+    ],
+    "brand_name": [
+     "TRIPENICOL S"
+    ],
+    "generic_name": [
+     "UNDECYLENIC ACID"
+    ],
+    "manufacturer_name": [
+     "Trifluent Pharma LLC"
+    ],
+    "product_ndc": [
+     "73352-550"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "TOPICAL"
+    ],
+    "substance_name": [
+     "UNDECYLENIC ACID"
+    ],
+    "rxcui": [
+     "998329",
+     "2677081"
+    ],
+    "spl_id": [
+     "6a5dd16f-5fbd-4509-af06-5e2c248518e3"
+    ],
+    "spl_set_id": [
+     "b57500e1-ea6f-4043-99d6-326a7eb57f2f"
+    ],
+    "package_ndc": [
+     "73352-550-01"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "K3D86KJ24N"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "98731",
+   "recalling_firm": "Blaine Labs Inc",
+   "address_1": "11037 Lockport Pl",
+   "address_2": "N/A",
+   "postal_code": "90670-4634",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Press Release",
+   "distribution_pattern": "Nationwide in the USA",
+   "recall_number": "D-0694-2026",
+   "product_description": "TRIPENICOL S Antifungal Solution (Undecylenic Acid 25%), 1.25 FL OZ (37.5 mL) bottle, Manufactured For: Trifluent Pharma, LLC, San Antonio, TX 78213,  NDC 73352-550-01.",
+   "product_quantity": "144 bottles",
+   "reason_for_recall": "CGMP Deviations; the firm discontinued required stability testing for products on the market still within expiry",
+   "recall_initiation_date": "20260408",
+   "center_classification_date": "20260716",
+   "report_date": "20260708",
+   "code_info": "Lot #BL3411R, Exp 6/8/2027"
+  },
+  {
+   "status": "Ongoing",
+   "city": "Santa Fe Springs",
+   "state": "CA",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M003"
+    ],
+    "brand_name": [
+     "REVITADERM WOUND CARE"
+    ],
+    "generic_name": [
+     "BENZALKONIUM CHLORIDE"
+    ],
+    "manufacturer_name": [
+     "Blaine Labs Inc."
+    ],
+    "product_ndc": [
+     "63347-120"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "TOPICAL"
+    ],
+    "substance_name": [
+     "BENZALKONIUM CHLORIDE"
+    ],
+    "rxcui": [
+     "1049228",
+     "1310820"
+    ],
+    "spl_id": [
+     "69b73949-a7e7-4e85-911e-ae688d658bbf"
+    ],
+    "spl_set_id": [
+     "9254dada-4e32-43a0-892b-c488d68e23e7"
+    ],
+    "package_ndc": [
+     "63347-120-01",
+     "63347-120-02"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "F5UM2KM3W7"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "98731",
+   "recalling_firm": "Blaine Labs Inc",
+   "address_1": "11037 Lockport Pl",
+   "address_2": "N/A",
+   "postal_code": "90670-4634",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Press Release",
+   "distribution_pattern": "Nationwide in the USA",
+   "recall_number": "D-0699-2026",
+   "product_description": "Revitaderm Wound Care, First Aid Antiseptic Gel, Benzalkonium Chloride 0.1%) packaged as (a) 1.0 Fl OZ (16 mL) bottle, long pointy cap, NDC 63347-120-02; (b) 3.0 Fl OZ (85 g) tube, with short twist cap, NDC 63347-120-01; Manufactured By: Blaine Labs, Inc. 11037 Lockport Place, Santa Fe Springs, CA 90670,",
+   "product_quantity": "5,555 bottles and tubes",
+   "reason_for_recall": "CGMP Deviations; product manufactured in the same facility under the same conditions as the product found to be contaminated",
+   "recall_initiation_date": "20260408",
+   "center_classification_date": "20260716",
+   "report_date": "20260708",
+   "code_info": "Lots: (a) 1 oz - BL3435, Exp 11/06/26; BL3525, Exp 08/07/27. (b) 3 oz- Lots # BL3435, 11/06/26 & BL3525, 08/07/27"
+  },
+  {
+   "status": "Ongoing",
+   "city": "Santa Fe Springs",
+   "state": "CA",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "98731",
+   "recalling_firm": "Blaine Labs Inc",
+   "address_1": "11037 Lockport Pl",
+   "address_2": "N/A",
+   "postal_code": "90670-4634",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Press Release",
+   "distribution_pattern": "Nationwide in the USA",
+   "recall_number": "D-0696-2026",
+   "product_description": "vite20 Antifungal Cream, (10% Undecylenic Acid), 0.54 OZ (15 g) bottle, Manufactured By: Blaine Labs, Inc., 11037 Lockport Place, Sante Fe Springs, CA 90670, UPC 6 16728 00039 2.",
+   "product_quantity": "26,475 bottles",
+   "reason_for_recall": "CGMP Deviations; the firm discontinued required stability testing for products on the market still within expiry",
+   "recall_initiation_date": "20260408",
+   "center_classification_date": "20260716",
+   "report_date": "20260708",
+   "code_info": "Lot BL3462, Exp. 2/7/2027"
+  },
+  {
+   "status": "Ongoing",
+   "city": "Santa Fe Springs",
+   "state": "CA",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M003"
+    ],
+    "brand_name": [
+     "TRIDERGEL"
+    ],
+    "generic_name": [
+     "BENZALKONIUM CHLORIDE"
+    ],
+    "manufacturer_name": [
+     "Trifluent Pharma LLC"
+    ],
+    "product_ndc": [
+     "73352-520"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "TOPICAL"
+    ],
+    "substance_name": [
+     "BENZALKONIUM CHLORIDE"
+    ],
+    "rxcui": [
+     "1049228",
+     "2671305"
+    ],
+    "spl_id": [
+     "baebaab7-5c13-426e-bcfb-4fdedb4885b4"
+    ],
+    "spl_set_id": [
+     "f12d9e8c-1d69-49d9-a9e9-a392c681aa6c"
+    ],
+    "package_ndc": [
+     "73352-520-01"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "F5UM2KM3W7"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "98731",
+   "recalling_firm": "Blaine Labs Inc",
+   "address_1": "11037 Lockport Pl",
+   "address_2": "N/A",
+   "postal_code": "90670-4634",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Press Release",
+   "distribution_pattern": "Nationwide in the USA",
+   "recall_number": "D-0693-2026",
+   "product_description": "TRIFLUENT PHARMA TRIDERGEL Wound Care Gel, (Benzalkonium Chloride 0.1%), 1.0 fl oz, (29.6 mL) bottle with long pointy cap, Manufactured for: Trifluent Pharma, LLC. San Antonio, TX 78213. NDC 73352-520-01.",
+   "product_quantity": "519 - 1 oz bottles",
+   "reason_for_recall": "CGMP Deviations: product manufactured in the same facility under the same conditions as the product found to be contaminated",
+   "recall_initiation_date": "20260408",
+   "center_classification_date": "20260716",
+   "report_date": "20260708",
+   "code_info": "Lot #: BL3435, Exp. 11/06/26"
+  },
+  {
+   "status": "Ongoing",
+   "city": "Santa Fe Springs",
+   "state": "CA",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M005"
+    ],
+    "brand_name": [
+     "TERPENICOL"
+    ],
+    "generic_name": [
+     "UNDECYLENIC ACID"
+    ],
+    "manufacturer_name": [
+     "Blaine Labs Inc."
+    ],
+    "product_ndc": [
+     "63347-601"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "TOPICAL"
+    ],
+    "substance_name": [
+     "UNDECYLENIC ACID"
+    ],
+    "spl_id": [
+     "f6a16024-2fa1-44ff-a718-af2dc7ae822e"
+    ],
+    "spl_set_id": [
+     "efd99ed1-07d3-4862-ae47-883f7d1c91c6"
+    ],
+    "package_ndc": [
+     "63347-601-01"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "K3D86KJ24N"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "98731",
+   "recalling_firm": "Blaine Labs Inc",
+   "address_1": "11037 Lockport Pl",
+   "address_2": "N/A",
+   "postal_code": "90670-4634",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Press Release",
+   "distribution_pattern": "Nationwide in the USA",
+   "recall_number": "D-0695-2026",
+   "product_description": "TERPENICOL Antifungal Cream (Undecylenic Acid 13%), 1.0 oz (28 g) bottles, Manufactured By: Blaine Labs, Inc., 11037 Lockport Place, Sante Fe Springs, CA 90670, NDC 63347-601-01.",
+   "product_quantity": "22,143 bottles",
+   "reason_for_recall": "CGMP Deviations; the firm discontinued required stability testing for products on the market still within expiry",
+   "recall_initiation_date": "20260408",
+   "center_classification_date": "20260716",
+   "report_date": "20260708",
+   "code_info": "Lots BL3431R, Exp Date 10/13/26 & BL3528, Exp Date 08/30/2027."
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0558-2026",
+   "product_description": "HALEON CALCIUM CARBONATE TUMS ANTACID, Assorted Fruit Tablets, 1000 mg, 160-count bottle, Haleon, Warren, NJ 07059, UPC 3 07660 74610 2.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1096075, 1096076, 1096077, 1096078, Exp 1/31/2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0572-2026",
+   "product_description": "HyVee, Ultra Strength Antacid, Calcium Carbonate 1000 mg, 72 CHEWABLE TABLETS, DISTRIBUTED BY: HY-VEE INC., Inc., WEST DES MOINES, IA 50266, UPC: 0 75450 82514 5.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1716089, expires: JAN 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M001"
+    ],
+    "brand_name": [
+     "EXTRA STRENGTH ANTACID"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "Retail Business Services, LLC."
+    ],
+    "product_ndc": [
+     "72476-127"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308915"
+    ],
+    "spl_id": [
+     "057e20c1-e214-4696-ba68-a3c160dd91f5"
+    ],
+    "spl_set_id": [
+     "1e97c054-d6b3-425a-e063-6394a90af836"
+    ],
+    "package_ndc": [
+     "72476-127-80",
+     "72476-127-82"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "upc": [
+     "0341520317309",
+     "0341520312120"
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0565-2026",
+   "product_description": "CAREone, EXTRA STRENGTH CALCIUM ANTACID, Calcium Carbonate 750 mg, 96 chewable Tablets, Distributed by: FOODHOLD U.S.A, LLC, LANDOVER, MD 20785, NDC 72476-127-80.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1276118, 1276119, expires: JAN 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0571-2026",
+   "product_description": "HyVee, Extra Strength Antacid, Calcium Carbonate 750 mg, 96 CHEWABLE TABLETS, DISTRIBUTED BY: HY-VEE INC., Inc., WEST DES MOINES, IA 50266, UPC: 0 75450 82497 1.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1276119, expires: Jan 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M001"
+    ],
+    "brand_name": [
+     "TOPCARE ULTRA STRENGTH ANTACID ASSORTED FRUIT"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "Topco Associates, LLC"
+    ],
+    "product_ndc": [
+     "76162-129"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308892"
+    ],
+    "spl_id": [
+     "4a9ae0bb-b3f7-4a69-84f5-d2ea3a6c7be7"
+    ],
+    "spl_set_id": [
+     "dd038b15-2ecb-4ee2-b356-db6d87c2f01b"
+    ],
+    "package_ndc": [
+     "76162-129-68"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "upc": [
+     "0036800498372"
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0579-2026",
+   "product_description": "TopCare health, ULTRA STRENGTH, Antacid Tablets, CALCIUM CARBONATE 1000mg, 72 CHEWABLE TABLETS, DISTRIBUTED BY TOPCO ASSOCIATES LLC.,ELK GROVE VILLAGE, IL 60007, NDC 76162-129-68.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1716089, expires: JAN- 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M001"
+    ],
+    "brand_name": [
+     "GOODSENSE ULTRA STRENGTH ANTACID ASSORTED FRUIT"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "GoodSense"
+    ],
+    "product_ndc": [
+     "50804-171"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308892"
+    ],
+    "spl_id": [
+     "47a791b6-ee4c-49e4-8ba9-b34c55931cb2"
+    ],
+    "spl_set_id": [
+     "ad4d51f6-b55b-45db-b034-fb3da54fbe99"
+    ],
+    "package_ndc": [
+     "50804-171-68"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0575-2026",
+   "product_description": "GOODSENSE Ultra Strength, Antacid TABLETS, Calcium Carbonate 1000 mg, 72 Chewable Tablets, Distributed by: Geiss, Destin & Dunn, inc., Peachtree City, GA, NDC 50804-171-68.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1716089, expires: JAN- 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0559-2026",
+   "product_description": "HALEON CALCIUM CARBONATE TUMS ANTACID, Assorted Fruit Tablets, 750 mg, 330-count bottle, Haleon, Warren, NJ 07059, UPC 3 0766  3072 10 9.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1076169, Exp 2/28/2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0567-2026",
+   "product_description": "DISCOUNT drug mart, EXTRA STRENGTH, ANTACID TABLETS, Calcium Carbonate 750 mg, 96 Tablets, Distributed by: Drug Mart- Food Fair Medina, OH 44256, UPC: 0 93351 03992 8.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1276118, Exp 1/31/2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M001"
+    ],
+    "brand_name": [
+     "ULTRA STRENGTH ANTACID ASSORTED BERRIES"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "Retail Business Services, LLC."
+    ],
+    "product_ndc": [
+     "72476-178"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308892"
+    ],
+    "spl_id": [
+     "8c0b4197-56ea-47ef-be79-c54a907c8e11"
+    ],
+    "spl_set_id": [
+     "1e987226-02fa-9c10-e063-6294a90a83bf"
+    ],
+    "package_ndc": [
+     "72476-178-23"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "upc": [
+     "0341520003516"
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0566-2026",
+   "product_description": "CAREone, ULTRA STRENGTH CALCIUM ANTACID, Calcium Carbonate 1000 mg, 72 chewable Tablets, Distributed by: FOODHOLD U.S.A, LLC, LANDOVER, MD 20785, NDC 72476-178-23.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1716259, Exp 3/31/2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "part331"
+    ],
+    "brand_name": [
+     "EQU ULTRA STRENGTH ANTACID ASSORTED FRUIT 171AF"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "UNITED NATURAL FOODS, INC. DBA UNFI"
+    ],
+    "product_ndc": [
+     "41163-171"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308892"
+    ],
+    "spl_id": [
+     "8cfe3fe3-99fa-44ae-a68e-8c8e97e23177"
+    ],
+    "spl_set_id": [
+     "8cfe3fe3-99fa-44ae-a68e-8c8e97e23177"
+    ],
+    "package_ndc": [
+     "41163-171-75",
+     "41163-171-68"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "upc": [
+     "0041163466951",
+     "0041163254183"
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0577-2026",
+   "product_description": "EQUALINE ultra strength, antacid tablets, calcium carbonate 1000mg, 72 chewable tablets, DISTRIBUTED BY SUPERVALU INC.,EDEN PRARIE, MN 55344 USA, NDC 41163-171-68.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1716089, expires: JAN- 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M001"
+    ],
+    "brand_name": [
+     "GOODSENSE EXTRA STRENGTH ANTACID"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "GoodSense"
+    ],
+    "product_ndc": [
+     "50804-129"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308915"
+    ],
+    "spl_id": [
+     "5ba7313a-c112-4187-9c25-cc91ba317547"
+    ],
+    "spl_set_id": [
+     "2fcdeb06-17de-49d8-97bb-8d31e1c0c61f"
+    ],
+    "package_ndc": [
+     "50804-129-22"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0574-2026",
+   "product_description": "GOODSENSE Extra Strength, Antacid TABLETS, Calcium Carbonate 750 mg, 96 Chewable Tablets, Distributed by: Geiss, Destin & Dunn, inc., Peachtree City, GA, NDC 50804-129-22.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1276118, expires: JAN- 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "part331"
+    ],
+    "brand_name": [
+     "EQUALINE EXTRA STRENGTH ASSORTED BERRY ANTACID"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "UNITED NATURAL FOODS, INC. DBA UNFI"
+    ],
+    "product_ndc": [
+     "41163-129"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308915"
+    ],
+    "spl_id": [
+     "61d2e663-f0cf-4c14-a4f0-09897c760b13"
+    ],
+    "spl_set_id": [
+     "61d2e663-f0cf-4c14-a4f0-09897c760b13"
+    ],
+    "package_ndc": [
+     "41163-129-66",
+     "41163-129-22"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0576-2026",
+   "product_description": "EQUALINE extra strength, antacid tablets, calcium carbonate 750mg, 96 chewable tablets, DISTRIBUTED BY SUPERVALU INC.,EDEN PRARIE, MN 55344 USA, NDC 41163-129-22.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1276118, expires: JAN- 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "part331"
+    ],
+    "brand_name": [
+     "ULTRA STRENGTH ANTACID ASSORTED FRUIT"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "Amerisource Bergen"
+    ],
+    "product_ndc": [
+     "24385-595"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308892"
+    ],
+    "spl_id": [
+     "f2b86396-9a40-491f-b53d-e24684c00339"
+    ],
+    "spl_set_id": [
+     "d39b3a19-b0e7-409d-9e0b-ef847fe8be2f"
+    ],
+    "package_ndc": [
+     "24385-595-23"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0561-2026",
+   "product_description": "Good Neighbor Pharmacy, extra strength Antacid Calcium Carbonate 1000 mg, 72 chewable tablets, Distributed by: Amerisourcebergen, 1 West First Avenue, Conshohocken, PA, 19428, NDC 24385-595-23.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1716089, Exp 1/31/2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0562-2026",
+   "product_description": "Extra strength Antacid Calcium Carbonate 750 mg, chewable tablets, 96-count bottle, DISTRIBUTED BY CASEY'S MARKETING COMPANY, ANKENY, IA 50521, UPC: 0 98437 24361 9.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1276118, Exp 1/31/2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M001"
+    ],
+    "brand_name": [
+     "TOPCARE EXTRA STRENGTH ANTACID"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "Topco Associates, LLC"
+    ],
+    "product_ndc": [
+     "76162-128"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308915"
+    ],
+    "spl_id": [
+     "a7a99479-5f95-4c10-94f6-6505370f12a7"
+    ],
+    "spl_set_id": [
+     "0aefbd70-4103-410c-83b2-f7baa0b80ddd"
+    ],
+    "package_ndc": [
+     "76162-128-22"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "upc": [
+     "0036800498358"
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0578-2026",
+   "product_description": "TopCare health, EXTRA STRENGTH, Antacid Tablets, CALCIUM CARBONATE 750mg, 96 CHEWABLE TABLETS, DISTRIBUTED BY TOPCO ASSOCIATES LLC.,ELK GROVE VILLAGE, IL 60007, NDC 76162-128-22.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1276119, expires: JAN- 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "part331"
+    ],
+    "brand_name": [
+     "FAMILY WELLNESS ULTRA STRENGTH ASSORTED FRUIT ANTACID"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "Family Dollar Services, Inc."
+    ],
+    "product_ndc": [
+     "55319-171"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308892"
+    ],
+    "spl_id": [
+     "11a0bbf8-bfc9-4595-8792-f148a9029b19"
+    ],
+    "spl_set_id": [
+     "11a0bbf8-bfc9-4595-8792-f148a9029b19"
+    ],
+    "package_ndc": [
+     "55319-171-68"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0568-2026",
+   "product_description": "FAMILY WELLNESS, ULTRA STRENGT, ANTACID TABLETS, Calcium Carbonate 1000 mg, 72 CHEWABLE TABLETS, DISTRIBUTED BY: MIDWOOD BRANDS, LLC, 500 VOLVO PKWY, CHESAPEAKE, VA 23320 USA., NDC 55319-171-68.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1716089, expires: JAN 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0564-2026",
+   "product_description": "MARKET BASKET ANTACID Calcium Carbonate 1000 mg, ULTRA STRENGTH, 72 Tablets, Distributed by: De Moules Supermarkets, Inc.,Tewksbury, Mass 01875,  UPC 0 49705 83149 6.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1716089, expires: JAN 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0563-2026",
+   "product_description": "24/7 life BY 7-ELEVEN, Extra strength Antacid Tablets, Calcium Carbonate 750 mg, 96 chewable tablets, DISTRIBUTED BY 7-ELEVEN, IRVING, TX 75063, UPC 0 5254863573 2.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1276119, Exp 1/31/2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M001"
+    ],
+    "brand_name": [
+     "HEB EXTRA STREGTH ANTACID"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "H E B"
+    ],
+    "product_ndc": [
+     "37808-136"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308915"
+    ],
+    "spl_id": [
+     "a02ec94b-5275-4b6a-a949-165c4c75f0cb"
+    ],
+    "spl_set_id": [
+     "dcfe4c81-b6e0-4a9b-a521-f3ad0c0a8e48"
+    ],
+    "package_ndc": [
+     "37808-136-22"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0573-2026",
+   "product_description": "H.E.B Extra Strength Calcium Carbonate Antacid Tablets, Calcium Carbonate 750 mg, 96 Chewable Tablets, MADE WITH PRIDE & CARE FOR H.E.B, 646 S. FLORES ST, SAN ANTONIO, TX, NDC 37808-136-22.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1276118, expires: JAN 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0570-2026",
+   "product_description": "Harris Teeter, ULTRA STRENGTH ANTACID, Calcium Carbonate 1000 mg, 72 CHEWABLE TABLETS, Distributed by: Harris Teeter, LLC.,MATTHEWS, NC 28105, UPC: 0 72036-73108-1.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1716089, expires: JAN 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M001"
+    ],
+    "brand_name": [
+     "GOOD NEIGHBOR PHARMACY ANTACID"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "AmerisourceBergen Drug Corporation"
+    ],
+    "product_ndc": [
+     "24385-106"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308915"
+    ],
+    "spl_id": [
+     "6b9a0845-a438-4363-8fbd-f24fdd10d4f5"
+    ],
+    "spl_set_id": [
+     "5e3a3c20-dabe-4427-9e75-99759905caa0"
+    ],
+    "package_ndc": [
+     "24385-106-80"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0560-2026",
+   "product_description": "Good Neighbor Pharmacy, extra strength Antacid Calcium Carbonate 750 mg, chewable, 96-count bottle, Distributed by: Amerisourcebergen, 1 West First Avenue, Conshohocken, PA, 19428, NDC 24385-106-80.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1276118, Exp 1/31/2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {},
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0569-2026",
+   "product_description": "FAMILY WELLNESS, ULTRA STRENGT, ANTACID TABLETS, Calcium Carbonate 1000 mg, 72 CHEWABLE TABLETS, DISTRIBUTED BY: MIDWOOD BRANDS, LLC, 500 VOLVO PKWY, CHESAPEAKE, VA 23320 USA., UP: 0 32251-92282-4.",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot #: 1716259, expires: MAR 2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Dayton",
+   "state": "NJ",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "M001"
+    ],
+    "brand_name": [
+     "KIRKLAND ULTRA STREGTH ANTACID 171AB"
+    ],
+    "generic_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "manufacturer_name": [
+     "COSTCO WHOLESALE COMPANY"
+    ],
+    "product_ndc": [
+     "63981-171"
+    ],
+    "product_type": [
+     "HUMAN OTC DRUG"
+    ],
+    "route": [
+     "ORAL"
+    ],
+    "substance_name": [
+     "CALCIUM CARBONATE"
+    ],
+    "rxcui": [
+     "308892"
+    ],
+    "spl_id": [
+     "4a1b0116-3aa0-4acc-a950-5a72158eaf33"
+    ],
+    "spl_set_id": [
+     "1bea92e8-1b94-77b0-e063-6394a90a8212"
+    ],
+    "package_ndc": [
+     "63981-171-80"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "unii": [
+     "H0G9379FGK"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99098",
+   "recalling_firm": "Guardian Drug Co. Inc.",
+   "address_1": "2 Charles Ct",
+   "address_2": "",
+   "postal_code": "08810-1508",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "U.S.A. Nationwide",
+   "recall_number": "D-0557-2026",
+   "product_description": "KIRKLAND Signature, ULTRA STRENGTH ANTACID, Calcium Carbonate, 1000 mg, 265-count bottle, MANUFACTURED BY: GUARDIAN DRUG COMPANY, INC., 2 CHARLES COURT/DAYTON, NJ 08810, FOR: Costco Wholesale Corporation, 999 Lake Drive, Issaquah, WA 98027, NDC 63981-171-80",
+   "product_quantity": "",
+   "reason_for_recall": "Presence of foreign substance: small metallic particles in chewable tablets.",
+   "recall_initiation_date": "20260528",
+   "center_classification_date": "20260603",
+   "report_date": "20260610",
+   "code_info": "Lot#: 1716059, 1716060, 1716061, 1716062, 1716063, 1716218, 1716219, 1716228, 1716229, 1716238, Exp 2/28/2029; 1716258, Exp 3/31/2029.",
+   "more_code_info": ""
+  },
+  {
+   "status": "Ongoing",
+   "city": "Cary",
+   "state": "NC",
+   "country": "United States",
+   "classification": "Class II",
+   "openfda": {
+    "application_number": [
+     "NDA022156"
+    ],
+    "brand_name": [
+     "CLEVIPREX"
+    ],
+    "generic_name": [
+     "CLEVIPIDINE"
+    ],
+    "manufacturer_name": [
+     "Chiesi USA, Inc."
+    ],
+    "product_ndc": [
+     "10122-610",
+     "10122-611"
+    ],
+    "product_type": [
+     "HUMAN PRESCRIPTION DRUG"
+    ],
+    "route": [
+     "INTRAVENOUS"
+    ],
+    "substance_name": [
+     "CLEVIDIPINE"
+    ],
+    "rxcui": [
+     "1790239",
+     "1790242",
+     "1790245",
+     "1790246"
+    ],
+    "spl_id": [
+     "e472cde4-d29e-44b2-b1ca-a6f4fcc01b1d"
+    ],
+    "spl_set_id": [
+     "f9290625-b723-4eda-bab8-a97bef6041f6"
+    ],
+    "package_ndc": [
+     "10122-611-01",
+     "10122-611-10",
+     "10122-610-01",
+     "10122-610-10"
+    ],
+    "is_original_packager": [
+     true
+    ],
+    "nui": [
+     "N0000000069",
+     "N0000175421",
+     "M0006414"
+    ],
+    "pharm_class_moa": [
+     "Calcium Channel Antagonists [MoA]"
+    ],
+    "pharm_class_epc": [
+     "Dihydropyridine Calcium Channel Blocker [EPC]"
+    ],
+    "pharm_class_cs": [
+     "Dihydropyridines [CS]"
+    ],
+    "unii": [
+     "19O2GP3B7Q"
+    ]
+   },
+   "product_type": "Drugs",
+   "event_id": "99376",
+   "recalling_firm": "Chiesi USA, Inc.",
+   "address_1": "175 Regency Woods Pl Ste 600",
+   "address_2": "",
+   "postal_code": "27518-6007",
+   "voluntary_mandated": "Voluntary: Firm initiated",
+   "initial_firm_notification": "Letter",
+   "distribution_pattern": "Nationwide within the United States",
+   "recall_number": "D-0689-2026",
+   "product_description": "CLEVIPREX (clevidipine injectable emulsion) 50 mg/100 mL (0.5 mg/mL), 10 Single Use Vials, Rx Only, Manufactured for: Chiesi USA, Inc., Cary, NC 27518, by Fresenius Kabi, Graz, Austria, NDC 10122-611-10.",
+   "product_quantity": "44280 vials",
+   "reason_for_recall": "Lack of Assurance of Sterility",
+   "recall_initiation_date": "20260706",
+   "center_classification_date": "20260714",
+   "report_date": "20260722",
+   "code_info": "Lot #: 1239521, 1237454, Exp. Date 10/2027",
+   "more_code_info": ""
+  }
+ ]
+}
