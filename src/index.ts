@@ -4,7 +4,10 @@ import { registerJobs } from "./jobs";
 import { handleTelegramWebhook, WEBHOOK_PATH } from "./telegram/webhook";
 import { handleIngestRelay, INGEST_PATH } from "./ingestRelay";
 import { handleSeedTest } from "./admin";
-import { handleOauthCallback, handleOauthStart, OAUTH_CALLBACK_PATH, OAUTH_START_PATH } from "./threadsOauth";
+// src/threadsOauth.ts is intentionally left on disk but UNROUTED: the Threads
+// account is banned (poster.ts THREADS_PARKED). Re-import and re-add the two
+// routes below if the appeal succeeds; reconnecting needs a manual browser
+// round because a dead long-lived token cannot be refreshed.
 import { log } from "./lib/log";
 
 registerJobs();
@@ -30,12 +33,6 @@ export default {
     }
     if (request.method === "POST" && url.pathname === "/admin/seed-test") {
       return handleSeedTest(request, env);
-    }
-    if (request.method === "GET" && url.pathname === OAUTH_START_PATH) {
-      return handleOauthStart(request, env);
-    }
-    if (request.method === "GET" && url.pathname === OAUTH_CALLBACK_PATH) {
-      return handleOauthCallback(request, env);
     }
     log("debug", "unhandled request", { path: url.pathname, method: request.method });
     return new Response("not found", { status: 404 });

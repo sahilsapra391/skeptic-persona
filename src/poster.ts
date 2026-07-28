@@ -21,6 +21,25 @@ import { log } from "./lib/log";
 // and POSTING_ENABLED must be "true" on top of that. What was approved is
 // exactly what posts (edited_text wins over draft_text); the source link
 // rides in link_attachment per the every-post-carries-its-source rule.
+//
+// ============================================================
+// PARKED 2026-07-28 — see docs/verification/2026-07-28-threads-ban.md
+// ============================================================
+// Meta banned @skeptictradess on suspected bot activity. Publishing moved to
+// manual posting on X (@SkepticTrades); the Approve tap now feeds the
+// commentary pipeline (docs/p2r-plan.md) instead of this module.
+//
+// PARKED, NOT DELETED, on the migration 0024 precedent. An appeal is
+// outstanding, post_log holds 18 real Threads post ids that a strip would
+// orphan, and this file plus lib/threads.ts and threadsOauth.ts are the only
+// record of a verified-working Threads client.
+//
+// Unlike the parked SOURCES, this is not a self-recovering probe: a banned
+// account cannot be detected by polling, and even a successful appeal needs a
+// manual browser OAuth round because the long-lived token expires 2026-09-25
+// and refresh cannot revive a dead one. Un-parking is deliberate: flip
+// THREADS_PARKED, re-enable the two jobs rows, re-run /threads/oauth/start.
+export const THREADS_PARKED: boolean = true;
 
 export const MAX_POSTS_PER_RUN = 3;
 
@@ -40,6 +59,15 @@ interface ApprovedRow {
 }
 
 export async function runPoster(env: Env, now: Date, budget: TickBudget = newTickBudget()): Promise<void> {
+  // Parked platform gate, checked FIRST and outranking POSTING_ENABLED: the
+  // account is gone, so every network path below leads to a banned profile.
+  // This also short-circuits reconcileClaims, whose listRecentPosts read would
+  // otherwise fail on every run. That failure is quiet by design — caught
+  // locally, logged at warn, returns — so the cost is a recurring log line,
+  // NOT a source_state.last_error row (the poster never calls
+  // recordSourceError; only ingesters do) and NOT a jobs.consecutive_failures
+  // increment (the dispatcher only counts handlers that throw).
+  if (THREADS_PARKED) return;
   if (env.POSTING_ENABLED !== "true") return; // master gate (wrangler.toml var)
 
   const auth = await getThreadsAuth(env.KV);
@@ -269,6 +297,10 @@ async function alertTokenInvalid(env: Env): Promise<void> {
  * so this job is load-bearing. Alerts when expiry is near and refreshes fail.
  */
 export async function refreshThreadsToken(env: Env, now: Date, budget: TickBudget = newTickBudget()): Promise<void> {
+  // Parked: refreshing a token for a banned account accomplishes nothing, and
+  // the alert path below would page the owner weekly about an expiry that no
+  // longer matters. The token expires 2026-09-25 and is not being kept alive.
+  if (THREADS_PARKED) return;
   const auth = await getThreadsAuth(env.KV);
   if (!auth) return;
 

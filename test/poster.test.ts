@@ -1,14 +1,37 @@
 import { env, fetchMock, SELF } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { clampThreadsText, getThreadsAuth, storeThreadsAuth, THREADS_TEXT_LIMIT, ThreadsError } from "../src/lib/threads";
-import { runPoster, refreshThreadsToken } from "../src/poster";
+import { runPoster, refreshThreadsToken, THREADS_PARKED } from "../src/poster";
 import { createQueueEntry, decideQueueEntry, insertItem, SCORE_POSTABLE, setQueueTelegramMessageId } from "../src/lib/db";
 import { iso } from "../src/lib/time";
 
-const TG = "https://graph.threads.net";
+// PARKED PLATFORM (2026-07-28). Meta banned @skeptictradess; the publish path
+// is off behind THREADS_PARKED and both job rows are disabled in migration
+// 0026. See docs/verification/2026-07-28-threads-ban.md.
+//
+// This file changed shape accordingly. It no longer asserts that publishing
+// WORKS; it asserts that publishing CANNOT HAPPEN, which is the property that
+// matters while parked, plus that the parked client's pure helpers still
+// behave (the module stays on disk for the appeal).
+//
+// DOCTRINE DEBT, tracked deliberately: the publish-time register guard (the
+// "LAST GATE BEFORE THE WORLD" check that rejected a hand-edited draft failing
+// checkRegister) now sits inside unreachable code. checkRegister itself stays
+// fully covered in templates.test.ts, but the INTEGRATION — doctrine enforced
+// on the last hop before text reaches a human ready to paste — must be
+// reinstated on the generation path in p2r-04. Until then the last gate is the
+// owner's own eyes on the Telegram card.
+
 const NOW = new Date("2026-07-27T15:00:00Z");
 
-// env with posting enabled (wrangler.toml ships POSTING_ENABLED="false").
+// Every Meta origin the parked client could reach. Anything landing here is a
+// park leak, and the assertion names the URL so it is obvious which one.
+const META_ORIGINS = ["https://graph.threads.net", "https://graph.threads.com", "https://threads.net"];
+const metaCalls: string[] = [];
+
+// env with posting armed. Parking must hold even when the master gate says go:
+// THREADS_PARKED is checked FIRST precisely so a stray config flip cannot
+// reach a banned account.
 const postingEnv = () => Object.assign(Object.create(Object.getPrototypeOf(env)), env, { POSTING_ENABLED: "true" });
 
 const TGRAM = { calls: [] as Array<{ path: string; body: Record<string, unknown> }> };
@@ -16,6 +39,27 @@ const TGRAM = { calls: [] as Array<{ path: string; body: Record<string, unknown>
 beforeAll(() => {
   fetchMock.activate();
   fetchMock.disableNetConnect();
+  // Catch-all tripwires. A parked path should never reach these; recording the
+  // call rather than throwing means a leak fails with the offending URL in the
+  // message instead of an opaque connect error swallowed by an inner catch.
+  for (const origin of META_ORIGINS) {
+    fetchMock
+      .get(origin)
+      .intercept({ path: /.*/, method: /.*/ })
+      .reply(200, (opts) => {
+        metaCalls.push(`${origin}${String(opts.path)}`);
+        // Meta-shaped ERROR envelope, not an empty success body. thFetch
+        // throws a ThreadsError on `body.error` regardless of status, so a
+        // leak surfaces as a clean client error. An empty {data:[]} instead
+        // makes refreshLongLived read expires_in as undefined, which builds
+        // new Date(NaN) and throws RangeError mid-KV-write, leaving
+        // miniflare's isolated-storage stack unpoppable — the test then
+        // reports no verdict at all and blames storage instead of the leak.
+        // code 1 is also what the live API actually returned during the ban.
+        return JSON.stringify({ error: { code: 1, message: "park tripwire: this endpoint must not be reached" } });
+      })
+      .persist();
+  }
   // Persistent counters (see webhook.test.ts for the shadowing rationale).
   for (const method of ["sendMessage", "editMessageText"]) {
     fetchMock
@@ -27,6 +71,11 @@ beforeAll(() => {
       })
       .persist();
   }
+});
+
+beforeEach(() => {
+  metaCalls.length = 0;
+  TGRAM.calls.length = 0;
 });
 
 async function seedApproved(externalId: string, draft: string, edited?: string): Promise<{ itemId: number; queueId: number }> {
@@ -52,273 +101,145 @@ async function connectThreads(): Promise<void> {
   await storeThreadsAuth(env.KV, { token: "LONGTOKEN", userId: "77", expiresInSeconds: 60 * 86400, username: "skepticwire", now: NOW });
 }
 
-function mockQuota(used = 3): void {
-  fetchMock
-    .get(TG)
-    .intercept({ path: /\/v1\.0\/77\/threads_publishing_limit.*/ })
-    .reply(200, JSON.stringify({ data: [{ quota_usage: used, config: { quota_total: 250 } }] }));
-}
+describe("the park", () => {
+  it("is on — this assertion is the canary for un-parking by accident", () => {
+    // Flipping THREADS_PARKED un-parks the platform. That is a deliberate
+    // three-step act (this flag, the two jobs rows, a manual browser OAuth
+    // round) and it should require editing this line consciously.
+    expect(THREADS_PARKED).toBe(true);
+  });
 
-describe("clampThreadsText", () => {
-  it("caps at the verified 500-char limit, surrogate-safe", () => {
+  it("runPoster touches NO Meta endpoint and publishes nothing, even fully armed", async () => {
+    await connectThreads();
+    const { queueId } = await seedApproved("PARK-1", "Something approved and ready, per Nasdaq");
+
+    await runPoster(postingEnv(), NOW);
+
+    expect(metaCalls, "parked poster reached a Meta endpoint").toEqual([]);
+    // The load-bearing assertion: no claim row, so nothing published and
+    // nothing stranded either.
+    const claim = await env.DB.prepare("SELECT * FROM post_log WHERE queue_id = ?1").bind(queueId).first();
+    expect(claim).toBeNull();
+    // And the approval survives intact for the commentary pipeline to pick up.
+    const row = await env.DB.prepare("SELECT state FROM queue WHERE id = ?1").bind(queueId).first<{ state: string }>();
+    expect(row?.state).toBe("approved");
+  });
+
+  it("stays silent: no Telegram badge, no token alert, no Meta call", async () => {
+    await connectThreads();
+    await seedApproved("PARK-2", "Another approved draft, per Nasdaq");
+    await runPoster(postingEnv(), NOW);
+    // The metaCalls assertion is what makes this test park-sensitive. Telegram
+    // silence alone is not: an un-parked poster hitting the tripwire gets a
+    // ThreadsError with code 1, which is not token-invalid, so it logs and
+    // moves on without ever reaching alertTokenInvalid. Asserting only
+    // TGRAM.calls would pass with the park removed.
+    expect(metaCalls, "parked poster reached a Meta endpoint").toEqual([]);
+    expect(TGRAM.calls).toEqual([]);
+  });
+
+  it("leaves a pre-ban stranded claim exactly as it found it", async () => {
+    // A claim with platform_post_id NULL is normally reconciled against the
+    // account's own recent posts. That question cannot be answered now, so the
+    // row must be left alone rather than released: releasing it would re-queue
+    // a post that may well have gone out before the ban. Asserted so nobody
+    // later "fixes" the reconciler back into life.
+    await connectThreads();
+    const { queueId } = await seedApproved("PARK-3", "Claimed just before the ban, per Nasdaq");
+    await env.DB
+      .prepare(
+        `INSERT INTO post_log (queue_id, platform_post_id, posted_at, archetype, category)
+         VALUES (?1, NULL, ?2, 'HALT', 'filing')`,
+      )
+      .bind(queueId, iso(new Date(NOW.getTime() - 600_000)))
+      .run();
+
+    await runPoster(postingEnv(), NOW);
+
+    expect(metaCalls).toEqual([]);
+    const still = await env.DB
+      .prepare("SELECT platform_post_id FROM post_log WHERE queue_id = ?1")
+      .bind(queueId)
+      .first<{ platform_post_id: string | null }>();
+    expect(still).not.toBeNull();
+    expect(still?.platform_post_id).toBeNull();
+  });
+
+  it("preserves pre-ban post history while a publishable row sits next to it", async () => {
+    // 18 real posts went out before the ban and their ids are history.
+    //
+    // Being precise about what each half of this proves, because the naive
+    // version of this test proves nothing: a CONFIRMED claim is already
+    // structurally unreachable — selection excludes it via
+    // `LEFT JOIN post_log ... WHERE p.id IS NULL` and reconcileClaims only
+    // reads `platform_post_id IS NULL` — so asserting it alone stays green
+    // even with the park ripped out. The history assertion guards the
+    // SELECTION QUERY against regression. The park is what the second row,
+    // the publishable one, is here to test.
+    //
+    // connectThreads() is load-bearing: without stored auth runPoster returns
+    // at the `if (!auth)` guard before any network path, and the whole test
+    // would pass with the park removed.
+    await connectThreads();
+    const { queueId: historic } = await seedApproved("PARK-4", "Published before the ban, per Nasdaq");
+    await env.DB
+      .prepare(
+        `INSERT INTO post_log (queue_id, platform_post_id, posted_at, archetype, category)
+         VALUES (?1, 'THREADS_REAL_7', ?2, 'HALT', 'filing')`,
+      )
+      .bind(historic, iso(new Date(NOW.getTime() - 86_400_000)))
+      .run();
+    const { queueId: fresh } = await seedApproved("PARK-5", "Approved after the ban, per Nasdaq");
+
+    await runPoster(postingEnv(), NOW);
+
+    expect(metaCalls, "parked poster reached a Meta endpoint").toEqual([]);
+    const row = await env.DB
+      .prepare("SELECT platform_post_id FROM post_log WHERE queue_id = ?1")
+      .bind(historic)
+      .first<{ platform_post_id: string }>();
+    expect(row?.platform_post_id).toBe("THREADS_REAL_7");
+    expect(await env.DB.prepare("SELECT * FROM post_log WHERE queue_id = ?1").bind(fresh).first()).toBeNull();
+  });
+
+  it("refreshThreadsToken is inert and does not disturb the stored token", async () => {
+    await connectThreads();
+    // Far past the 7-day threshold: an unparked refresh would definitely fire.
+    await refreshThreadsToken(postingEnv(), new Date(NOW.getTime() + 30 * 86_400_000));
+    expect(metaCalls).toEqual([]);
+    expect((await getThreadsAuth(env.KV))?.token).toBe("LONGTOKEN");
+    expect(TGRAM.calls).toEqual([]);
+  });
+
+  it("the OAuth routes are unrouted", async () => {
+    for (const path of ["/threads/oauth/start?key=test-webhook-secret", "/threads/oauth/callback?code=C&state=S"]) {
+      const res = await SELF.fetch(`https://worker.local${path}`, { redirect: "manual" });
+      expect(res.status, path).toBe(404);
+    }
+    expect(metaCalls).toEqual([]);
+  });
+});
+
+// The parked client stays on disk for the appeal, so its pure helpers keep
+// their tests. These touch no network and document facts the ban record leans
+// on.
+describe("parked client: pure helpers still hold", () => {
+  it("clampThreadsText caps at the verified 500-char limit, surrogate-safe", () => {
     expect(clampThreadsText("x".repeat(600)).length).toBe(THREADS_TEXT_LIMIT);
     expect(clampThreadsText("short")).toBe("short");
   });
-});
 
-describe("runPoster", () => {
-  it("does nothing while POSTING_ENABLED is false (the shipped default)", async () => {
-    await connectThreads();
-    await seedApproved("P-off", "draft, per Nasdaq");
-    await runPoster(env, NOW); // real env: POSTING_ENABLED="false"
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM post_log").first<{ n: number }>())?.n).toBe(0);
+  it("HTTP 500 + code 190 classifies as token-invalid, and code 1 does not", () => {
+    // Why this matters to the ban record: the errors seen at 03:00Z were code
+    // 1, NOT 190. That is how we tell a ban from an expired token.
+    expect(new ThreadsError(190, "Invalid OAuth 2.0 Access Token", 500).isTokenInvalid).toBe(true);
+    expect(new ThreadsError(4, "rate", 400).isTokenInvalid).toBe(false);
+    expect(new ThreadsError(1, "An unknown error occurred", 500).isTokenInvalid).toBe(false);
   });
 
-  it("posts an approved draft with the source as link_attachment, logs it, badges Telegram", async () => {
-    await connectThreads();
-    const { itemId, queueId } = await seedApproved("P-1", "HALT: ACME. News Pending, 09:31 ET, per Nasdaq");
-    mockQuota();
-    let sent: URLSearchParams | null = null;
-    fetchMock
-      .get(TG)
-      .intercept({ path: "/v1.0/77/threads", method: "POST" })
-      .reply(200, (opts) => {
-        sent = new URLSearchParams(String(opts.body));
-        return JSON.stringify({ id: "THREADS_POST_9" });
-      });
-
-    await runPoster(postingEnv(), NOW);
-
-    expect(sent!.get("media_type")).toBe("TEXT");
-    expect(sent!.get("auto_publish_text")).toBe("true");
-    expect(sent!.get("text")).toContain("HALT: ACME");
-    expect(sent!.get("link_attachment")).toBe("https://www.sec.gov/Archives/P-1");
-    expect(sent!.get("access_token")).toBe("LONGTOKEN");
-
-    const logRow = await env.DB.prepare("SELECT * FROM post_log WHERE queue_id = ?1").bind(queueId).first<Record<string, unknown>>();
-    expect(logRow).toMatchObject({ platform_post_id: "THREADS_POST_9", archetype: "HALT", category: "filing" });
-    expect(
-      (await env.DB.prepare("SELECT status FROM items WHERE id = ?1").bind(itemId).first<{ status: string }>())?.status,
-    ).toBe("posted");
-    expect(TGRAM.calls.some((c) => c.path === "editMessageText" && String(c.body.text).includes("📤 Posted"))).toBe(true);
-
-    // Second run: already in post_log -> nothing re-posts (returns before the
-    // quota fetch, so no interceptor is needed — or leaked).
-    await runPoster(postingEnv(), NOW);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM post_log").first<{ n: number }>())?.n).toBe(1);
-  });
-
-  it("what posts is exactly what was approved: edited_text wins, draft never leaks", async () => {
-    await connectThreads();
-    await seedApproved("P-2", "ORIGINAL DRAFT, per Nasdaq", "the corrected text, per Nasdaq");
-    mockQuota();
-    let sent: URLSearchParams | null = null;
-    fetchMock
-      .get(TG)
-      .intercept({ path: "/v1.0/77/threads", method: "POST" })
-      .reply(200, (opts) => {
-        sent = new URLSearchParams(String(opts.body));
-        return JSON.stringify({ id: "T2" });
-      });
-    await runPoster(postingEnv(), NOW);
-    expect(sent!.get("text")).toBe("the corrected text, per Nasdaq");
-    expect(sent!.get("text")).not.toContain("ORIGINAL DRAFT");
-  });
-
-  it("editorial daily cap holds posts back", async () => {
-    await connectThreads();
-    // Fill post_log to the cap with synthetic rows inside the 24h window.
-    for (let i = 0; i < 25; i++) {
-      await env.DB.prepare("INSERT INTO post_log (queue_id, platform_post_id, posted_at, archetype, category) VALUES (NULL, ?1, ?2, 'WIRE', 'x')")
-        .bind(`old-${i}`, iso(new Date(NOW.getTime() - 3_600_000)))
-        .run();
-    }
-    await seedApproved("P-3", "held back, per Nasdaq");
-    await runPoster(postingEnv(), NOW); // no quota/publish mocks: any fetch would throw -> logged as failure
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM post_log WHERE queue_id IS NOT NULL").first<{ n: number }>())?.n).toBe(0);
-  });
-
-  it("platform quota near exhaustion holds posts", async () => {
-    await connectThreads();
-    await seedApproved("P-4", "quota hold, per Nasdaq");
-    mockQuota(249);
-    await runPoster(postingEnv(), NOW);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM post_log").first<{ n: number }>())?.n).toBe(0);
-  });
-
-  it("token-invalid (HTTP 500 + code 190, the verified quirk) pauses and alerts ONCE", async () => {
-    await connectThreads();
-    await seedApproved("P-5", "will not post, per Nasdaq");
-    const t0 = TGRAM.calls.filter((c) => c.path === "sendMessage").length;
-    fetchMock
-      .get(TG)
-      .intercept({ path: /\/v1\.0\/77\/threads_publishing_limit.*/ })
-      .reply(500, JSON.stringify({ error: { message: "Invalid OAuth 2.0 Access Token", type: "THApiException", code: 190 } }))
-      .times(2);
-
-    await runPoster(postingEnv(), NOW);
-    await runPoster(postingEnv(), NOW); // alert already sent -> no second message
-
-    const alerts = TGRAM.calls.filter((c) => c.path === "sendMessage" && String(c.body.text).includes("Threads token"));
-    expect(alerts.length - (t0 > 0 ? 0 : 0)).toBe(1);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM post_log").first<{ n: number }>())?.n).toBe(0);
-  });
-  it("a crash between publish and confirmation NEVER double-posts (pre-claim)", async () => {
-    await connectThreads();
-    await seedApproved("P-crash", "one approval, one post, per Nasdaq");
-    mockQuota();
-    let publishes = 0;
-    fetchMock
-      .get(TG)
-      .intercept({ path: "/v1.0/77/threads", method: "POST" })
-      .reply(200, () => {
-        publishes += 1;
-        return JSON.stringify({ id: `T-crash-${publishes}` });
-      })
-      .persist();
-
-    // Simulate the isolate dying right after the publish resolves: the
-    // confirmation batch throws, so no post id is ever recorded.
-    const crashing = Object.assign(Object.create(Object.getPrototypeOf(env)), env, {
-      POSTING_ENABLED: "true",
-      DB: Object.assign(Object.create(Object.getPrototypeOf(env.DB)), env.DB, {
-        prepare: env.DB.prepare.bind(env.DB),
-        batch: () => Promise.reject(new Error("isolate evicted")),
-      }),
-    });
-    await runPoster(crashing, NOW);
-    expect(publishes).toBe(1);
-
-    // Next run must NOT re-publish: the claim row survives the crash.
-    await runPoster(postingEnv(), NOW);
-    expect(publishes).toBe(1);
-  });
-
-  it("rejected and expired rows are never posted", async () => {
-    await connectThreads();
-    const { queueId: rej } = await seedApproved("P-rej", "rejected draft, per Nasdaq");
-    await env.DB.prepare("UPDATE queue SET state = 'rejected' WHERE id = ?1").bind(rej).run();
-    const { queueId: exp } = await seedApproved("P-exp", "expired draft, per Nasdaq");
-    await env.DB.prepare("UPDATE queue SET state = 'expired' WHERE id = ?1").bind(exp).run();
-
-    // No publish interceptor: a publish attempt would throw and be visible
-    // as a failed post; assert nothing was even claimed.
-    await runPoster(postingEnv(), NOW);
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM post_log").first<{ n: number }>())?.n).toBe(0);
-  });
-});
-
-describe("register guard at publish time", () => {
-  it("blocks a hand-edited draft that fails the register and never publishes it", async () => {
-    await connectThreads();
-    const { queueId } = await seedApproved("P-na", "HALT: YYAI. Volatility Trading Pause, 10:16 ET, per Nasdaq", "na");
-    mockQuota();
-    const t0 = TGRAM.calls.filter((c) => c.path === "sendMessage").length;
-
-    // No publish interceptor: any attempt to post would throw and be visible.
-    await runPoster(postingEnv(), NOW);
-
-    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM post_log").first<{ n: number }>())?.n).toBe(0);
-    const row = await env.DB.prepare("SELECT state FROM queue WHERE id = ?1").bind(queueId).first<{ state: string }>();
-    expect(row?.state).toBe("rejected");
-    const alerts = TGRAM.calls.filter((c) => c.path === "sendMessage").slice(t0);
-    expect(String(alerts.at(-1)?.body.text)).toContain("Blocked");
-  });
-
-  it("a clean engine-rendered draft passes the guard", async () => {
-    await connectThreads();
-    await seedApproved("P-clean", "HALT: STKH. News Pending, 19:50 ET, per Nasdaq");
-    mockQuota();
-    fetchMock
-      .get(TG)
-      .intercept({ path: "/v1.0/77/threads", method: "POST" })
-      .reply(200, JSON.stringify({ id: "T-clean" }));
-    await runPoster(postingEnv(), NOW);
-    const logged = await env.DB.prepare(
-      "SELECT COUNT(*) AS n FROM post_log WHERE platform_post_id IS NOT NULL",
-    ).first<{ n: number }>();
-    expect(logged?.n).toBe(1);
-  });
-});
-
-describe("refreshThreadsToken", () => {
-  it("a successful refresh clears the token-alert suppressor so new failures alert", async () => {
+  it("storing auth clears the token-alert suppressor", async () => {
     await env.KV.put("threads:token_alert_sent", "1");
     await storeThreadsAuth(env.KV, { token: "T", userId: "77", expiresInSeconds: 60 * 86400, now: NOW });
     expect(await env.KV.get("threads:token_alert_sent")).toBeNull();
-  });
-
-  it("refreshes when the last refresh is >7 days old and persists the new token", async () => {
-    await storeThreadsAuth(env.KV, {
-      token: "OLDTOKEN",
-      userId: "77",
-      expiresInSeconds: 40 * 86400,
-      now: new Date(NOW.getTime() - 8 * 86_400_000),
-    });
-    fetchMock
-      .get(TG)
-      .intercept({ path: /\/refresh_access_token.*/ })
-      .reply(200, JSON.stringify({ access_token: "NEWTOKEN", token_type: "bearer", expires_in: 5_184_000 }));
-
-    await refreshThreadsToken(env, NOW);
-    const auth = await getThreadsAuth(env.KV);
-    expect(auth?.token).toBe("NEWTOKEN");
-    expect(auth?.refreshedAt).toBe(iso(NOW));
-  });
-
-  it("skips when refreshed recently", async () => {
-    await storeThreadsAuth(env.KV, { token: "FRESH", userId: "77", expiresInSeconds: 60 * 86400, now: NOW });
-    await refreshThreadsToken(env, new Date(NOW.getTime() + 86_400_000)); // 1 day later: no interceptor -> a fetch would fail
-    expect((await getThreadsAuth(env.KV))?.token).toBe("FRESH");
-  });
-});
-
-describe("oauth routes", () => {
-  it("start: rejects a bad key; with the right key redirects to Threads with a stored state", async () => {
-    expect((await SELF.fetch("https://worker.local/threads/oauth/start?key=nope", { redirect: "manual" })).status).toBe(401);
-
-    const res = await SELF.fetch("https://worker.local/threads/oauth/start?key=test-webhook-secret", { redirect: "manual" });
-    expect(res.status).toBe(302);
-    const loc = new URL(res.headers.get("location")!);
-    expect(loc.origin + loc.pathname).toBe("https://threads.net/oauth/authorize");
-    expect(loc.searchParams.get("scope")).toBe("threads_basic,threads_content_publish");
-    expect(loc.searchParams.get("redirect_uri")).toBe("https://worker.local/threads/oauth/callback");
-    const state = loc.searchParams.get("state")!;
-    expect(await env.KV.get("threads:oauth_state")).toBe(state);
-  });
-
-  it("callback: exchanges code -> short -> long-lived, stores auth, and burns the state", async () => {
-    await env.KV.put("threads:oauth_state", "STATE1", { expirationTtl: 600 });
-    fetchMock
-      .get(TG)
-      .intercept({ path: "/oauth/access_token", method: "POST" })
-      .reply(200, JSON.stringify({ access_token: "SHORT", user_id: 7788 }));
-    fetchMock
-      .get(TG)
-      .intercept({ path: /\/access_token\?(?=.*th_exchange_token)/ })
-      .reply(200, JSON.stringify({ access_token: "LONG", token_type: "bearer", expires_in: 5_184_000 }));
-    fetchMock
-      .get(TG)
-      .intercept({ path: /\/v1\.0\/me.*/ })
-      .reply(200, JSON.stringify({ id: "7788", username: "skepticwire" }));
-
-    const res = await SELF.fetch("https://worker.local/threads/oauth/callback?code=CODE9&state=STATE1");
-    expect(res.status).toBe(200);
-    expect(await res.text()).toContain("@skepticwire");
-
-    const auth = await getThreadsAuth(env.KV);
-    expect(auth).toMatchObject({ token: "LONG", userId: "7788" });
-    expect(await env.KV.get("threads:oauth_state")).toBeNull(); // single use
-
-    // Replay with the burned state fails.
-    expect((await SELF.fetch("https://worker.local/threads/oauth/callback?code=CODE9&state=STATE1")).status).toBe(403);
-  });
-});
-
-describe("threads error contract", () => {
-  it("HTTP 500 + code 190 classifies as token-invalid", () => {
-    const e = new ThreadsError(190, "Invalid OAuth 2.0 Access Token", 500);
-    expect(e.isTokenInvalid).toBe(true);
-    expect(new ThreadsError(4, "rate", 400).isTokenInvalid).toBe(false);
   });
 });

@@ -1,0 +1,26 @@
+-- P2-R: park the Threads publish path.
+--
+-- EVIDENCE (2026-07-28): Meta banned @skeptictradess on suspected bot
+-- activity. The profile is inaccessible. The Threads READ API began returning
+-- generic `error.code 1` around 03:00Z; publishing had worked as recently as
+-- 01:07Z the same night, and the error is NOT code 190, so this is the ban and
+-- not a token failure (code 190 is the verified token-invalid signal, which
+-- arrives as HTTP 500 — see docs/verification/2026-07-26-p1-sources-and-platforms.md).
+--
+-- 18 posts were published before the ban. Those post_log rows are history and
+-- are deliberately untouched by this migration.
+--
+-- DISABLED, not deleted, and NOT put on the auto-recovering daily probe that
+-- the egress-blocked sources use (the two jobs actually on that cadence are
+-- senate_ptr and treasury_auction; NSE India is blocked but was never built,
+-- so it has no row). Those are network-path problems that can heal on their
+-- own and are worth polling for.
+-- A banned account is not: polling cannot detect reinstatement in a way we
+-- could act on, and even a successful appeal requires a manual browser OAuth
+-- round because the long-lived token expires 2026-09-25 and a dead token
+-- cannot be refreshed. Un-parking is a deliberate three-step act: flip
+-- THREADS_PARKED in src/poster.ts, re-enable these rows, re-run the OAuth flow.
+--
+-- Publishing is now MANUAL on X (@SkepticTrades). The Approve tap feeds the
+-- commentary pipeline instead of a poster; see docs/p2r-plan.md.
+UPDATE jobs SET enabled = 0 WHERE name IN ('poster', 'threads_token_refresh');
