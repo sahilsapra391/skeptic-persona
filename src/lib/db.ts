@@ -331,6 +331,30 @@ export interface SourceState {
   lastPolledAt: string | null;
   lastOkAt: string | null;
   consecutiveFailures: number;
+  /** Last failure text, so triage is a D1 query rather than a timed tail. */
+  lastError?: string | null;
+  lastErrorAt?: string | null;
+}
+
+/**
+ * Record why a source failed. Kept separate from putSourceState so an
+ * ingester can report a failure without having to hold the whole state
+ * object, and truncated because an HTML error page is not a log line.
+ */
+export async function recordSourceError(
+  db: D1Database,
+  source: string,
+  error: unknown,
+  now: Date = new Date(),
+): Promise<void> {
+  const text = String(error).slice(0, 500);
+  await db
+    .prepare(
+      `UPDATE source_state SET last_error = ?1, last_error_at = ?2 WHERE source = ?3`,
+    )
+    .bind(text, iso(now), source)
+    .run()
+    .catch(() => {});
 }
 
 export async function getSourceState(db: D1Database, source: string): Promise<SourceState> {
@@ -357,6 +381,8 @@ export async function getSourceState(db: D1Database, source: string): Promise<So
     lastPolledAt: (row.last_polled_at as string | null) ?? null,
     lastOkAt: (row.last_ok_at as string | null) ?? null,
     consecutiveFailures: (row.consecutive_failures as number) ?? 0,
+    lastError: (row.last_error as string | null) ?? null,
+    lastErrorAt: (row.last_error_at as string | null) ?? null,
   };
 }
 

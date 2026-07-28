@@ -2,7 +2,9 @@ import type { Env } from "../env";
 import { newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
 import { extractAll, extractFirst, stripBom } from "../lib/xml";
-import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY } from "../lib/db";
+import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY ,
+  recordSourceError,
+} from "../lib/db";
 import { recordFacts } from "../lookback";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { iso } from "../lib/time";
@@ -352,6 +354,7 @@ export function makeRateHandler(src: RateSource) {
       state.consecutiveFailures += 1;
       state.lastPolledAt = iso(now);
       await putSourceState(env.DB, state);
+      await recordSourceError(env.DB, src.id, e, now);
       log("error", "rate poll failed", { source: src.id, error: String(e), failures: state.consecutiveFailures });
       return;
     }
