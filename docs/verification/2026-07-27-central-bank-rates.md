@@ -66,3 +66,29 @@ These series reprint the same number every business day. A rate that did not
 move is not news, so the ingester posts only an observed CHANGE, and the first
 sighting of a series records a baseline and posts nothing — we cannot claim a
 change we did not witness.
+
+---
+
+## Additions 2026-07-28T04:09Z
+
+| Source | Endpoint | Status | Level |
+|---|---|---|---|
+| Norges Bank | `data.norges-bank.no/api/data/IR/B.KPRA.SD.R?format=csv` | 200, 12,104 B | **4.25%** (24 Jul) |
+
+**DELIMITER TRAP:** the Norges SDMX CSV is **semicolon-delimited**, not comma.
+A comma split yields a single column and therefore zero observations — a
+silent parse to nothing, with a healthy 200 above it. Columns are located by
+NAME (`TIME_PERIOD`, `OBS_VALUE`) because the file carries 15 columns,
+several of them code/label pairs.
+
+## Blocked, recorded
+
+**Reserve Bank of India** — `website.rbi.org.in/web/rbi/press-releases`
+returns **HTTP 418 "Unauthorised Access"** to our declared UA. That is a
+deliberate bot rejection, not a rate limit. India is now 0 for 2 (NSE
+resets on UA, RBI 418s), so any future India coverage needs a licensed feed
+rather than more endpoint hunting.
+
+**China NBS** — the English press-release index is server-rendered HTML with
+no feed. Parseable in principle, deferred: an HTML index is a maintenance
+liability next to the JSON and RSS sources still unbuilt.

@@ -7,6 +7,7 @@ import SARB from "./fixtures/rate-sarb.json?raw";
 import BOE from "./fixtures/rate-boe.csv.fixture?raw";
 import ECB from "./fixtures/rate-ecb.csv.fixture?raw";
 import SNB from "./fixtures/rate-snb.xml.fixture?raw";
+import NORGES from "./fixtures/rate-norges.csv.fixture?raw";
 import {
   boeDate,
   boeDateToIso,
@@ -82,6 +83,15 @@ describe("parsers (live fixtures)", () => {
     expect(policyValues.has(0.25)).toBe(false); // that is LSFF's level
   });
 
+  it("Norges Bank: SEMICOLON-delimited SDMX CSV, columns by name", () => {
+    const obs = byId("rate_norges").parse(NORGES);
+    expect(obs.length).toBeGreaterThan(100);
+    expect(obs.at(-1)).toEqual({ date: "2026-07-24", value: 4.25 });
+    // A comma split would silently yield one column and zero observations.
+    expect(NORGES.split("\n")[0]!.includes(";")).toBe(true);
+    expect(NORGES.split("\n")[0]!.split(",").length).toBe(1);
+  });
+
   it("every source parses its own fixture to at least one observation", () => {
     for (const [id, body] of [
       ["rate_boc", BOC],
@@ -91,6 +101,7 @@ describe("parsers (live fixtures)", () => {
       ["rate_boe", BOE],
       ["rate_ecb", ECB],
       ["rate_snb", SNB],
+      ["rate_norges", NORGES],
     ] as const) {
       expect(byId(id).parse(body).length, id).toBeGreaterThan(0);
     }

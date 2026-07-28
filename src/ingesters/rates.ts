@@ -209,6 +209,34 @@ export const RATE_SOURCES: readonly RateSource[] = [
     },
   },
   {
+    id: "rate_norges",
+    country: "Norway",
+    label: "Key policy rate",
+    attribution: "per Norges Bank",
+    // SDMX CSV. Verified 2026-07-28: 4.25%, and the delimiter is a
+    // SEMICOLON, not a comma — a comma split silently yields one column and
+    // zero observations.
+    url: "https://data.norges-bank.no/api/data/IR/B.KPRA.SD.R?format=csv&startPeriod=2026-01-01&locale=en",
+    sourceUrl: "https://www.norges-bank.no/en/topics/Monetary-policy/Policy-rate/",
+    parse: (body) => {
+      const lines = stripBom(body).split("\n").filter((l) => l.trim() !== "");
+      const header = (lines[0] ?? "").split(";");
+      const iTime = header.indexOf("TIME_PERIOD");
+      const iValue = header.indexOf("OBS_VALUE");
+      // Located by NAME: this file carries 15 columns, several of them
+      // label/code pairs, so positions are not safe to assume.
+      if (iTime < 0 || iValue < 0) return [];
+      const out: RateObservation[] = [];
+      for (const line of lines.slice(1)) {
+        const cells = line.split(";");
+        const date = (cells[iTime] ?? "").trim();
+        const value = num(cells[iValue]);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(date) && value !== null) out.push({ date, value });
+      }
+      return out;
+    },
+  },
+  {
     id: "rate_snb",
     country: "Switzerland",
     label: "SNB policy rate",
