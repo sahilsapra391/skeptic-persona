@@ -119,8 +119,9 @@ describe("boeDateToIso / boeDate", () => {
   });
 
   it("builds a rolling one-year window ending YESTERDAY", () => {
-    // IADB 500s when asked for a same-day window before the series has a
-    // value for that date (four consecutive overnight failures).
+    // Yesterday is the safer bound (never asks for a value that may not
+    // exist yet), NOT a fix for IADB's overnight 500s — direct test showed
+    // both same-day and prior-day windows return 200.
     const url = urlFor(byId("rate_boe"), new Date("2026-07-28T03:50:00Z"));
     expect(url).toContain("Dateto=27/Jul/2026");
     expect(url).toContain("Datefrom=27/Jul/2025");

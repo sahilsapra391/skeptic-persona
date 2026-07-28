@@ -156,10 +156,24 @@ export const RATE_SOURCES: readonly RateSource[] = [
     // IADB requires an explicit window; a rolling year keeps the CSV small
     // while still carrying enough history to see the previous level.
     buildUrl: (now) => {
-      // Dateto is YESTERDAY, not today. IADB returned HTTP 500 on four
-      // consecutive overnight polls when asked for a same-day window before
-      // the series had a value for that date. A rate that moves a handful of
-      // times a year loses nothing from a one-day lag.
+      // Dateto is YESTERDAY, not today.
+      //
+      // HONEST NOTE ON WHY: an earlier comment here claimed the same-day
+      // window CAUSED IADB's HTTP 500s. That was wrong, and disproved by
+      // direct test on 2026-07-28T04:35Z — both Dateto=today and
+      // Dateto=yesterday returned 200 with identical bodies.
+      //
+      // What the evidence actually shows: the four failures were at 00:50,
+      // 01:50, 02:50 and 03:50 UTC (01:50-04:50 UK), and the last success was
+      // 23:50 UTC. That is an overnight maintenance window on IADB's side,
+      // and it is transient — the source recovers on its own in UK business
+      // hours.
+      //
+      // Yesterday's date is KEPT anyway because it is strictly safer (never
+      // asks for a value that may not exist yet) and a policy rate that moves
+      // a handful of times a year loses nothing from a one-day lag. But it is
+      // not a fix for the 500s, and labelling it as one would send the next
+      // person chasing the wrong thing.
       const to = new Date(now.getTime() - 86_400_000);
       const from = new Date(to.getTime() - 365 * 86_400_000);
       return (
