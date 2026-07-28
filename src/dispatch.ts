@@ -33,6 +33,22 @@ export const MAX_JOBS_PER_TICK = 12;
  */
 export const TICK_TIME_BUDGET_MS = 45_000;
 
+/**
+ * How far past its due time a job must fall before it pre-empts higher
+ * priority work. Long enough that a busy minute does not reorder the tick,
+ * short enough that an hourly job never misses two slots in a row.
+ */
+export const STARVATION_MS = 30 * 60_000;
+
+/**
+ * Priorities that a starving job may NEVER pre-empt.
+ *
+ * The poster (0) and the BLS watchers (10) are latency-critical: a release
+ * watcher due exactly at T is worthless a minute late, and the poster must
+ * never queue behind feed polls. A starving job jumps its PEERS, not these.
+ */
+export const CRITICAL_PRIORITY = 10;
+
 function elapsedMs(startedAt: number): number {
   return performance.now() - startedAt;
 }
@@ -60,13 +76,33 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
   // ORDER BY priority THEN due_at: a watcher due exactly at T must pre-empt
   // stale ingester backlog, and the poster (priority 0) must never queue
   // behind 40 feed polls. Pure due_at ordering cannot express that.
+  //
+  // STARVATION GUARD (first sort key). Priority alone is not enough, because
+  // the tick has a TIME budget as well as a count limit: when the loop breaks
+  // early it always breaks at the same place, so anything below the cut never
+  // runs again. Observed in production 2026-07-28 -- every tick logged
+  // "ranThisTick: 1..4, deferred: 5", and issuer_refresh (priority 90) and
+  // fda_food_recall (55) had NEVER run, while priority-50 jobs due every
+  // minute cycled forever ahead of them.
+  //
+  // A job overdue by more than STARVATION_MS therefore jumps the queue,
+  // but never ahead of CRITICAL_PRIORITY work: a starving ingester must not
+  // delay the poster or a release watcher, which are worthless late.
+  // Normal operation is unchanged: nothing is
+  // starving, so the flag is 0 for everything and this reduces to the
+  // priority ordering above.
+  const starvingBefore = iso(new Date(now.getTime() - STARVATION_MS));
   const due = await env.DB.prepare(
     `SELECT name, cadence_profile, due_at, priority FROM jobs
      WHERE enabled = 1 AND due_at <= ?1
-     ORDER BY priority, due_at
+     ORDER BY CASE
+                WHEN priority <= ?4 THEN 0
+                WHEN due_at <= ?3 THEN 1
+                ELSE 2
+              END, priority, due_at
      LIMIT ?2`,
   )
-    .bind(iso(now), MAX_JOBS_PER_TICK)
+    .bind(iso(now), MAX_JOBS_PER_TICK, starvingBefore, CRITICAL_PRIORITY)
     .all<JobRow>();
 
   // One EXTERNAL-fetch budget shared by every job this tick (50/invocation
