@@ -221,7 +221,8 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{signingLagDays\}/g, "{n}")
         .replace(/\{openInterest\}/g, "{n}")
         .replace(/\{dateOfEvent\}/g, "{date}")
-        .replace(/\{topPercent\}/g, "{n}");
+        .replace(/\{topPercent\}/g, "{n}")
+        .replace(/\{publishedIso\}/g, "{date}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -262,6 +263,7 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       FED_PRESS: ["title", "category"],
       HALT: ["reasonCode", "symbol", "name", "reasonText", "haltTimeEtShort", "haltCountToday"],
       RATE_DECISION: ["changeBps", "priorValue", "priorDate", "observedDate", "factLine", "country", "label", "value", "direction"],
+      REGULATORY_NEWS: ["authority", "publishedIso", "factLine", "title"],
       OWNERSHIP_STAKE: ["isSchedule13D", "dateOfEvent", "topPercent", "isAmendment", "factLine", "topPersonName", "issuerName"],
       POSITIONING: ["reportDate", "changeLevNet", "openInterest", "factLine", "contract", "levNet"],
       POLICY_ACTION: ["signingDate", "publicationDate", "number", "documentNumber", "signingLagDays", "factLine", "title", "kind"],
@@ -418,6 +420,12 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       yoyPct: 3.5,
     },
     FED_PRESS: { title: "Agencies issue joint statement", category: "Banking and Consumer Regulatory Policy" },
+    REGULATORY_NEWS: {
+      factLine: "UK FCA: FCA secures majority of victims' money back",
+      authority: "UK FCA",
+      title: "FCA secures majority of victims' money back",
+      publishedIso: "2026-07-27T15:30:00.000Z",
+    },
     OWNERSHIP_STAKE: {
       factLine: "Schedule 13D: Haggai Alon reports 201,485 shares, 18.5% of SMX",
       topPersonName: "Haggai Alon",
