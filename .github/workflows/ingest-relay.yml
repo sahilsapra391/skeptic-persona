@@ -76,3 +76,84 @@ jobs:
             echo "::error::relay returned $code"
             exit 1
           fi
+
+  # Senate eFD needs a session handshake, a search POST, and one detail page
+  # per filing — none of which the Worker can reach. The courier does all
+  # three and delivers a bundle; the Worker parses it with the same code the
+  # direct poller uses.
+  senate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Handshake, search, and fetch detail pages
+        run: |
+          set -euo pipefail
+          UA="Skeptic Wire admin@spechawk.ai"
+          BASE="https://efdsearch.senate.gov"
+          JAR=$(mktemp)
+
+          # Step 1: home page sets csrftoken + LB cookies and carries a HIDDEN
+          # csrfmiddlewaretoken whose value DIFFERS from the cookie.
+          curl -sS -L --max-time 60 -A "$UA" -c "$JAR" \
+            "$BASE/search/home/" -o home.html
+          HIDDEN=$(grep -o 'name="csrfmiddlewaretoken" value="[^"]*"' home.html \
+            | head -1 | sed 's/.*value="//;s/"//')
+          if [ -z "$HIDDEN" ]; then echo "::error::no csrfmiddlewaretoken"; exit 1; fi
+
+          # Step 2: accept the prohibition agreement to get a session.
+          curl -sS --max-time 60 -A "$UA" -b "$JAR" -c "$JAR" \
+            -X POST "$BASE/search/home/" \
+            -H "Referer: $BASE/search/home/" \
+            --data "prohibition_agreement=1&csrfmiddlewaretoken=${HIDDEN}" \
+            -o /dev/null
+
+          CSRF=$(awk '$6=="csrftoken"{print $7}' "$JAR" | tail -1)
+
+          # Step 3: the search endpoint returns {result:"ok", data:[[...]]}.
+          curl -sS --max-time 60 -A "$UA" -b "$JAR" \
+            -X POST "$BASE/search/report/data/" \
+            -H "Referer: $BASE/search/" \
+            -H "X-CSRFToken: ${CSRF}" \
+            -H "X-Requested-With: XMLHttpRequest" \
+            --data "start=0&length=25&report_types=[11]&filer_types=[]&submitted_start_date=&submitted_end_date=&candidate_state=&senator_state=&office_id=&first_name=&last_name=" \
+            -o search.json
+
+          # Step 4: one detail page per electronic filing. Sequential and
+          # rate-limited on purpose — this is somebody's disclosure system,
+          # not a scraping target.
+          jq -r '.data[]? | .[3]' search.json \
+            | grep -o '/search/view/ptr/[0-9a-f-]\{36\}/' \
+            | sed 's|/search/view/ptr/||;s|/||' > uuids.txt || true
+          echo '{}' > details.json
+          while read -r uuid; do
+            [ -z "$uuid" ] && continue
+            curl -sS --max-time 45 -A "$UA" -b "$JAR" \
+              "$BASE/search/view/ptr/${uuid}/" -o detail.html || continue
+            jq --arg k "$uuid" --rawfile v detail.html \
+               '. + {($k): $v}' details.json > details.tmp && mv details.tmp details.json
+            sleep 1
+          done < uuids.txt
+
+          jq -n --slurpfile s search.json --slurpfile d details.json \
+            '{search: $s[0], details: $d[0]}' > bundle.json
+          echo "rows=$(jq '.data | length' search.json)" >> "$GITHUB_STEP_SUMMARY"
+          echo "details=$(jq 'length' details.json)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Relay to Worker
+        env:
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+        run: |
+          set -euo pipefail
+          jq -Rs --arg source "senate_ptr" \
+                 --arg fetchedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                 '{source: $source, fetchedAt: $fetchedAt, body: .}' \
+                 bundle.json > payload.json
+          code=$(curl -sS --max-time 60 -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-Ingest-Secret: ${INGEST_SECRET}" \
+            --data-binary @payload.json \
+            -o relay-response.json -w "%{http_code}" \
+            "${WORKER_URL}/ingest")
+          cat relay-response.json
+          if [ "$code" != "200" ]; then echo "::error::relay returned $code"; exit 1; fi
