@@ -1,0 +1,78 @@
+# Ingest relay for sources unreachable from Cloudflare Worker egress.
+#
+# WHY THIS EXISTS: five sources answer normally from a residential-class
+# connection and fail from Workers, each differently — Senate eFD 403s
+# datacenter IPs, NSE India resets on our declared UA, treasury.gov fails the
+# TLS handshake (525) on two hosts, www.cftc.gov 403s.
+#
+# This workflow is a DUMB COURIER. It fetches bytes and POSTs them to the
+# Worker's /ingest endpoint. Every piece of logic that matters — parsing,
+# scoring, drafting, dedup, the approval queue — stays in the Worker, on code
+# that is already tested. Nothing is reimplemented here, because a second
+# implementation of the parser is the failure this design exists to avoid.
+#
+# Currently DISABLED (schedule commented out): the Actions quota is exhausted
+# until 2026-08-01. Enable by uncommenting the schedule.
+name: ingest-relay
+
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: "*/30 13-21 * * 1-5"   # every 30 min, US market hours, weekdays
+
+concurrency:
+  group: ingest-relay
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - source: treasury_auction
+            url: "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/auctions_query?sort=-auction_date&page%5Bsize%5D=12"
+          - source: press_cftc_enforcement
+            url: "https://www.cftc.gov/RSS/RSSENF/rssenf.xml"
+    steps:
+      - name: Fetch ${{ matrix.source }}
+        id: fetch
+        run: |
+          set -euo pipefail
+          # Declared UA, same as the Worker. We identify honestly here too —
+          # the point of this lane is the network path, not disguise.
+          code=$(curl -sS -L --max-time 60 \
+            -A "Skeptic Wire admin@spechawk.ai" \
+            -o body.txt -w "%{http_code}" "${{ matrix.url }}")
+          echo "status=$code" >> "$GITHUB_OUTPUT"
+          echo "bytes=$(wc -c < body.txt)" >> "$GITHUB_OUTPUT"
+          if [ "$code" != "200" ]; then
+            echo "::error::${{ matrix.source }} returned $code"
+            exit 1
+          fi
+
+      - name: Relay to Worker
+        env:
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+        run: |
+          set -euo pipefail
+          # jq -Rs slurps the body as a single JSON string, so any quoting,
+          # newlines or control characters in the payload survive intact.
+          jq -Rs --arg source "${{ matrix.source }}" \
+                 --arg fetchedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                 '{source: $source, fetchedAt: $fetchedAt, body: .}' \
+                 body.txt > payload.json
+          code=$(curl -sS --max-time 60 -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-Ingest-Secret: ${INGEST_SECRET}" \
+            --data-binary @payload.json \
+            -o relay-response.json -w "%{http_code}" \
+            "${WORKER_URL}/ingest")
+          cat relay-response.json
+          if [ "$code" != "200" ]; then
+            echo "::error::relay returned $code"
+            exit 1
+          fi

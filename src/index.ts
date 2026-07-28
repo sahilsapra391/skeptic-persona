@@ -2,6 +2,7 @@ import type { Env } from "./env";
 import { tick } from "./dispatch";
 import { registerJobs } from "./jobs";
 import { handleTelegramWebhook, WEBHOOK_PATH } from "./telegram/webhook";
+import { handleIngestRelay, INGEST_PATH } from "./ingestRelay";
 import { handleSeedTest } from "./admin";
 import { handleOauthCallback, handleOauthStart, OAUTH_CALLBACK_PATH, OAUTH_START_PATH } from "./threadsOauth";
 import { log } from "./lib/log";
@@ -20,6 +21,9 @@ export default {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
       return Response.json({ ok: true, now: new Date().toISOString() });
+    }
+    if (request.method === "POST" && url.pathname === INGEST_PATH) {
+      return handleIngestRelay(request, env);
     }
     if (request.method === "POST" && url.pathname === WEBHOOK_PATH) {
       return handleTelegramWebhook(request, env);
