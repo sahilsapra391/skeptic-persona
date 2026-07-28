@@ -16,6 +16,22 @@ const num = (p: Payload, k: string): number | null => {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 };
 
+/**
+ * The SEC's compound item titles run long — Item 5.02 is "Departure of
+ * Directors or Certain Officers; Election of Directors; Appointment of
+ * Certain Officers; Compensatory Arrangements of Certain Officers" at 145
+ * characters. Cut at the first semicolon, a clause boundary in the SEC's OWN
+ * phrasing rather than an arbitrary character count, and mark the cut so a
+ * reader knows the title continues.
+ */
+export function firstClause(title: string, max = 80): string {
+  const semi = title.indexOf(";");
+  const head = semi > 0 ? title.slice(0, semi) : title;
+  if (head.length <= max) return semi > 0 ? `${head}\u2026` : head;
+  const cut = head.lastIndexOf(" ", max);
+  return `${head.slice(0, cut > 40 ? cut : max).trimEnd()}\u2026`;
+}
+
 /** Item codes we translate; the SEC's own titles always come from the feed. */
 const itemsOf = (p: Payload): Array<{ code: string; title: string }> =>
   Array.isArray(p.items) ? (p.items as Array<{ code: string; title: string }>) : [];
@@ -37,6 +53,20 @@ const filing8k: Archetype = {
         return {
           lines: [`${str(p, "formType") ?? "8-K"}: ${company}`, ...shown.map((i) => `Item ${i.code}: ${i.title}`)],
         };
+      },
+    },
+    {
+      // GUARANTEED-SHORT variant. Both fuller skeletons can exceed the post
+      // budget on a long compound title, and if EVERY skeleton overflows the
+      // render fails and the filing silently never reaches the queue. Real
+      // production drafts reached 471 characters.
+      id: "8k.compact",
+      build: (p) => {
+        const company = str(p, "company");
+        const first = itemsOf(p).filter((i) => i.code !== "9.01")[0] ?? itemsOf(p)[0];
+        if (!company || !first) return null;
+        const name = company.length > 55 ? `${company.slice(0, 52).trimEnd()}\u2026` : company;
+        return { lines: [`${name}: Item ${first.code}, ${firstClause(first.title)}`] };
       },
     },
     {
