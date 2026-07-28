@@ -32,6 +32,30 @@ this family need two date formats between them.
 Commission published. It is a digest, not an event, and would take a queue
 slot every single day, so it is filtered by title.
 
+## Enforcement wire — verified 2026-07-28T04:02Z
+
+| Source | URL | Result |
+|---|---|---|
+| SEC administrative proceedings | `/rss/litigation/admin.xml` | **200, 25 items** |
+| CFTC enforcement | `/RSS/RSSENF/rssenf.xml` | **200, 10 items** |
+| FTC competition | `/feeds/press-release-competition.xml` | **200, 30 items** |
+| ~~SEC litigation releases~~ | `/rss/litigation/litreleases.xml` | **404** (serves an HTML page) |
+
+The SEC litigation-releases feed is dead — 404 with an HTML body, so a
+naive check that only tests for a non-empty response would accept it.
+Administrative proceedings carry the same enforcement content and are live.
+
+Live headlines at capture: "Hext Capital Partners LLC and Gregory W. Hext,
+CPA" (SEC), "CFTC Charges North Carolina Commodity Pool Operator" (CFTC),
+"FTC Secures Major Settlement with Caremark, Resolving Antitrust..." (FTC).
+
+Enforcement is the highest-lift category measured across the five competitor
+corpora (1.63x median engagement), and these are the actions themselves
+rather than anyone's report of them.
+
+**Three date offsets in one family:** SEC and FTC emit `-0400`, CFTC emits
+`+0000`. All normalize to UTC at parse.
+
 ## Doctrine
 
 Neither feed carries a number. The `REGULATORY_NEWS` templates are therefore

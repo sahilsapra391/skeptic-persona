@@ -31,6 +31,32 @@ export interface PressSource {
 }
 
 export const PRESS_SOURCES: readonly PressSource[] = [
+  // --- Enforcement wire. Highest-lift category measured across the five
+  // competitor corpora (1.63x median engagement), and these are the actions
+  // themselves rather than anyone's report of them.
+  {
+    id: "press_sec_enforcement",
+    authority: "SEC",
+    attribution: "per SEC",
+    // Administrative proceedings. NOTE: the litigation-releases feed at
+    // /rss/litigation/litreleases.xml is DEAD (404, serves an HTML page).
+    url: "https://www.sec.gov/rss/litigation/admin.xml",
+    categories: [],
+  },
+  {
+    id: "press_cftc_enforcement",
+    authority: "CFTC",
+    attribution: "per CFTC",
+    url: "https://www.cftc.gov/RSS/RSSENF/rssenf.xml",
+    categories: [],
+  },
+  {
+    id: "press_ftc_competition",
+    authority: "FTC",
+    attribution: "per FTC",
+    url: "https://www.ftc.gov/feeds/press-release-competition.xml",
+    categories: [],
+  },
   {
     id: "press_fca",
     authority: "UK FCA",
