@@ -1,4 +1,5 @@
 import { fmtNum, fmtUsd } from "../ingesters/shared";
+import { RATE_ATTRIBUTION } from "../ingesters/rateAttribution";
 import type { Archetype, ArchetypeId, Payload, PendingBeat } from "./types";
 
 // Beat libraries transcribed from docs/persona.md §8 (owner-signed).
@@ -491,10 +492,13 @@ const fedPress: Archetype = {
 
 const rateDecision: Archetype = {
   id: "RATE_DECISION",
-  // Per-source attribution ("per Bank of Canada") rides in the payload; the
-  // renderer needs one string, so the generic form names the issuer type and
-  // the fact line already names the country.
-  attribution: "per the central bank",
+  // Each bank cited by name, selected from a CLOSED map on payload.country.
+  // This used to be the generic "per the central bank" because the renderer
+  // took one string; the map form added for CONGRESS_PTR removed that limit.
+  // The map is imported, never restated: one authored copy shared with
+  // RATE_SOURCES, so a bank cannot be cited one way in the fact line and
+  // another in the post.
+  attribution: { field: "country", map: RATE_ATTRIBUTION },
   skeletons: [
     {
       id: "rate.change",
