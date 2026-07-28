@@ -6,7 +6,8 @@ import {
   FDA_RECALLS,
   fdaDateToIso,
   parseRecalls,
-  pollFdaRecalls,
+  FDA_SOURCES,
+  pollFdaEnforcement,
   scoreRecall,
   SOURCE,
   type FdaRecall,
@@ -89,11 +90,13 @@ describe("scoreRecall", () => {
 describe("draftRecall", () => {
   it("carries FDA's wording and no em-dash", () => {
     const r = parseRecalls(FIXTURE).find((x) => x.firm === "Chiesi USA, Inc.")!;
-    const d = draftRecall(r);
-    expect(d).toContain("FDA Class II recall: Chiesi USA, Inc.");
+    const d = draftRecall(r, "drug");
+    // The dataset is named now that food recalls share this archetype.
+    expect(d).toContain("FDA Class II drug recall: Chiesi USA, Inc.");
     expect(d).toContain("Reason: Lack of Assurance of Sterility");
     expect(d).toContain("Initiated 2026-07-06");
     expect(d).not.toContain("—");
+    expect(draftRecall(r, "food")).toContain("FDA Class II food recall:");
   });
 
   it("truncates a very long product description rather than blowing the budget", () => {
@@ -161,7 +164,7 @@ describe("pollFdaRecalls end-to-end", () => {
 
   it("ingests, grades and records the lag as a fact", async () => {
     fetchMock.get(API).intercept({ path: PATH }).reply(200, FIXTURE);
-    await pollFdaRecalls(env, NOW, newTickBudget(30));
+    await pollFdaEnforcement(env, FDA_SOURCES[0]!, NOW, newTickBudget(30));
 
     const rows = await env.DB.prepare("SELECT COUNT(*) AS n FROM items WHERE source = ?1").bind(SOURCE).first<{ n: number }>();
     expect(rows?.n).toBeGreaterThan(0);
@@ -175,7 +178,7 @@ describe("pollFdaRecalls end-to-end", () => {
     // burst from any other Worker can hit us. That must not mark the source
     // unhealthy and trip the failure alarms.
     fetchMock.get(API).intercept({ path: PATH }).reply(429, "Too Many Requests");
-    await pollFdaRecalls(env, NOW, newTickBudget(30));
+    await pollFdaEnforcement(env, FDA_SOURCES[0]!, NOW, newTickBudget(30));
 
     const state = await env.DB.prepare("SELECT consecutive_failures AS f FROM source_state WHERE source = ?1")
       .bind(SOURCE)

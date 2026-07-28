@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import FDA from "./fixtures/fda-drug-enforcement.json.fixture?raw";
-import { draftRecall, eventKey, groupRecalls, parseRecalls, scoreRecall } from "../src/ingesters/fdaRecalls";
-import { SCORE_AUTO_ALERT, SCORE_POSTABLE } from "../src/lib/db";
+import { draftRecall, eventKey, FDA_SOURCES, groupRecalls, parseRecalls, scoreRecall } from "../src/ingesters/fdaRecalls";
+import { SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../src/lib/db";
 
 // Live openFDA drug enforcement records, captured 2026-07-28. Three real
 // events chosen for what they prove:
@@ -100,5 +100,40 @@ describe("eventKey", () => {
     // and deserves its own card rather than silently reusing the old one.
     const a = records[0]!;
     expect(eventKey({ ...a, reason: "Different reason entirely" })).not.toBe(eventKey(a));
+  });
+});
+
+describe("the food dataset shares the drug parser, not its editorial gate", () => {
+  const drug = FDA_SOURCES.find((s) => s.id === "fda_drug_recall")!;
+  const food = FDA_SOURCES.find((s) => s.id === "fda_food_recall")!;
+
+  it("hits the same openFDA enforcement shape", () => {
+    expect(food.url).toContain("api.fda.gov/food/enforcement.json");
+    expect(drug.url).toContain("api.fda.gov/drug/enforcement.json");
+    // Field parity verified live 2026-07-28: every field parseRecalls reads
+    // is present in the food dataset, so one parser covers both.
+    expect(food.kind).toBe("food");
+  });
+
+  it("lets a Class II DRUG recall through and holds a Class II FOOD recall", () => {
+    // Measured 2026-07-28: food Class II runs ~33 grouped events a month,
+    // mostly undeclared allergens at regional producers. Real public-health
+    // notices, but not market intelligence, and the queue already expires
+    // more cards than it approves.
+    const classII = groupRecalls(records).find((e) => e.classification === "Class II")!;
+    expect(scoreRecall(classII, drug)).toBe(SCORE_POSTABLE);
+    expect(scoreRecall(classII, food)).toBe(SCORE_LOG_ONLY);
+  });
+
+  it("lets Class I through on BOTH, because that is FDA's serious-harm grade", () => {
+    const classI = groupRecalls(records).find((e) => e.classification === "Class I")!;
+    expect(scoreRecall(classI, drug)).toBe(SCORE_AUTO_ALERT);
+    expect(scoreRecall(classI, food)).toBe(SCORE_AUTO_ALERT);
+  });
+
+  it("never posts a recall it cannot describe, whatever the grade", () => {
+    const classI = groupRecalls(records).find((e) => e.classification === "Class I")!;
+    expect(scoreRecall({ ...classI, reason: "" }, food)).toBe(SCORE_LOG_ONLY);
+    expect(scoreRecall({ ...classI, product: "" }, drug)).toBe(SCORE_LOG_ONLY);
   });
 });
