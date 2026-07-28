@@ -42,6 +42,21 @@ export interface RateSource {
   /** Human-facing page carried as the post's source link. */
   sourceUrl: string;
   parse: (body: string) => RateObservation[];
+  /**
+   * The endpoint publishes ONLY the current level, with no history.
+   *
+   * detectChange needs two observations, so such a source could never post a
+   * change and would log forever while looking healthy. For these, the prior
+   * observation is the one WE recorded last poll (source_state.cursor), which
+   * is a level we witnessed ourselves rather than one we inferred.
+   *
+   * OPT-IN PER SOURCE, deliberately. Applying the cursor fallback to a
+   * history-bearing feed would resurrect old news: if the rate moved while we
+   * were down and has been flat since, detectChange correctly returns null,
+   * but the cursor still holds the pre-move level and would present a
+   * days-old move as today's.
+   */
+  singleObservation?: true;
 }
 
 export function urlFor(src: RateSource, now: Date): string {
@@ -132,6 +147,28 @@ export function parseRbaF1(body: string): RateObservation[] {
 }
 
 export const RATE_SOURCES: readonly RateSource[] = [
+  {
+    id: "rate_boi",
+    country: "Israel",
+    label: "Bank of Israel interest rate",
+    attribution: "per the Bank of Israel",
+    // 112 bytes of exact JSON, the cleanest rate endpoint in this file. It
+    // carries NO history, only the current level, which is why the
+    // single-observation capability exists.
+    url: "https://www.boi.org.il/PublicApi/GetInterest",
+    sourceUrl: "https://www.boi.org.il/en/economic-roles/monetary-policy/interest-rate/",
+    singleObservation: true,
+    parse: (body) => {
+      const d = JSON.parse(body) as { currentInterest?: unknown; lastPublishedDate?: unknown };
+      const value = num(d.currentInterest);
+      // lastPublishedDate is when THIS level was published, so it dates the
+      // observation. nextInterestDate is the next DECISION and is deliberately
+      // ignored: a scheduled meeting is not a rate.
+      const raw = typeof d.lastPublishedDate === "string" ? d.lastPublishedDate : "";
+      const date = /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : null;
+      return value !== null && date ? [{ date, value }] : [];
+    },
+  },
   {
     id: "rate_rba",
     country: "Australia",
@@ -383,6 +420,30 @@ export function detectChange(obs: readonly RateObservation[], now: Date): RateCh
   return { current, prior, bps: Math.abs(bps), direction: bps > 0 ? "raised" : "lowered" };
 }
 
+/**
+ * Build a change from the level we ourselves recorded last poll.
+ *
+ * Only for sources that publish no history (see RateSource.singleObservation).
+ * The cursor is written as `${date}:${value}` after every successful poll.
+ */
+export function changeFromCursor(cursor: string | null, current: RateObservation): RateChange | null {
+  if (!cursor) return null;
+  // Split on the LAST colon: the date half contains none, but pinning the
+  // separator this way survives any future date format that does.
+  const sep = cursor.lastIndexOf(":");
+  if (sep <= 0) return null;
+  const date = cursor.slice(0, sep);
+  const value = Number.parseFloat(cursor.slice(sep + 1));
+  if (!Number.isFinite(value)) return null;
+  // A hold is not a change, and the prior must genuinely precede the current
+  // observation — equal or later dates mean we are looking at the same print.
+  if (value === current.value) return null;
+  if (date >= current.date) return null;
+  const bps = Math.round((current.value - value) * 100);
+  if (bps === 0) return null;
+  return { current, prior: { date, value }, bps: Math.abs(bps), direction: bps > 0 ? "raised" : "lowered" };
+}
+
 export function draftRate(src: RateSource, change: RateChange): string {
   return (
     `${src.country}: ${src.label} ${change.direction} to ${change.current.value}% ` +
@@ -407,7 +468,11 @@ export function makeRateHandler(src: RateSource) {
       // Claiming a change requires having observed the level before it.
       const seenBefore = state.cursor !== null && state.cursor !== "";
 
-      const change = detectChange(obs, now);
+      // A history-bearing feed answers this from the feed. A source that
+      // publishes only the current level answers it from what we last saw.
+      const change = src.singleObservation
+        ? changeFromCursor(state.cursor, current)
+        : detectChange(obs, now);
       const isNews = seenBefore && change !== null && state.cursor !== `${current.date}:${current.value}`;
 
       const result = await insertItem(
