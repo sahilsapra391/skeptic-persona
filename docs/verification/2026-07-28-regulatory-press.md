@@ -37,7 +37,7 @@ slot every single day, so it is filtered by title.
 | Source | URL | Result |
 |---|---|---|
 | SEC administrative proceedings | `/rss/litigation/admin.xml` | **200, 25 items** |
-| CFTC enforcement | `/RSS/RSSENF/rssenf.xml` | **200, 10 items** |
+| CFTC enforcement | `/RSS/RSSENF/rssenf.xml` | 200 from residential, **403 from Worker egress — PARKED** |
 | FTC competition | `/feeds/press-release-competition.xml` | **200, 30 items** |
 | ~~SEC litigation releases~~ | `/rss/litigation/litreleases.xml` | **404** (serves an HTML page) |
 
@@ -55,6 +55,21 @@ rather than anyone's report of them.
 
 **Three date offsets in one family:** SEC and FTC emit `-0400`, CFTC emits
 `+0000`. All normalize to UTC at parse.
+
+### CFTC press host blocks Workers (2026-07-28T04:08Z)
+
+`www.cftc.gov` returns **403 to Cloudflare Worker egress** and **200 to the
+identical declared UA from a residential connection**. SEC and FTC were
+polled in the same tick from the same Worker and both returned 200, so this
+is host-specific, not a client problem.
+
+**CFTC positioning is unaffected.** Commitments of Traders lives on
+`publicreporting.cftc.gov`, a different host that answers Workers fine — so
+the same agency is half reachable.
+
+Parked on the daily auto-recovering probe. Fifth egress failure mode on this
+project after Senate eFD (403), NSE India (UA reset), and treasury.gov (TLS
+525 + timeout).
 
 ## Doctrine
 
