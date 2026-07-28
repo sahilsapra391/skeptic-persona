@@ -251,6 +251,16 @@ emit one. Selection is by the feed's own category (FCA tags Press Releases
 separately from Blogs) and by skipping routine digests ("Daily News
 27 / 07 / 2026"), which is a visibility decision that never appears in a post.
 
+### SETTLEMENT FAILURE (Reg SHO threshold list)
+- `That takes five straight settlement days of failures to deliver.`
+- `The list is mechanical. The reason is not published.`
+- `{n} securities on the list that day.` [list size parsed]
+
+The product is the DIFF, not the list: who joined and who left. On the first
+observation every symbol looks new, so the first run posts nothing — claiming
+thirty securities "joined" when we simply have no prior list would be
+fabrication by omission of context.
+
 ### HALT
 - `Pending is the whole disclosure.` [T1]
 - `The band did what the band does.` [LUDP/LUDS]

@@ -222,7 +222,8 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{openInterest\}/g, "{n}")
         .replace(/\{dateOfEvent\}/g, "{date}")
         .replace(/\{topPercent\}/g, "{n}")
-        .replace(/\{publishedIso\}/g, "{date}");
+        .replace(/\{publishedIso\}/g, "{date}")
+        .replace(/\{listSize\}/g, "{n}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -263,6 +264,7 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       FED_PRESS: ["title", "category"],
       HALT: ["reasonCode", "symbol", "name", "reasonText", "haltTimeEtShort", "haltCountToday"],
       RATE_DECISION: ["changeBps", "priorValue", "priorDate", "observedDate", "factLine", "country", "label", "value", "direction"],
+      SETTLEMENT_FAILURE: ["listDate", "symbol", "listSize", "factLine", "name"],
       REGULATORY_NEWS: ["authority", "publishedIso", "factLine", "title"],
       OWNERSHIP_STAKE: ["isSchedule13D", "dateOfEvent", "topPercent", "isAmendment", "factLine", "topPersonName", "issuerName"],
       POSITIONING: ["reportDate", "changeLevNet", "openInterest", "factLine", "contract", "levNet"],
@@ -420,6 +422,13 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       yoyPct: 3.5,
     },
     FED_PRESS: { title: "Agencies issue joint statement", category: "Banking and Consumer Regulatory Policy" },
+    SETTLEMENT_FAILURE: {
+      factLine: "ADVB (ADVANCED BIOMED INC COM NEW) joined the Nasdaq Reg SHO threshold list, 2026-07-27",
+      symbol: "ADVB",
+      name: "ADVANCED BIOMED INC COM NEW",
+      listDate: "2026-07-27",
+      listSize: 30,
+    },
     REGULATORY_NEWS: {
       factLine: "UK FCA: FCA secures majority of victims' money back",
       authority: "UK FCA",
