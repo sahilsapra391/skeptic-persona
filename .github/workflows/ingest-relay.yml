@@ -15,10 +15,18 @@
 # until 2026-08-01. Enable by uncommenting the schedule.
 name: ingest-relay
 
+# TWO cadences, because the sources move at different speeds. Job-level `if`
+# filters on which cron fired (github.event.schedule); a manual dispatch runs
+# everything.
+#
+# The House lane costs ~1.5 min per run (checkout + pip + 20 sequential PDF
+# downloads). On the 30-minute cadence that is ~530 min/month against a
+# 2,000 min free tier, for a bulk index that rebuilds ONCE per weekday.
 on:
   workflow_dispatch:
   # schedule:
   #   - cron: "*/30 13-21 * * 1-5"   # every 30 min, US market hours, weekdays
+  #   - cron: "20 14 * * 1-5"        # House PDFs, after the ~13:00 UTC index rebuild
 
 concurrency:
   group: ingest-relay
@@ -26,6 +34,8 @@ concurrency:
 
 jobs:
   relay:
+    # Every cadence EXCEPT the daily House slot.
+    if: github.event.schedule != '20 14 * * 1-5'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -82,6 +92,7 @@ jobs:
   # three and delivers a bundle; the Worker parses it with the same code the
   # direct poller uses.
   senate:
+    if: github.event.schedule != '20 14 * * 1-5'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -168,6 +179,8 @@ jobs:
   # the Worker's tested parser turns text into transactions. The Worker also
   # decides which documents to fetch, so the courier holds no state.
   house:
+    # Daily slot only. A manual dispatch has an empty schedule, so it runs too.
+    if: github.event.schedule == '20 14 * * 1-5' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
