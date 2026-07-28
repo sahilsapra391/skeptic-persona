@@ -48,14 +48,19 @@ into docs/ here as needed). Current track: [docs/p2r-plan.md](docs/p2r-plan.md).
 
 ## Platform facts
 
-**X — NOT YET VERIFIED. Treat every number here as a claim, not a fact.**
-Working assumptions only: 280 chars on the free tier; t.co bills every link at
-23 chars regardless of real length; external links are deprioritised, so the
-source rides in a reply rather than the post body. No API means no token, no
-quota endpoint, and no automated publish path to defend. **p2r-02 sizes
-`POST_TEXT_LIMIT` against these numbers and must live-verify them first and
-file the record in docs/verification/** — endpoint verification is law and
-these arrived by assumption during the platform pivot, not by checking.
+### X (verified 2026-07-28, see docs/verification/2026-07-28-x-post-length.md)
+
+- Posts are measured by **weighted** length, not `String.length`, and the naive
+  measure is wrong in BOTH directions. Sum a weight per code point and divide
+  by 100: code points in `[0,4351] [8192,8205] [8208,8223] [8242,8247]` weigh
+  100, everything else weighs 200. Emoji count as one cluster at 200 (a country
+  flag is 2 to X and 4 to JS); CJK is 2 (`日` is 1 to JS). Limit 280 free.
+- Any URL is billed at exactly 23 via t.co, whatever its real length.
+- `developer.x.com/en/docs/counting-characters` returns HTTP 402 to an
+  unauthenticated fetch. The usable primary source is twitter-text config v3.
+- No API (manual posting), so no token, no quota endpoint, and no automated
+  publish path to defend. The source link rides in a reply rather than the post
+  body — a product decision about link deprioritisation, not a verified fact.
 
 ### Verified 2026-07-26, see docs/verification/
 

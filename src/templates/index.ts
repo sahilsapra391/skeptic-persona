@@ -4,7 +4,8 @@ import { EMPTY_ROTATION, renderPost, type RenderResult, type RotationState } fro
 import type { ArchetypeId, Payload } from "./types";
 
 export { ARCHETYPES, PENDING_BEATS } from "./archetypes";
-export { renderPost, seedHash, THREADS_TEXT_LIMIT } from "./render";
+export { renderPost, seedHash } from "./render";
+export { POST_TEXT_LIMIT, weightedLength, fitsInPost } from "./length";
 export type { RenderResult, RotationState } from "./render";
 export * from "./types";
 

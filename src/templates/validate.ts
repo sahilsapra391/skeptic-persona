@@ -1,6 +1,6 @@
 import type { ArchetypeId } from "./types";
 import { ARCHETYPES } from "./archetypes";
-import { THREADS_TEXT_LIMIT } from "./render";
+import { POST_TEXT_LIMIT, weightedLength } from "./length";
 
 // Register checks for text that BYPASSES the engine — i.e. anything the owner
 // hand-writes through the Telegram edit flow. The engine guarantees doctrine
@@ -45,8 +45,12 @@ export interface RegisterIssue {
 export function checkRegister(text: string, archetype?: ArchetypeId): RegisterIssue[] {
   const issues: RegisterIssue[] = [];
   if (text.trim() === "") issues.push({ rule: "empty", detail: "post is empty" });
-  if (text.length > THREADS_TEXT_LIMIT) {
-    issues.push({ rule: "length", detail: `${text.length} chars, limit ${THREADS_TEXT_LIMIT}` });
+  const weighted = weightedLength(text);
+  if (weighted > POST_TEXT_LIMIT) {
+    // Weighted, not String.length: X bills emoji and CJK at 2 and any URL at
+    // 23. Reporting the weighted figure so a rejection message matches what
+    // the compose box would say.
+    issues.push({ rule: "length", detail: `${weighted} weighted chars, limit ${POST_TEXT_LIMIT}` });
   }
   if (text.includes("—")) issues.push({ rule: "em_dash", detail: "em-dashes are banned in post copy" });
   if (text.includes("#")) issues.push({ rule: "hashtag", detail: "no hashtags" });
