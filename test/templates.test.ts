@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import PERSONA_DOC from "../docs/persona.md?raw";
 import { ARCHETYPES, PENDING_BEATS } from "../src/templates/archetypes";
 import { evaluateGate, gateFields } from "../src/templates/gate";
-import { fillSlots, pickBeat, renderPost, seedHash } from "../src/templates/render";
+import { fillSlots, pickBeat, renderPost, resolveAttribution, seedHash } from "../src/templates/render";
 import { POST_TEXT_LIMIT, weightedLength } from "../src/templates/length";
 import type { Archetype, ArchetypeId, Beat } from "../src/templates/types";
 import { GATE_OPS } from "../src/templates/types";
@@ -99,7 +99,37 @@ describe("doctrine: register", () => {
 
   it("every archetype declares mandatory attribution and renders it on the fact", () => {
     for (const a of ALL) {
-      expect(a.attribution, a.id).toMatch(/^per /);
+      // Multi-source archetypes declare a CLOSED map; every value in it is
+      // still a real citation, and the set is never empty.
+      const declared = typeof a.attribution === "string" ? [a.attribution] : Object.values(a.attribution.map);
+      expect(declared.length, a.id).toBeGreaterThan(0);
+      for (const d of declared) expect(d, a.id).toMatch(/^per /);
+    }
+  });
+
+  it("a multi-source archetype refuses to render rather than borrow the other source", () => {
+    // The bug this exists for: CONGRESS_PTR hardcoded "per Senate eFD", so a
+    // House filing would have been published citing a system it never
+    // touched. Absent or unknown chamber must fail, not fall back.
+    const base = { factLine: "Member sold $1,001 - $15,000 of notes", lagDays: 30 };
+    expect(renderPost(ARCHETYPES.CONGRESS_PTR, base, { seed: "x" }).ok).toBe(false);
+    expect(renderPost(ARCHETYPES.CONGRESS_PTR, { ...base, chamber: "hosue" }, { seed: "x" }).ok).toBe(false);
+    expect(renderPost(ARCHETYPES.CONGRESS_PTR, { ...base, chamber: 7 }, { seed: "x" }).ok).toBe(false);
+    // A payload cannot SUPPLY a citation, only choose among ours.
+    expect(renderPost(ARCHETYPES.CONGRESS_PTR, { ...base, chamber: "per Bloomberg" }, { seed: "x" }).ok).toBe(false);
+
+    const house = renderPost(ARCHETYPES.CONGRESS_PTR, { ...base, chamber: "house" }, { seed: "x" });
+    expect(house.ok).toBe(true);
+    if (!house.ok) return;
+    expect(house.text).toContain("per House Clerk");
+    expect(house.text).not.toContain("Senate eFD");
+  });
+
+  it("resolveAttribution cannot be reached through the prototype chain", () => {
+    // Object.prototype.hasOwnProperty, not `in`: "constructor" or "toString"
+    // as a chamber must not resolve to a function.
+    for (const k of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      expect(resolveAttribution(ARCHETYPES.CONGRESS_PTR, { chamber: k }), k).toBeNull();
     }
   });
 });
@@ -108,7 +138,7 @@ describe("doctrine: structural law (fact first, beat last, never blended)", () =
   it("the beat is always the final line, separated from the fact block", () => {
     const r = renderPost(
       ARCHETYPES.CONGRESS_PTR,
-      { factLine: "Senator sold $1,001 - $15,000 of notes", lagDays: 30, amountBand: "$1,001 - $15,000" },
+      { chamber: "senate", factLine: "Senator sold $1,001 - $15,000 of notes", lagDays: 30, amountBand: "$1,001 - $15,000" },
       { seed: "x" },
     );
     expect(r.ok).toBe(true);
@@ -121,7 +151,7 @@ describe("doctrine: structural law (fact first, beat last, never blended)", () =
 
   it("the fact block is never sacrificed for a beat (beat drops if over budget)", () => {
     const huge = "x".repeat(POST_TEXT_LIMIT - 20);
-    const r = renderPost(ARCHETYPES.CONGRESS_PTR, { factLine: huge, lagDays: 40 }, { seed: "s" });
+    const r = renderPost(ARCHETYPES.CONGRESS_PTR, { chamber: "senate", factLine: huge, lagDays: 40 }, { seed: "s" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(weightedLength(r.text)).toBeLessThanOrEqual(POST_TEXT_LIMIT);
@@ -409,6 +439,7 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       allCodeP: true,
     },
     CONGRESS_PTR: {
+      chamber: "senate",
       factLine: "Senate PTR: Moreno, Bernardo. Sale (Full) $1,001 - $15,000, BAC (06/24/2026). Filed 07/24/2026",
       who: "Moreno, Bernardo",
       tradeLine: "Sale (Full) $1,001 - $15,000, BAC (06/24/2026)",
@@ -594,6 +625,7 @@ describe("rotation", () => {
 
   it("consecutive renders with rotation state pick different beats", () => {
     const payload = {
+      chamber: "senate",
       factLine: "x",
       who: "Senator Example",
       tradeLine: "Purchase $1,001 - $15,000, ACME (06/24/2026)",

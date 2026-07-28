@@ -42,6 +42,23 @@ export async function enqueueForApproval(
     return { queueId: 0, notified: false, retryAfter: null };
   }
   const draftText = rendered.text;
+
+  // PERSIST THE PAYLOAD THAT WAS ACTUALLY RENDERED. Enrichers (the lookback
+  // engine in edgar8k) add fields to the in-memory payload on the way here,
+  // and those fields were never written back — so items.payload did NOT match
+  // what produced the draft. That breaks the determinism claim three lines
+  // up: a re-render from D1 would see no lookback fields, could pick a
+  // different beat, and would produce different text from what the owner
+  // approved. It also made every lookback-gated beat unreachable to anything
+  // reading the payload later (the RAG generation prompt reads it).
+  //
+  // Doing it here rather than in each enricher so a future enricher inherits
+  // it. Non-fatal: a failed write costs a stale payload, not a lost post.
+  await env.DB.prepare(`UPDATE items SET payload = ?1 WHERE id = ?2`)
+    .bind(JSON.stringify(payload), itemId)
+    .run()
+    .catch((e: unknown) => log("warn", "payload write-back failed", { itemId, error: String(e) }));
+
   const queueId = await createQueueEntry(env.DB, itemId, archetype, draftText, now, {
     skeletonId: rendered.skeletonId,
     beatId: rendered.beatId,

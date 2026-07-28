@@ -2,9 +2,11 @@ import type { Env } from "../env";
 import { newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
 import { unzipEntry } from "../lib/zip";
-import { getSourceState, insertItem, putSourceState, SCORE_LOG_ONLY } from "../lib/db";
+import { getSourceState, insertItem, putSourceState, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
+import { enqueueForApproval } from "../pipeline/enqueue";
+import { bandSpan, bandWidth, isFreshDateOnly, lagDays, mdyToIso } from "./shared";
 
 // House Clerk PTR discovery (live-verified 2026-07-26; ZIP fixture captured
 // 2026-07-27T04:52Z). The bulk index rebuilds ~once per weekday ~13:00 UTC;
@@ -43,10 +45,21 @@ export interface HouseTxn {
 //   "Home Depot, Inc. (HD) [ST] P 06/17/202606/30/2026$1,001 - $15,000"
 // A start-anchored pattern silently dropped that entire transaction, which is
 // fabrication by omission: the post would be complete and the trade absent.
+// The type token is NOT always a bare letter: partial sales file as
+// "S (partial)". VERIFIED on live filing 20034736 (2026-07-28), where the
+// bare-letter pattern parsed 0 of 1 transactions.
 const TXN_LINE_RE =
-  /(?:^|\s)([A-Z])\s+(\d{2}\/\d{2}\/\d{4})(\d{2}\/\d{2}\/\d{4})(\$[\d,]+\s*-\s*\$[\d,]+)\s*$/;
-/** Asset lines end with "(TICKER) [TYPE]"; both parts are optional in practice. */
+  /(?:^|\s)([A-Z](?:\s*\([A-Za-z]+\))?)\s+(\d{2}\/\d{2}\/\d{4})(\d{2}\/\d{2}\/\d{4})(\$[\d,]+\s*-\s*\$[\d,]+)\s*$/;
+/**
+ * Asset lines end with "(TICKER) [TYPE]". Both parts are genuinely optional:
+ * non-traded assets (funds, notes) carry a bracket type and NO ticker, e.g.
+ * "Opportunity Fund II (GLAS Funds, LP) [HN]" — the parenthesis there is part
+ * of the fund's NAME, not a ticker. Requiring the ticker left "[HN" stranded
+ * in the asset name (live filing 20035075, 2026-07-28).
+ */
 const ASSET_TAIL_RE = /\(([A-Z.\-]{1,8})\)\s*(?:\[([A-Z]{2,3})\])?\s*$/;
+/** Bracket-only tail, for assets with no ticker at all. */
+const ASSET_TYPE_ONLY_RE = /\[([A-Z]{2,3})\]\s*$/;
 const OWNER_RE = /^(SP|DC|JT)\s+/;
 
 /**
@@ -61,7 +74,47 @@ const OWNER_RE = /^(SP|DC|JT)\s+/;
  * not against what the parser managed to read.
  */
 export function countTxnMarkers(raw: string): number {
-  return (raw.replace(/\u0000/g, "").match(/\d{2}\/\d{2}\/\d{4}\d{2}\/\d{2}\/\d{4}\$/g) ?? []).length;
+  // Whitespace-tolerant ON PURPOSE. The strict pattern requires the dates and
+  // the amount to be glued together; if an extraction ever separates them,
+  // a count that shared that assumption would be blind in exactly the same
+  // place as the parser and the equality check would pass on a short read.
+  return (raw.replace(/\u0000/g, "").match(/\d{2}\/\d{2}\/\d{4}\s*\d{2}\/\d{2}\/\d{4}\s*\$/g) ?? []).length;
+}
+
+/**
+ * Rejoin an amount band that the PDF wrapped across two lines.
+ *
+ * VERIFIED on live filing 20034736 (2026-07-28):
+ *   "S (partial) 07/21/202607/22/2026$15,001 -"
+ *   "$50,000"
+ * The transaction pattern requires a complete band at end of line, so the
+ * wrap dropped the whole trade. The marker count still saw it, which is how
+ * this was found rather than shipped.
+ *
+ * Only a DANGLING separator absorbs the next line, and only the leading
+ * amount token moves; anything else on that line is left where it was.
+ */
+function stitchWrappedAmounts(lines: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i] ?? "";
+    const next = lines[i + 1];
+    if (/\$[\d,]+\s*-\s*$/.test(line) && next !== undefined) {
+      const m = /^(\$[\d,]+)(.*)$/.exec(next.trim());
+      if (m) {
+        line = `${line} ${m[1]}`;
+        const rest = (m[2] ?? "").trim();
+        out.push(line);
+        // The remainder keeps its own line so the backward name walk and the
+        // stop-labels below still see the document's real structure.
+        lines[i + 1] = rest;
+        if (rest === "") i += 1;
+        continue;
+      }
+    }
+    out.push(line);
+  }
+  return out;
 }
 
 /**
@@ -78,7 +131,7 @@ export function countTxnMarkers(raw: string): number {
  * the DATA lines are clean. Nulls are stripped before anything else.
  */
 export function parseHousePtrText(raw: string): HouseTxn[] {
-  const lines = raw.replace(/\u0000/g, "").split("\n").map((l) => l.trim());
+  const lines = stitchWrappedAmounts(raw.replace(/\u0000/g, "").split("\n").map((l) => l.trim()));
   const out: HouseTxn[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -97,10 +150,17 @@ export function parseHousePtrText(raw: string): HouseTxn[] {
       // Walk BACKWARD: a wrapped asset name spans one or two lines above.
       // Stop at the previous entry's labels so a multi-transaction filing
       // cannot bleed one asset into the next.
-      for (let j = i - 1; j >= 0 && nameParts.length < 2; j--) {
+      // Cap of 4, not 2: the House asset column wraps to three lines on live
+      // filing 20035075 and a 2-line cap silently dropped the sponsor
+      // ("Riverside Acceleration Capital"), renaming the asset in post copy.
+      // The stop-labels below, not the count, are what actually bound this.
+      for (let j = i - 1; j >= 0 && nameParts.length < 4; j--) {
         const line = lines[j] ?? "";
         if (line === "" || TXN_LINE_RE.test(line)) break;
-        if (/^(F\s*S\s*:|S\s*O\s*:|\$200\?|Gains)/.test(line)) break;
+        // D: (description) and L: (location) are entry FOOTERS. Widening the
+        // walk without them would absorb the previous entry's notes and inject
+        // a number from a different field entirely into an asset name.
+        if (/^(F\s*S\s*:|S\s*O\s*:|D\s*:|L\s*:|\$200\?|Gains)/.test(line)) break;
         nameParts.unshift(line);
       }
     }
@@ -112,16 +172,25 @@ export function parseHousePtrText(raw: string): HouseTxn[] {
     if (ownerMatch) assetName = assetName.slice(ownerMatch[0].length).trim();
 
     const tail = ASSET_TAIL_RE.exec(assetName);
-    const ticker = tail?.[1] ?? null;
-    const assetType = tail?.[2] ?? null;
-    if (tail) assetName = assetName.slice(0, tail.index).trim();
+    let ticker = tail?.[1] ?? null;
+    let assetType = tail?.[2] ?? null;
+    if (tail) {
+      assetName = assetName.slice(0, tail.index).trim();
+    } else {
+      const typeOnly = ASSET_TYPE_ONLY_RE.exec(assetName);
+      if (typeOnly) {
+        assetType = typeOnly[1] ?? null;
+        ticker = null;
+        assetName = assetName.slice(0, typeOnly.index).trim();
+      }
+    }
 
     out.push({
       owner,
       assetName,
       ticker,
       assetType,
-      type: m[1] ?? "",
+      type: (m[1] ?? "").replace(/\s+/g, " ").trim(),
       transactionDate: m[2] ?? "",
       notificationDate: m[3] ?? "",
       amount: (m[4] ?? "").replace(/\s+/g, " ").trim(),
@@ -173,9 +242,7 @@ export function parseHouseIndex(txt: string): HouseIndex {
 
 /** M/D/YYYY (date-only, as the Clerk serves it) -> ISO at UTC midnight. */
 export function houseDateToIso(mdY: string): string {
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(mdY.trim());
-  if (!m) return "";
-  return `${m[3]}-${m[1]!.padStart(2, "0")}-${m[2]!.padStart(2, "0")}T00:00:00.000Z`;
+  return mdyToIso(mdY);
 }
 
 async function ingestRows(env: Env, rows: HousePtrRow[], now: Date): Promise<number> {
@@ -207,6 +274,144 @@ async function ingestRows(env: Env, rows: HousePtrRow[], now: Date): Promise<num
     if (result.outcome === "inserted") inserted += 1;
   }
   return inserted;
+}
+
+/**
+ * Transaction codes as the House form defines them. CLOSED map: an
+ * unrecognised code renders as itself rather than being guessed at, because
+ * calling a sale a purchase is the worst error this file could make.
+ */
+const TXN_TYPE: Readonly<Record<string, string>> = {
+  P: "Purchase",
+  S: "Sale",
+  E: "Exchange",
+};
+
+function txnTypeLabel(code: string): string {
+  // "S (partial)" -> "Sale (partial)". An unrecognised code renders verbatim
+  // rather than being guessed at.
+  const m = /^([A-Za-z]+)\s*(\(.*\))?$/.exec(code.trim());
+  if (!m) return code;
+  const base = TXN_TYPE[m[1]!.toUpperCase()] ?? m[1]!;
+  return m[2] ? `${base} ${m[2]}` : base;
+}
+
+/** Owner codes as filed. Absent prefix = the filer themselves. */
+const OWNER_LABEL: Readonly<Record<string, string>> = {
+  SP: "spouse",
+  DC: "dependent child",
+  JT: "joint",
+};
+
+function tradeClause(t: HouseTxn): string {
+  const what = t.ticker ?? (t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName);
+  const owner = OWNER_LABEL[t.owner] ? ` [${OWNER_LABEL[t.owner]}]` : "";
+  return `${txnTypeLabel(t.type)} ${t.amount}, ${what}${owner} (${t.transactionDate})`;
+}
+
+/** Trade list for the whoWhen skeleton, always carrying its elision marker. */
+export function houseTradeLine(txns: HouseTxn[]): string {
+  const shown = txns.slice(0, 3).map(tradeClause).join("; ");
+  return txns.length > 3 ? `${shown} +${txns.length - 3} more` : shown;
+}
+
+/**
+ * Tier A draft. Mirrors draftSenatePtr deliberately: the two chambers file
+ * the same disclosure under the same statute, and a reader should not be able
+ * to tell which parser produced the line.
+ */
+export function draftHousePtr(member: string, txns: HouseTxn[], filedIso: string, filedDate: string): string {
+  const shown = txns.slice(0, 3).map(tradeClause);
+  const more = txns.length > 3 ? ` +${txns.length - 3} more` : "";
+  const lags = txns.map((t) => lagDays(filedIso, t.transactionDate)).filter((d): d is number => d !== null);
+  const lag = lags.length > 0 ? `, disclosed ${Math.min(...lags)} days after the latest trade` : "";
+  return `House PTR: ${member}. ${shown.join("; ")}${more}. Filed ${filedDate}${lag}`;
+}
+
+/** Outcome of merging courier-extracted PDF text into a logged House item. */
+export type HouseTextOutcome =
+  | { status: "queued" | "logged"; docId: string; parsed: number }
+  | { status: "unknown_doc" | "no_transactions" | "incomplete"; docId: string; parsed: number; expected?: number };
+
+/**
+ * Merge the text of ONE extracted House PTR PDF into its already-logged item.
+ *
+ * The item exists (the ZIP index created it); this fills in the transactions
+ * the index never carried, and promotes it to the approval queue.
+ */
+export async function applyHousePtrText(
+  env: Env,
+  docId: string,
+  text: string,
+  now: Date,
+): Promise<HouseTextOutcome> {
+  const row = await env.DB.prepare(
+    `SELECT id, payload, source_url FROM items WHERE dedup_key = ?1`,
+  )
+    .bind(`${SOURCE}:${docId}`)
+    .first<{ id: number; payload: string; source_url: string }>();
+  // No row means the courier is working from a doc list this Worker never
+  // indexed. Reported, never invented: an item created here would have no
+  // member name, no filing date, and nothing to attribute.
+  if (!row) return { status: "unknown_doc", docId, parsed: 0 };
+
+  const payload = JSON.parse(row.payload) as Record<string, unknown>;
+  const txns = parseHousePtrText(text);
+  if (txns.length === 0) return { status: "no_transactions", docId, parsed: 0 };
+
+  // COMPLETENESS GATE. The loose marker count is the only signal independent
+  // of the strict parser, and a partial trade list is worse than none: the
+  // post reads as the member's full activity while a trade is simply gone.
+  const expected = countTxnMarkers(text);
+  if (expected !== txns.length) {
+    log("error", "house_ptr incomplete extraction; refusing to queue", {
+      docId,
+      parsed: txns.length,
+      expected,
+    });
+    return { status: "incomplete", docId, parsed: txns.length, expected };
+  }
+
+  const filedDate = typeof payload.filedDate === "string" ? payload.filedDate : "";
+  const filedIso = houseDateToIso(filedDate);
+  const member = typeof payload.member === "string" ? payload.member : "";
+  if (!member || !filedIso) return { status: "no_transactions", docId, parsed: txns.length };
+
+  const dated = txns.filter((t) => lagDays(filedIso, t.transactionDate) !== null);
+  const newest = dated
+    .slice()
+    .sort((a, b) => (lagDays(filedIso, a.transactionDate)! < lagDays(filedIso, b.transactionDate)! ? -1 : 1))[0];
+  const minLag = newest ? lagDays(filedIso, newest.transactionDate) : null;
+  const fresh = isFreshDateOnly(filedIso, now);
+
+  const merged = {
+    ...payload,
+    transactions: txns,
+    // Selects the House citation from the archetype's closed map. Without it
+    // the renderer fails closed rather than citing the Senate.
+    chamber: "house",
+    factLine: draftHousePtr(member, txns, filedIso, filedDate),
+    who: member,
+    // See tradeLineOf in senatePtr: the marker is load-bearing, not cosmetic.
+    tradeLine: houseTradeLine(txns),
+    tradeDate: newest?.transactionDate ?? null,
+    amountBand: newest?.amount ?? null,
+    singleTxn: txns.length === 1,
+    lagDays: minLag,
+    bandSpanRatio: bandSpan(newest?.amount ?? ""),
+    bandWidthUsd: bandWidth(newest?.amount ?? ""),
+  };
+
+  // A filing whose PDF arrives days after the index row still belongs in the
+  // lake; it just does not interrupt anyone.
+  const status = fresh ? "new" : "logged";
+  await env.DB.prepare(`UPDATE items SET payload = ?1, score = ?2, status = ?3 WHERE id = ?4`)
+    .bind(JSON.stringify(merged), SCORE_POSTABLE, status, row.id)
+    .run();
+  if (!fresh) {
+    log("info", "house_ptr stale-at-ingest suppressed", { docId, filedDate });
+  }
+  return { status: status === "new" ? "queued" : "logged", docId, parsed: txns.length };
 }
 
 export async function pollHousePtr(env: Env, now: Date, budget: TickBudget = newTickBudget()): Promise<void> {
@@ -296,6 +501,25 @@ export async function pollHousePtr(env: Env, now: Date, budget: TickBudget = new
   } else {
     state.consecutiveFailures += failures || 1;
   }
+  // DRAIN. The relay's drain enqueues at most 3 per request, and unlike every
+  // other congressional source house_ptr had no second drain: pollHousePtr
+  // never looked at status='new', so surplus postable filings sat unqueued
+  // AND invisible to the pending endpoint (their transactions are non-null).
+  // Deliberately outside the per-year loop and NOT gated on a successful ZIP
+  // fetch, so a 304 or a failed fetch still drains yesterday's backlog.
+  const pending = await env.DB.prepare(
+    `SELECT id, source_url, payload FROM items
+      WHERE source = ?1 AND status = 'new' AND score >= ?2 ORDER BY id LIMIT 5`,
+  )
+    .bind(SOURCE, SCORE_POSTABLE)
+    .all<{ id: number; source_url: string; payload: string }>();
+  for (const item of pending.results) {
+    if (!budget.take(1)) break;
+    const parsed = JSON.parse(item.payload) as Record<string, unknown>;
+    const res = await enqueueForApproval(env, item.id, "CONGRESS_PTR", parsed, item.source_url, now);
+    if (res.retryAfter !== null) break;
+  }
+
   await putSourceState(env.DB, state);
   if (insertedTotal > 0) log("info", "house_ptr poll", { inserted: insertedTotal });
 }
