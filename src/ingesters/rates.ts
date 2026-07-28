@@ -82,7 +82,67 @@ export function brDateToIso(v: string): string | null {
 // ---------------------------------------------------------------------------
 // Sources. Each parser returns observations in ANY order; the caller sorts.
 
+/**
+ * RBA's F1 table identifies its columns by Series ID on a dedicated row.
+ * FIRMMCRTD is the Cash Rate Target. Read the index from that row rather than
+ * hardcoding it: the file carries 17 columns and their order is the RBA's to
+ * change, but the Series ID is a published identifier.
+ */
+export const RBA_CASH_RATE_SERIES = "FIRMMCRTD";
+
+const RBA_MONTHS: Readonly<Record<string, string>> = {
+  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+};
+
+/** RBA serves DD-Mon-YYYY ("27-Jul-2026"). */
+export function rbaDateToIso(v: string): string | null {
+  const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec(v.trim());
+  if (!m) return null;
+  const mm = RBA_MONTHS[m[2]!.toLowerCase()];
+  if (!mm) return null;
+  return `${m[3]}-${mm}-${m[1]!.padStart(2, "0")}`;
+}
+
+/**
+ * Parse the RBA F1 CSV into cash-rate observations.
+ *
+ * VERIFIED 2026-07-28: the file is 304KB of daily rows back to 2011, and the
+ * NEWEST row carries an EMPTY cash-rate cell (the table is published before
+ * the day's value is set). An empty cell must produce NO observation — never
+ * a zero, which would read as a rate cut to 0%.
+ */
+export function parseRbaF1(body: string): RateObservation[] {
+  const lines = stripBom(body).split(/\r?\n/);
+  const header = lines.find((l) => l.startsWith("Series ID,"));
+  if (!header) return [];
+  const idx = header.split(",").indexOf(RBA_CASH_RATE_SERIES);
+  if (idx < 1) return [];
+
+  const out: RateObservation[] = [];
+  for (const line of lines) {
+    // Data rows start with the date; every metadata row starts with a label.
+    if (!/^\d{1,2}-[A-Za-z]{3}-\d{4},/.test(line)) continue;
+    const cells = line.split(",");
+    const date = rbaDateToIso(cells[0] ?? "");
+    const value = num(cells[idx]);
+    if (date && value !== null) out.push({ date, value });
+  }
+  return out;
+}
+
 export const RATE_SOURCES: readonly RateSource[] = [
+  {
+    id: "rate_rba",
+    country: "Australia",
+    label: "Cash Rate Target",
+    attribution: "per the Reserve Bank of Australia",
+    // The F1 statistical table, which is the RBA's own machine-readable
+    // publication of the series. 304KB and served with Last-Modified.
+    url: "https://www.rba.gov.au/statistics/tables/csv/f1-data.csv",
+    sourceUrl: "https://www.rba.gov.au/statistics/cash-rate/",
+    parse: parseRbaF1,
+  },
   {
     id: "rate_boc",
     country: "Canada",
