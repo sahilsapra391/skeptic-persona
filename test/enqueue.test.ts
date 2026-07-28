@@ -165,7 +165,8 @@ describe("the payload in D1 is the payload that was rendered", () => {
       },
       new Date(),
     );
-    const itemId = seeded.id;
+    expect(seeded.outcome).toBe("inserted");
+    const itemId = seeded.id!;
 
     const enriched = {
       company: "ACME CORP",
