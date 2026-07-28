@@ -19,6 +19,7 @@ import { pollNoaaStorms } from "./ingesters/noaaStorms";
 import { pollNasdaqHalts, pollNyseHalts } from "./ingesters/halts";
 import { pollHousePtr } from "./ingesters/housePtr";
 import { pollSenatePtr } from "./ingesters/senatePtr";
+import { runGeneration } from "./rag/generate";
 import { newTickBudget, type TickBudget } from "./lib/budget";
 import { expirePendingBefore } from "./lib/db";
 import { editMessageText } from "./lib/telegram";
@@ -108,6 +109,7 @@ export function registerJobs(): void {
   registry["halts_nyse"] = pollNyseHalts;
   registry["bls_calendar"] = syncBlsCalendar;
   registry["bls_watch"] = watchBls;
+  registry["generation"] = runGeneration;
   // 'poster' and 'threads_token_refresh' are UNREGISTERED as of 2026-07-28:
   // the Threads account is banned and both job rows are disabled in migration
   // 0026. Their handlers still exist (src/poster.ts, THREADS_PARKED) for the
