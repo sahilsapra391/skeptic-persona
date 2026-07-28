@@ -223,7 +223,8 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{dateOfEvent\}/g, "{date}")
         .replace(/\{topPercent\}/g, "{n}")
         .replace(/\{publishedIso\}/g, "{date}")
-        .replace(/\{listSize\}/g, "{n}");
+        .replace(/\{listSize\}/g, "{n}")
+        .replace(/\{ruleProvision\}/g, "{rule}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -264,6 +265,7 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       FED_PRESS: ["title", "category"],
       HALT: ["reasonCode", "symbol", "name", "reasonText", "haltTimeEtShort", "haltCountToday"],
       RATE_DECISION: ["changeBps", "priorValue", "priorDate", "observedDate", "factLine", "country", "label", "value", "direction"],
+      DELISTING: ["exchangeInitiated", "ruleProvision", "factLine", "issuerName", "exchange", "securityClass"],
       SETTLEMENT_FAILURE: ["listDate", "symbol", "listSize", "factLine", "name"],
       REGULATORY_NEWS: ["authority", "publishedIso", "factLine", "title"],
       OWNERSHIP_STAKE: ["isSchedule13D", "dateOfEvent", "topPercent", "isAmendment", "factLine", "topPersonName", "issuerName"],
@@ -422,6 +424,14 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       yoyPct: 3.5,
     },
     FED_PRESS: { title: "Agencies issue joint statement", category: "Banking and Consumer Regulatory Policy" },
+    DELISTING: {
+      factLine: "Nasdaq Stock Market LLC filed to remove Churchill Capital Corp IX/Cayman from listing, filed 2026-07-27",
+      exchange: "Nasdaq Stock Market LLC",
+      issuerName: "Churchill Capital Corp IX/Cayman",
+      securityClass: "Class A Ordinary, Warrant, Unit",
+      ruleProvision: "17 CFR 240.12d2-2(a)(1)",
+      exchangeInitiated: true,
+    },
     SETTLEMENT_FAILURE: {
       factLine: "ADVB (ADVANCED BIOMED INC COM NEW) joined the Nasdaq Reg SHO threshold list, 2026-07-27",
       symbol: "ADVB",

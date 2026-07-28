@@ -261,6 +261,16 @@ observation every symbol looks new, so the first run posts nothing — claiming
 thirty securities "joined" when we simply have no prior list would be
 fabrication by omission of context.
 
+### DELISTING (Form 25 / 25-NSE)
+- `This is the delisting, not the notice.` [exchange-initiated]
+- `Filed under {rule}.` [CFR cite parsed]
+- `The exchange filed it, not the company.` [exchange-initiated]
+
+Pairs with the 8-K Item 3.01 beat "Delisting notice, not a delisting": 3.01
+is the warning, Form 25 is the exchange actually striking the security. Only
+exchange-initiated removals (17 CFR 240.12d2-2(a)) reach the queue; a
+voluntary withdrawal by the issuer is routine housekeeping.
+
 ### HALT
 - `Pending is the whole disclosure.` [T1]
 - `The band did what the band does.` [LUDP/LUDS]
