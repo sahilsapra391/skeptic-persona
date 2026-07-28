@@ -46,14 +46,33 @@ export function fmtNum(n: number): string {
  * editorial point of a PTR post — two implementations would eventually
  * disagree about how late a trade was reported.
  */
+/**
+ * MM/DD/YYYY (date-only, as both chambers serve it) -> ISO at UTC midnight.
+ *
+ * Digits are NOT zero-padded by either source: the House bulk index serves
+ * "2/11/2026" and "7/8/2026" today. This is the ONE date parser for
+ * congressional filings; efdDateToIso and houseDateToIso delegate here.
+ * A stricter copy of this regex silently returned null and dropped the whole
+ * disclosure-lag clause, which is a parsed fact going unstated.
+ */
+export function mdyToIso(mdY: string): string {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(mdY.trim());
+  if (!m) return "";
+  return `${m[3]}-${m[1]!.padStart(2, "0")}-${m[2]!.padStart(2, "0")}T00:00:00.000Z`;
+}
+
 export function lagDays(filedIso: string, txnDate: string): number | null {
-  if (!filedIso) return null;
-  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(txnDate.trim());
-  if (!m) return null;
-  const txnIso = `${m[3]}-${m[1]}-${m[2]}`;
+  const txnIso = mdyToIso(txnDate);
+  if (!filedIso || !txnIso) return null;
   const diff = new Date(filedIso).getTime() - new Date(txnIso).getTime();
   if (!Number.isFinite(diff)) return null;
-  return Math.round(diff / 86_400_000);
+  const days = Math.round(diff / 86_400_000);
+  // A disclosure cannot precede its own trade. A future-dated transaction
+  // (typo, pre-report) must not print "disclosed -4 days after the latest
+  // trade", and must not win the "newest" slot that drives tradeDate,
+  // amountBand and the band-width beats. This clamp was lost when the
+  // function moved here from senatePtr; form4.ts still enforces it.
+  return days >= 0 ? days : null;
 }
 
 /**

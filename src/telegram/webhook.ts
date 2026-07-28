@@ -237,7 +237,20 @@ async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promis
     const target = await getQueueEntryByEditPrompt(env.DB, msg.reply_to_message.message_id);
     if (target) {
       const entry = await getQueueEntry(env.DB, target.id);
-      const issues = checkRegister(msg.text, entry?.archetype as never);
+      // The item's payload decides which citation is correct here. Without it
+      // an edited House draft could be re-attributed to the Senate and pass.
+      const itemRow = entry
+        ? await env.DB.prepare(`SELECT payload FROM items WHERE id = ?1`)
+            .bind(entry.itemId)
+            .first<{ payload: string }>()
+        : null;
+      let editPayload: Record<string, unknown> | undefined;
+      try {
+        editPayload = itemRow ? (JSON.parse(itemRow.payload) as Record<string, unknown>) : undefined;
+      } catch {
+        editPayload = undefined;
+      }
+      const issues = checkRegister(msg.text, entry?.archetype as never, editPayload);
       if (issues.length > 0) {
         await sendMessage(
           token,

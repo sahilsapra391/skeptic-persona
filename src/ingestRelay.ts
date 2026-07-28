@@ -40,7 +40,12 @@ export const RELAY_SOURCES = new Set<string>([TREASURY_SOURCE, "press_cftc_enfor
 export const PENDING_PATH = "/ingest/pending/house_ptr";
 
 /** Bounded so one run cannot spend an hour of Actions time on a backlog. */
-const PENDING_LIMIT = 20;
+// 285 e-filed documents were waiting when this shipped, mostly historical.
+// They land as 'logged' (stale-at-ingest) and enrich the lake the lookback
+// engine reads, so clearing the backlog has real value. 50 sequential
+// downloads at 1 req/s is ~1 minute against a 15-minute job budget, and
+// keeps the same polite spacing.
+const PENDING_LIMIT = 50;
 
 /**
  * Give up after this many extraction attempts on one document. Without a

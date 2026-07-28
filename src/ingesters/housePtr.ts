@@ -5,7 +5,8 @@ import { unzipEntry } from "../lib/zip";
 import { getSourceState, insertItem, putSourceState, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
-import { bandSpan, bandWidth, isFreshDateOnly, lagDays } from "./shared";
+import { enqueueForApproval } from "../pipeline/enqueue";
+import { bandSpan, bandWidth, isFreshDateOnly, lagDays, mdyToIso } from "./shared";
 
 // House Clerk PTR discovery (live-verified 2026-07-26; ZIP fixture captured
 // 2026-07-27T04:52Z). The bulk index rebuilds ~once per weekday ~13:00 UTC;
@@ -73,7 +74,11 @@ const OWNER_RE = /^(SP|DC|JT)\s+/;
  * not against what the parser managed to read.
  */
 export function countTxnMarkers(raw: string): number {
-  return (raw.replace(/\u0000/g, "").match(/\d{2}\/\d{2}\/\d{4}\d{2}\/\d{2}\/\d{4}\$/g) ?? []).length;
+  // Whitespace-tolerant ON PURPOSE. The strict pattern requires the dates and
+  // the amount to be glued together; if an extraction ever separates them,
+  // a count that shared that assumption would be blind in exactly the same
+  // place as the parser and the equality check would pass on a short read.
+  return (raw.replace(/\u0000/g, "").match(/\d{2}\/\d{2}\/\d{4}\s*\d{2}\/\d{2}\/\d{4}\s*\$/g) ?? []).length;
 }
 
 /**
@@ -145,10 +150,17 @@ export function parseHousePtrText(raw: string): HouseTxn[] {
       // Walk BACKWARD: a wrapped asset name spans one or two lines above.
       // Stop at the previous entry's labels so a multi-transaction filing
       // cannot bleed one asset into the next.
-      for (let j = i - 1; j >= 0 && nameParts.length < 2; j--) {
+      // Cap of 4, not 2: the House asset column wraps to three lines on live
+      // filing 20035075 and a 2-line cap silently dropped the sponsor
+      // ("Riverside Acceleration Capital"), renaming the asset in post copy.
+      // The stop-labels below, not the count, are what actually bound this.
+      for (let j = i - 1; j >= 0 && nameParts.length < 4; j--) {
         const line = lines[j] ?? "";
         if (line === "" || TXN_LINE_RE.test(line)) break;
-        if (/^(F\s*S\s*:|S\s*O\s*:|\$200\?|Gains)/.test(line)) break;
+        // D: (description) and L: (location) are entry FOOTERS. Widening the
+        // walk without them would absorb the previous entry's notes and inject
+        // a number from a different field entirely into an asset name.
+        if (/^(F\s*S\s*:|S\s*O\s*:|D\s*:|L\s*:|\$200\?|Gains)/.test(line)) break;
         nameParts.unshift(line);
       }
     }
@@ -230,9 +242,7 @@ export function parseHouseIndex(txt: string): HouseIndex {
 
 /** M/D/YYYY (date-only, as the Clerk serves it) -> ISO at UTC midnight. */
 export function houseDateToIso(mdY: string): string {
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(mdY.trim());
-  if (!m) return "";
-  return `${m[3]}-${m[1]!.padStart(2, "0")}-${m[2]!.padStart(2, "0")}T00:00:00.000Z`;
+  return mdyToIso(mdY);
 }
 
 async function ingestRows(env: Env, rows: HousePtrRow[], now: Date): Promise<number> {
@@ -297,6 +307,12 @@ function tradeClause(t: HouseTxn): string {
   const what = t.ticker ?? (t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName);
   const owner = OWNER_LABEL[t.owner] ? ` [${OWNER_LABEL[t.owner]}]` : "";
   return `${txnTypeLabel(t.type)} ${t.amount}, ${what}${owner} (${t.transactionDate})`;
+}
+
+/** Trade list for the whoWhen skeleton, always carrying its elision marker. */
+export function houseTradeLine(txns: HouseTxn[]): string {
+  const shown = txns.slice(0, 3).map(tradeClause).join("; ");
+  return txns.length > 3 ? `${shown} +${txns.length - 3} more` : shown;
 }
 
 /**
@@ -376,7 +392,8 @@ export async function applyHousePtrText(
     chamber: "house",
     factLine: draftHousePtr(member, txns, filedIso, filedDate),
     who: member,
-    tradeLine: txns.slice(0, 3).map(tradeClause).join("; "),
+    // See tradeLineOf in senatePtr: the marker is load-bearing, not cosmetic.
+    tradeLine: houseTradeLine(txns),
     tradeDate: newest?.transactionDate ?? null,
     amountBand: newest?.amount ?? null,
     singleTxn: txns.length === 1,
@@ -484,6 +501,25 @@ export async function pollHousePtr(env: Env, now: Date, budget: TickBudget = new
   } else {
     state.consecutiveFailures += failures || 1;
   }
+  // DRAIN. The relay's drain enqueues at most 3 per request, and unlike every
+  // other congressional source house_ptr had no second drain: pollHousePtr
+  // never looked at status='new', so surplus postable filings sat unqueued
+  // AND invisible to the pending endpoint (their transactions are non-null).
+  // Deliberately outside the per-year loop and NOT gated on a successful ZIP
+  // fetch, so a 304 or a failed fetch still drains yesterday's backlog.
+  const pending = await env.DB.prepare(
+    `SELECT id, source_url, payload FROM items
+      WHERE source = ?1 AND status = 'new' AND score >= ?2 ORDER BY id LIMIT 5`,
+  )
+    .bind(SOURCE, SCORE_POSTABLE)
+    .all<{ id: number; source_url: string; payload: string }>();
+  for (const item of pending.results) {
+    if (!budget.take(1)) break;
+    const parsed = JSON.parse(item.payload) as Record<string, unknown>;
+    const res = await enqueueForApproval(env, item.id, "CONGRESS_PTR", parsed, item.source_url, now);
+    if (res.retryAfter !== null) break;
+  }
+
   await putSourceState(env.DB, state);
   if (insertedTotal > 0) log("info", "house_ptr poll", { inserted: insertedTotal });
 }

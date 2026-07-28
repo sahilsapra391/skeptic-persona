@@ -10,8 +10,13 @@ wrong number in a post about a member of Congress's trades.
 
 Live-verified 2026-07-28: e-filed House PTR PDFs are RC4-encrypted with an
 EMPTY owner password and carry a real text layer. Scanned filings (older
-7-digit DocIDs) decrypt fine and yield nothing, which is why empty output is
-reported rather than treated as an error.
+7-digit DocIDs) decrypt fine and yield nothing.
+
+EVERY OFFERED DOCUMENT IS REPORTED, including ones that failed to download or
+failed to open, as an empty-text entry. That is what terminates the retry
+loop: the Worker counts an attempt per document it hears about, and stops
+offering a document after three. A document dropped silently here is one the
+Worker re-offers every single day forever.
 """
 
 from __future__ import annotations
@@ -27,38 +32,46 @@ def extract(path: Path) -> str:
     reader = PdfReader(str(path))
     if reader.is_encrypted:
         # Empty owner password. If a future filing carries a real one, decrypt
-        # fails and the document is skipped rather than silently half-read.
+        # fails and the document is reported empty rather than half-read.
         if reader.decrypt("") == 0:
             raise ValueError("encrypted with a non-empty password")
     return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
-def main(pdf_dir: str, out_path: str) -> int:
+def main(pending_path: str, pdf_dir: str, out_path: str) -> int:
+    offered = [d["docId"] for d in json.loads(Path(pending_path).read_text())["docs"]]
+
     docs = []
-    skipped = []
-    for pdf in sorted(Path(pdf_dir).glob("*.pdf")):
-        doc_id = pdf.stem
+    problems = []
+    for doc_id in offered:
+        pdf = Path(pdf_dir) / f"{doc_id}.pdf"
+        if not pdf.exists():
+            # Download failed outright (connection error, or a non-2xx that
+            # curl -f refused to write). Still reported, so it counts.
+            problems.append((doc_id, "not downloaded"))
+            docs.append({"docId": doc_id, "text": ""})
+            continue
         try:
             text = extract(pdf)
         except Exception as exc:  # noqa: BLE001 - one bad PDF must not sink the run
-            skipped.append((doc_id, str(exc)))
+            problems.append((doc_id, str(exc)))
             print(f"::warning::{doc_id}: {exc}", file=sys.stderr)
+            docs.append({"docId": doc_id, "text": ""})
             continue
         if not text.strip():
-            # A scan. Sent anyway: the Worker counts the attempt and stops
-            # offering the document, which is how the retry loop terminates.
-            skipped.append((doc_id, "no text layer"))
+            problems.append((doc_id, "no text layer (scan)"))
         docs.append({"docId": doc_id, "text": text})
 
     Path(out_path).write_text(json.dumps({"docs": docs}), encoding="utf-8")
-    print(f"extracted {len(docs)} document(s), {len(skipped)} without usable text")
-    for doc_id, why in skipped:
+    usable = sum(1 for d in docs if d["text"].strip())
+    print(f"offered {len(offered)}, reported {len(docs)}, {usable} with usable text")
+    for doc_id, why in problems:
         print(f"  {doc_id}: {why}")
     return 0
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("usage: extract_house_pdfs.py <pdf_dir> <out.json>", file=sys.stderr)
+    if len(sys.argv) != 4:
+        print("usage: extract_house_pdfs.py <pending.json> <pdf_dir> <out.json>", file=sys.stderr)
         raise SystemExit(2)
-    raise SystemExit(main(sys.argv[1], sys.argv[2]))
+    raise SystemExit(main(sys.argv[1], sys.argv[2], sys.argv[3]))
