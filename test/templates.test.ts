@@ -224,7 +224,8 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{topPercent\}/g, "{n}")
         .replace(/\{publishedIso\}/g, "{date}")
         .replace(/\{listSize\}/g, "{n}")
-        .replace(/\{ruleProvision\}/g, "{rule}");
+        .replace(/\{ruleProvision\}/g, "{rule}")
+        .replace(/\{intensityKt\}/g, "{n}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -265,6 +266,7 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       FED_PRESS: ["title", "category"],
       HALT: ["reasonCode", "symbol", "name", "reasonText", "haltTimeEtShort", "haltCountToday"],
       RATE_DECISION: ["changeBps", "priorValue", "priorDate", "observedDate", "factLine", "country", "label", "value", "direction"],
+      STORM: ["intensityKt", "classification", "factLine", "name", "pressureMb", "basin"],
       DELISTING: ["exchangeInitiated", "ruleProvision", "factLine", "issuerName", "exchange", "securityClass"],
       SETTLEMENT_FAILURE: ["listDate", "symbol", "listSize", "factLine", "name"],
       REGULATORY_NEWS: ["authority", "publishedIso", "factLine", "title"],
@@ -424,6 +426,14 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       yoyPct: 3.5,
     },
     FED_PRESS: { title: "Agencies issue joint statement", category: "Banking and Consumer Regulatory Policy" },
+    STORM: {
+      factLine: "Atlantic hurricane Genevieve: 125 kt sustained, 939 mb, per the National Hurricane Center",
+      name: "Genevieve",
+      classification: "HU",
+      intensityKt: 125,
+      pressureMb: 939,
+      basin: "al",
+    },
     DELISTING: {
       factLine: "Nasdaq Stock Market LLC filed to remove Churchill Capital Corp IX/Cayman from listing, filed 2026-07-27",
       exchange: "Nasdaq Stock Market LLC",
