@@ -569,7 +569,9 @@ export async function validateVariant(db: D1Database, text: string, opts: Valida
     ...urlCheck(text),
     ...motiveCheck(text),
     ...structuralCheck(text),
-    ...checkRegister(text, opts.archetype),
+    // Payload arg (PR #53): resolves the single correct attribution for
+    // chamber-mapped archetypes — the wrong-chamber check comes free.
+    ...checkRegister(text, opts.archetype, opts.payload),
     ...lengthCheck(text, opts.variant),
     // Group 2 — the contract.
     ...hedgeCheck(text),
