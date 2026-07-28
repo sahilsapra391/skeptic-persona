@@ -141,3 +141,49 @@ describe("queue_expiry job", () => {
     delete registry["queue_expiry"];
   });
 });
+
+describe("the payload in D1 is the payload that was rendered", () => {
+  it("writes enrichment back so a re-render reproduces the same text", async () => {
+    // THE SEAM: edgar8k adds lookback fields (priorSameItemThisYear,
+    // sameItemOccurrence, lookbackCoverageDays) to the IN-MEMORY payload on
+    // the way to enqueue. They were never persisted, so items.payload did not
+    // match what produced the draft: a re-render from D1 saw no lookback
+    // fields, could pick a different beat, and would differ from what the
+    // owner approved. It also made every lookback-gated beat invisible to
+    // anything reading the payload afterwards.
+    const seeded = await insertItem(
+      env.DB,
+      {
+        source: "edgar_8k",
+        externalId: "writeback-1",
+        category: "filing",
+        eventAt: null,
+        sourceUrl: "https://example.test/8k",
+        payload: { company: "ACME CORP", formType: "8-K", itemCodes: ["4.02"] },
+        score: SCORE_POSTABLE,
+        status: "new",
+      },
+      new Date(),
+    );
+    const itemId = seeded.id;
+
+    const enriched = {
+      company: "ACME CORP",
+      formType: "8-K",
+      items: [{ code: "4.02", title: "Non-Reliance on Previously Issued Financial Statements" }],
+      itemCodes: ["4.02"],
+      priorSameItemThisYear: 1,
+      sameItemOccurrence: 2,
+      lookbackCoverageDays: 120,
+    };
+    await enqueueForApproval(env as never, itemId, "FILING_8K", enriched, "https://example.test/8k", new Date());
+
+    const row = await env.DB.prepare(`SELECT payload FROM items WHERE id = ?1`)
+      .bind(itemId)
+      .first<{ payload: string }>();
+    const stored = JSON.parse(row!.payload) as Record<string, unknown>;
+    expect(stored.sameItemOccurrence).toBe(2);
+    expect(stored.priorSameItemThisYear).toBe(1);
+    expect(stored.lookbackCoverageDays).toBe(120);
+  });
+});
