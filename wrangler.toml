@@ -37,4 +37,4 @@ TELEGRAM_CHAT_ID = "6504147349"
 # [vars] on every merge deploy — a dashboard-set value would be wiped. Empty =
 # generation holds and the queue accumulates; the owner sets the real id in a
 # PR alongside `wrangler secret put OPENROUTER_API_KEY`.
-OPENROUTER_MODEL = ""
+OPENROUTER_MODEL = "qwen/qwen3.7-flash"
