@@ -6,6 +6,7 @@ import BCB from "./fixtures/rate-bcb.json?raw";
 import SARB from "./fixtures/rate-sarb.json?raw";
 import BOE from "./fixtures/rate-boe.csv.fixture?raw";
 import ECB from "./fixtures/rate-ecb.csv.fixture?raw";
+import SNB from "./fixtures/rate-snb.xml.fixture?raw";
 import {
   boeDate,
   boeDateToIso,
@@ -68,6 +69,19 @@ describe("parsers (live fixtures)", () => {
     expect(ECB.split("\n")[0]!.split(",").length).toBeGreaterThan(20);
   });
 
+  it("SNB: picks the POLICY rate by code, not the special liquidity rate", () => {
+    // The feed's cb:rateName values are codes (SNBLZ, LSFF, R10, SARH...),
+    // not prose. Filtering on a human label matched nothing and the source
+    // failed in production. SNBLZ is the Leitzins; LSFF sits right next to
+    // it at a different level and is a different instrument.
+    const obs = byId("rate_snb").parse(SNB);
+    expect(obs.length).toBeGreaterThan(0);
+    expect(SNB).toContain("LSFF"); // the decoy is present in the fixture
+    // Every observation must come from the policy-rate item only.
+    const policyValues = new Set(obs.map((o) => o.value));
+    expect(policyValues.has(0.25)).toBe(false); // that is LSFF's level
+  });
+
   it("every source parses its own fixture to at least one observation", () => {
     for (const [id, body] of [
       ["rate_boc", BOC],
@@ -76,6 +90,7 @@ describe("parsers (live fixtures)", () => {
       ["rate_sarb", SARB],
       ["rate_boe", BOE],
       ["rate_ecb", ECB],
+      ["rate_snb", SNB],
     ] as const) {
       expect(byId(id).parse(body).length, id).toBeGreaterThan(0);
     }
