@@ -24,6 +24,8 @@ import { urlFor } from "../src/ingesters/rates";
 import { getSourceState } from "../src/lib/db";
 import { ARCHETYPES } from "../src/templates/archetypes";
 import { pickBeat, renderPost } from "../src/templates/render";
+import { RATE_ATTRIBUTION } from "../src/ingesters/rateAttribution";
+import { checkRegister } from "../src/templates/validate";
 
 // Live fixtures captured 2026-07-27T22:30Z. These ARE the parse contract.
 const NOW = new Date("2026-07-27T23:00:00Z");
@@ -218,8 +220,55 @@ describe("draftRate + RATE_DECISION archetype", () => {
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.text).toContain("per the central bank");
+    // Cited by name from the closed map on payload.country.
+    expect(r.text).toContain("per Bank of Canada");
+    expect(r.text).not.toContain("per the central bank");
     expect(r.text).not.toContain("—");
+  });
+
+  it("refuses to render rather than attribute a rate to the wrong bank", () => {
+    // Absent, unknown, or non-string country all fail closed. A rate move
+    // credited to the wrong institution is a sourcing error, not a typo.
+    const base = {
+      factLine: "Somewhere: Policy rate lowered to 2.25% from 2.5%, effective 2026-07-26",
+      priorValue: 2.5,
+      observedDate: "2026-07-26",
+      changeBps: 25,
+      direction: "lowered",
+    };
+    expect(renderPost(ARCHETYPES.RATE_DECISION, base, { seed: "r" }).ok).toBe(false);
+    expect(renderPost(ARCHETYPES.RATE_DECISION, { ...base, country: "Canadaa" }, { seed: "r" }).ok).toBe(false);
+    expect(renderPost(ARCHETYPES.RATE_DECISION, { ...base, country: 7 }, { seed: "r" }).ok).toBe(false);
+    // A payload cannot SUPPLY a citation, only choose one of ours.
+    expect(renderPost(ARCHETYPES.RATE_DECISION, { ...base, country: "per Reuters" }, { seed: "r" }).ok).toBe(false);
+  });
+
+  it("catches a rate post citing the wrong central bank", () => {
+    // The edit path is the one text that bypasses the renderer. With the
+    // payload in hand the validator resolves the ONE correct issuer instead
+    // of accepting any bank in the map.
+    const canada = { country: "Canada" };
+    const wrong = "Canada: Target for the overnight rate lowered to 2.25% from 2.5%, per Bank of England";
+    expect(checkRegister(wrong, "RATE_DECISION", canada).map((i) => i.rule)).toContain("attribution");
+
+    const right = wrong.replace("per Bank of England", "per Bank of Canada");
+    expect(checkRegister(right, "RATE_DECISION", canada).map((i) => i.rule)).not.toContain("attribution");
+
+    // Without the payload it can only check against the closed set, which is
+    // still stronger than accepting anything.
+    expect(checkRegister(wrong, "RATE_DECISION").map((i) => i.rule)).not.toContain("attribution");
+    expect(checkRegister("Canada cut rates today", "RATE_DECISION").map((i) => i.rule)).toContain("attribution");
+  });
+
+  it("every rate source can actually be attributed", () => {
+    // THE INVARIANT. A source whose country is missing from the map would
+    // ingest happily and then fail to render forever, silently.
+    for (const src of RATE_SOURCES) {
+      expect(RATE_ATTRIBUTION[src.country], src.id).toBeTruthy();
+      // One authored copy: the ingester and the archetype cannot disagree.
+      expect(src.attribution, src.id).toBe(RATE_ATTRIBUTION[src.country]);
+      expect(src.attribution, src.id).toMatch(/^per /);
+    }
   });
 
   it("the jumbo beat needs a genuinely large move", () => {
