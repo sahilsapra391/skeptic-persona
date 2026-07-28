@@ -1,6 +1,8 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { getSourceState, insertItem, putSourceState, SCORE_POSTABLE } from "../src/lib/db";
+import { getSourceState, insertItem, putSourceState, SCORE_POSTABLE,
+  recordSourceError,
+} from "../src/lib/db";
 
 const item = (externalId: string) => ({
   source: "edgar_8k",
@@ -74,5 +76,46 @@ describe("source_state", () => {
     back.consecutiveFailures = 3;
     await putSourceState(env.DB, back);
     expect((await getSourceState(env.DB, "house_ptr")).consecutiveFailures).toBe(3);
+  });
+});
+
+describe("recordSourceError", () => {
+  it("persists the failure text so triage is a query, not a timed tail", async () => {
+    // Chasing the Treasury 525 took four timed `wrangler tail` attempts,
+    // three of which captured nothing: a 30-minute cadence gives a ~2-second
+    // window. The error text was the one field not stored.
+    await putSourceState(env.DB, {
+      source: "err_src",
+      etag: null,
+      lastModified: null,
+      cursor: null,
+      lastPolledAt: null,
+      lastOkAt: null,
+      consecutiveFailures: 1,
+    });
+    await recordSourceError(env.DB, "err_src", new Error("treasury 525 body=error code: 525"), new Date("2026-07-28T03:00:00Z"));
+
+    const state = await getSourceState(env.DB, "err_src");
+    expect(state.lastError).toContain("525");
+    expect(state.lastErrorAt).toBe("2026-07-28T03:00:00.000Z");
+  });
+
+  it("truncates a long body so an HTML error page cannot fill the row", async () => {
+    await putSourceState(env.DB, {
+      source: "err_big",
+      etag: null,
+      lastModified: null,
+      cursor: null,
+      lastPolledAt: null,
+      lastOkAt: null,
+      consecutiveFailures: 1,
+    });
+    await recordSourceError(env.DB, "err_big", "x".repeat(5000));
+    const state = await getSourceState(env.DB, "err_big");
+    expect((state.lastError ?? "").length).toBeLessThanOrEqual(500);
+  });
+
+  it("is a no-op for a source with no state row, never a crash", async () => {
+    await expect(recordSourceError(env.DB, "never_seen", new Error("boom"))).resolves.toBeUndefined();
   });
 });
