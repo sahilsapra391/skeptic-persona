@@ -89,3 +89,57 @@ describe("ingest relay ingestion", () => {
     expect(n?.n).toBeGreaterThan(0);
   });
 });
+
+describe("senate eFD bundle", () => {
+  it("ingests a courier bundle through the SAME parsers as the direct poller", async () => {
+    const SEARCH = (await import("./fixtures/senate-ptr-data.json?raw")).default;
+    const DETAIL = (await import("./fixtures/senate-ptr-page.fixture?raw")).default;
+    const search = JSON.parse(SEARCH) as { data: string[][] };
+    // Map every electronic row's uuid to the one detail fixture we have.
+    const details: Record<string, string> = {};
+    for (const row of search.data) {
+      const m = /\/search\/view\/ptr\/([0-9a-f-]{36})\//.exec(row[3] ?? "");
+      if (m) details[m[1]!] = DETAIL;
+    }
+
+    const res = await post(
+      { source: "senate_ptr", body: JSON.stringify({ search, details }) },
+      SECRET,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { inserted: number };
+    expect(body.inserted).toBeGreaterThan(0);
+
+    const row = await env.DB.prepare(
+      "SELECT payload FROM items WHERE source = 'senate_ptr' AND json_extract(payload,'$.kind') = 'ptr' LIMIT 1",
+    ).first<{ payload: string }>();
+    expect(row).toBeTruthy();
+    const p = JSON.parse(row!.payload) as Record<string, unknown>;
+    // Proof the shared ingest path ran: these fields only exist because
+    // parsePtrTable and draftSenatePtr were applied.
+    expect(Array.isArray(p.transactions)).toBe(true);
+    expect(String(p.factLine)).toContain("Senate PTR");
+    expect(p.amountBand).toBeTruthy();
+  });
+
+  it("skips a filing whose detail page the courier could not fetch", async () => {
+    const SEARCH = (await import("./fixtures/senate-ptr-data.json?raw")).default;
+    const search = JSON.parse(SEARCH) as { data: string[][] };
+    // Empty details map: the courier was rate-limited mid-run.
+    const res = await post({ source: "senate_ptr", body: JSON.stringify({ search, details: {} }) }, SECRET);
+    expect(res.status).toBe(200);
+
+    const ptrRows = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM items WHERE source = 'senate_ptr' AND json_extract(payload,'$.kind') = 'ptr'",
+    ).first<{ n: number }>();
+    // An item inserted without its transactions would look complete while
+    // claiming nothing, so a missing detail page is skipped rather than
+    // guessed at. (Paper filings have no table and still land in the lake.)
+    expect(ptrRows?.n).toBe(0);
+  });
+
+  it("rejects a bundle whose search payload is unusable", async () => {
+    const res = await post({ source: "senate_ptr", body: JSON.stringify({ search: { result: "fail" }, details: {} }) }, SECRET);
+    expect(res.status).toBe(422);
+  });
+});
