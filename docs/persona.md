@@ -271,6 +271,18 @@ is the warning, Form 25 is the exchange actually striking the security. Only
 exchange-initiated removals (17 CFR 240.12d2-2(a)) reach the queue; a
 voluntary withdrawal by the issuer is routine housekeeping.
 
+### STORM (NHC active Atlantic hurricanes)
+- `Knots and millibars, in the center's own units.` [intensity parsed]
+- `That is the current advisory. The track is not ours to call.`
+
+**Escalation tier:**
+- `{n} kt puts it in major-hurricane territory.` [>=96 kt, Cat 3+]
+
+ATLANTIC ONLY, and only hurricanes. Gulf energy infrastructure and insurer
+exposure sit in the Atlantic basin; an eastern Pacific storm is weather, not
+market news, however severe. NEVER a forecast or a track: the advisory is a
+current observation and where it goes next is not ours to say.
+
 ### HALT
 - `Pending is the whole disclosure.` [T1]
 - `The band did what the band does.` [LUDP/LUDS]

@@ -15,6 +15,7 @@ import { makePressHandler, PRESS_SOURCES } from "./ingesters/regulatoryPress";
 import { pollEdgarReconcile } from "./ingesters/edgarReconcile";
 import { pollRegSho } from "./ingesters/regsho";
 import { pollForm25 } from "./ingesters/form25";
+import { pollNoaaStorms } from "./ingesters/noaaStorms";
 import { pollNasdaqHalts, pollNyseHalts } from "./ingesters/halts";
 import { pollHousePtr } from "./ingesters/housePtr";
 import { pollSenatePtr } from "./ingesters/senatePtr";
@@ -99,6 +100,7 @@ export function registerJobs(): void {
   registry["edgar_reconcile"] = pollEdgarReconcile;
   registry["regsho_threshold"] = pollRegSho;
   registry["sec_form25"] = pollForm25;
+  registry["noaa_storms"] = pollNoaaStorms;
   registry["senate_ptr"] = pollSenatePtr;
   registry["house_ptr"] = pollHousePtr;
   registry["fed_press"] = pollFedPress;
