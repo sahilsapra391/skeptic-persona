@@ -1,0 +1,52 @@
+{
+ "fields": [
+  "cik",
+  "name",
+  "ticker",
+  "exchange"
+ ],
+ "data": [
+  [
+   1045810,
+   "NVIDIA CORP",
+   "NVDA",
+   "Nasdaq"
+  ],
+  [
+   320193,
+   "Apple Inc.",
+   "AAPL",
+   "Nasdaq"
+  ],
+  [
+   1750,
+   "AAR CORP",
+   "AIR",
+   "NYSE"
+  ],
+  [
+   2070829,
+   "Contemporary Amperex Technology Co., Limited/ADR",
+   "CYATY",
+   "OTC"
+  ],
+  [
+   887028,
+   "RIO TINTO LTD",
+   "RTNTF",
+   "OTC"
+  ],
+  [
+   1109262,
+   "BILI Social International, Inc.",
+   "AGGI",
+   null
+  ],
+  [
+   803016,
+   "CALIFORNIA FIRST LEASING CORP",
+   "CFNB",
+   null
+  ]
+ ]
+}
