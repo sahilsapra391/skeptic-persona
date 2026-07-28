@@ -125,10 +125,16 @@ describe("the park", () => {
     expect(row?.state).toBe("approved");
   });
 
-  it("does not badge Telegram or alert about tokens while parked", async () => {
+  it("stays silent: no Telegram badge, no token alert, no Meta call", async () => {
     await connectThreads();
     await seedApproved("PARK-2", "Another approved draft, per Nasdaq");
     await runPoster(postingEnv(), NOW);
+    // The metaCalls assertion is what makes this test park-sensitive. Telegram
+    // silence alone is not: an un-parked poster hitting the tripwire gets a
+    // ThreadsError with code 1, which is not token-invalid, so it logs and
+    // moves on without ever reaching alertTokenInvalid. Asserting only
+    // TGRAM.calls would pass with the park removed.
+    expect(metaCalls, "parked poster reached a Meta endpoint").toEqual([]);
     expect(TGRAM.calls).toEqual([]);
   });
 
@@ -170,6 +176,11 @@ describe("the park", () => {
     // even with the park ripped out. The history assertion guards the
     // SELECTION QUERY against regression. The park is what the second row,
     // the publishable one, is here to test.
+    //
+    // connectThreads() is load-bearing: without stored auth runPoster returns
+    // at the `if (!auth)` guard before any network path, and the whole test
+    // would pass with the park removed.
+    await connectThreads();
     const { queueId: historic } = await seedApproved("PARK-4", "Published before the ban, per Nasdaq");
     await env.DB
       .prepare(
