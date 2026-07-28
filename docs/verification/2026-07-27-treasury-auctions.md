@@ -37,10 +37,45 @@ slower from Cloudflare.
 **Fix:** `page[size]=12` (~45 KB) and a 30-second timeout. Twelve rows still
 covers several days of auctions on a job that runs every 30 minutes.
 
-**Lesson worth keeping:** two consecutive failures on the same source had two
-completely different causes (TLS handshake, then timeout). Neither was
-visible without the error text, which is why `source_state.last_error` now
-exists.
+## THIRD FAILURE, and the decision: PARKED
+
+After the page size was cut to 12 (~45 KB) and the timeout raised to 30 s,
+the very next poll returned **525 again — this time from
+`api.fiscaldata.treasury.gov`**:
+
+```
+Error: treasury 525 type=text/plain; charset=UTF-8 body=error code: 525
+```
+
+Final tally: **two hosts, three failure modes, 11 consecutive failures, zero
+successes.**
+
+| Host | Failure |
+|---|---|
+| `www.treasurydirect.gov/TA_WS` | HTTP 525, TLS handshake |
+| `api.fiscaldata.treasury.gov` (147 KB) | TimeoutError |
+| `api.fiscaldata.treasury.gov` (45 KB) | HTTP 525, TLS handshake |
+
+Both hosts return 200 in **well under a second** from a residential
+connection. The failure is the network path between Cloudflare Worker egress
+and treasury.gov infrastructure — not our code, our headers, or our page
+size.
+
+**DECISION: parked on the senate_ptr pattern** — a daily probe that
+auto-recovers if the path improves, so the source returns on its own without
+anyone remembering to re-enable it. The real fix is the **GitHub Actions
+lane** (residential-class egress) once the Actions quota resets on
+**2026-08-01**, which is the same lane Senate eFD is waiting for.
+
+This is now the FOURTH distinct egress failure mode on the project:
+Senate eFD 403s datacenter IPs, NSE India resets on User-Agent, and
+treasury.gov fails TLS and times out. An endpoint verified from a laptop
+says nothing about whether a Worker can reach it.
+
+**Lesson worth keeping:** consecutive failures on the SAME source had
+different causes each time. None were diagnosable without the error text,
+which is why `source_state.last_error` now exists — and it paid for itself
+within the hour.
 
 ---
 

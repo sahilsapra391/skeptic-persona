@@ -107,10 +107,13 @@ describe("boeDateToIso / boeDate", () => {
     expect(boeDate(new Date("2026-07-27T00:00:00Z"))).toBe("27/Jul/2026");
   });
 
-  it("builds a rolling one-year window so the URL never goes stale", () => {
-    const url = urlFor(byId("rate_boe"), new Date("2026-07-27T00:00:00Z"));
-    expect(url).toContain("Datefrom=27/Jul/2025");
+  it("builds a rolling one-year window ending YESTERDAY", () => {
+    // IADB 500s when asked for a same-day window before the series has a
+    // value for that date (four consecutive overnight failures).
+    const url = urlFor(byId("rate_boe"), new Date("2026-07-28T03:50:00Z"));
     expect(url).toContain("Dateto=27/Jul/2026");
+    expect(url).toContain("Datefrom=27/Jul/2025");
+    expect(url).not.toContain("Dateto=28/Jul/2026");
   });
 });
 
