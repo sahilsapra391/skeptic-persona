@@ -949,6 +949,53 @@ const delisting: Archetype = {
 };
 
 // ---------------------------------------------------------------------------
+// STORM (NHC active Atlantic hurricanes)
+
+const storm: Archetype = {
+  id: "STORM",
+  attribution: "per the National Hurricane Center",
+  skeletons: [
+    {
+      id: "storm.named",
+      build: (p) => {
+        const line = str(p, "factLine");
+        return line ? { lines: [line] } : null;
+      },
+    },
+    {
+      id: "storm.intensityFirst",
+      build: (p) => {
+        const name = str(p, "name");
+        const kt = num(p, "intensityKt");
+        if (!name || kt === null) return null;
+        const mb = num(p, "pressureMb");
+        return { lines: [`${name}: ${kt} kt sustained${mb === null ? "" : `, ${mb} mb`}, Atlantic basin`] };
+      },
+    },
+  ],
+  beats: [
+    {
+      id: "storm.ownUnits",
+      text: "Knots and millibars, in the center's own units.",
+      tier: "base",
+      when: { op: "has", field: "intensityKt" },
+    },
+    {
+      id: "storm.noForecast",
+      text: "That is the current advisory. The track is not ours to call.",
+      tier: "base",
+      when: { op: "has", field: "classification" },
+    },
+    {
+      id: "storm.major",
+      text: "{intensityKt} kt puts it in major-hurricane territory.",
+      tier: "escalation",
+      when: { op: "gte", field: "intensityKt", value: 96 },
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // HALT
 
 const halt: Archetype = {
@@ -1031,5 +1078,6 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   REGULATORY_NEWS: regulatoryNews,
   SETTLEMENT_FAILURE: settlementFailure,
   DELISTING: delisting,
+  STORM: storm,
   HALT: halt,
 };
