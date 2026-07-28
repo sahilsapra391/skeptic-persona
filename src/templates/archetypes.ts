@@ -855,6 +855,53 @@ const regulatoryNews: Archetype = {
 };
 
 // ---------------------------------------------------------------------------
+// SETTLEMENT_FAILURE (Reg SHO threshold list entry)
+
+const settlementFailure: Archetype = {
+  id: "SETTLEMENT_FAILURE",
+  attribution: "per Nasdaq",
+  skeletons: [
+    {
+      id: "regsho.joined",
+      build: (p) => {
+        const line = str(p, "factLine");
+        return line ? { lines: [line] } : null;
+      },
+    },
+    {
+      id: "regsho.symbolFirst",
+      build: (p) => {
+        const symbol = str(p, "symbol");
+        const date = str(p, "listDate");
+        if (!symbol || !date) return null;
+        const name = str(p, "name");
+        return { lines: [`${symbol}${name ? ` (${name})` : ""} is on the Reg SHO threshold list as of ${date}`] };
+      },
+    },
+  ],
+  beats: [
+    {
+      id: "regsho.fiveDays",
+      text: "That takes five straight settlement days of failures to deliver.",
+      tier: "base",
+      when: { op: "has", field: "listDate" },
+    },
+    {
+      id: "regsho.mechanical",
+      text: "The list is mechanical. The reason is not published.",
+      tier: "base",
+      when: { op: "has", field: "symbol" },
+    },
+    {
+      id: "regsho.listSize",
+      text: "{listSize} securities on the list that day.",
+      tier: "base",
+      when: { op: "gte", field: "listSize", value: 1 },
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // HALT
 
 const halt: Archetype = {
@@ -935,5 +982,6 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   POSITIONING: positioning,
   OWNERSHIP_STAKE: ownershipStake,
   REGULATORY_NEWS: regulatoryNews,
+  SETTLEMENT_FAILURE: settlementFailure,
   HALT: halt,
 };
