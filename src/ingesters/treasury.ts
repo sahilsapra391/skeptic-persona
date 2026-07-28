@@ -153,8 +153,22 @@ export async function pollTreasury(
       userAgent: buildUserAgent(env.CONTACT_EMAIL),
       timeoutMs: 20_000,
     });
-    if (!res.ok) throw new Error(`treasury ${res.status}`);
-    const auctions = parseAuctions(res.body);
+    if (!res.ok) {
+      // Self-explaining failure: three polls failed in production with no way
+      // to tell a block from a shape change. Carry enough context to decide.
+      throw new Error(
+        `treasury ${res.status} type=${res.contentType ?? "?"} body=${res.body.slice(0, 120)}`,
+      );
+    }
+    let auctions: TreasuryAuction[];
+    try {
+      auctions = parseAuctions(res.body);
+    } catch (parseErr) {
+      throw new Error(
+        `treasury body did not parse (${String(parseErr)}) type=${res.contentType ?? "?"} ` +
+          `bytes=${res.body.length} prefix=${JSON.stringify(res.body.slice(0, 80))}`,
+      );
+    }
     if (auctions.length === 0) throw new Error("parsed to zero auctions");
 
     let inserted = 0;

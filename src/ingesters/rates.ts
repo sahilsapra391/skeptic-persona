@@ -46,6 +46,9 @@ export function urlFor(src: RateSource, now: Date): string {
   return src.buildUrl ? src.buildUrl(now) : (src.url ?? "");
 }
 
+/** SNB's code for the policy rate (Leitzins) in its RSS-CB feed. */
+export const SNB_POLICY_RATE_CODE = "SNBLZ";
+
 const BOE_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** Bank of England's IADB wants DD/Mon/YYYY. */
@@ -210,9 +213,13 @@ export const RATE_SOURCES: readonly RateSource[] = [
     parse: (body) => {
       const out: RateObservation[] = [];
       for (const item of extractAll(stripBom(body), "item")) {
-        // The feed carries several rates; take the policy rate only.
+        // VERIFIED 2026-07-27T23:40Z: cb:rateName carries CODES, not prose —
+        // the feed's values are SNBLZ, LSFF, R10, SARH, SNBFBF, SNBGIRO1/2,
+        // Discount. SNBLZ is the policy rate (Leitzins) and read 0.00%; the
+        // 0.25% nearby is LSFF, the special liquidity-shortage financing
+        // rate, which is a different instrument entirely.
         const name = (extractFirst(item, "cb:rateName") ?? "").trim();
-        if (name !== "" && name !== "SNB policy rate") continue;
+        if (name !== SNB_POLICY_RATE_CODE) continue;
         const value = num(extractFirst(item, "cb:value"));
         const pub = extractFirst(item, "pubDate") ?? "";
         const when = new Date(pub);
