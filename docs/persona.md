@@ -102,6 +102,12 @@ at least 90 days, and is refused rather than softened below that.
 - `The stake number is the filer's own.` [sharesAfter parsed]
 - `An award is compensation. A P is a decision.` [P present]
 
+**Post budget note.** The platform limit is 280, not 500. The SEC's compound
+item titles alone can exceed it (Item 5.02 is 145 characters), so 8-K carries
+a guaranteed-short skeleton that cuts the title at the SEC's own first
+semicolon and marks the cut. If every skeleton overflowed, the render would
+fail and the filing would silently never reach the queue.
+
 ### FORM 144 / INSIDER NOTICE (a sale filed BEFORE it happens)
 - `A 144 is the intent. The Form 4 is the receipt.`
 - `This one is filed before the sale, not after.`
