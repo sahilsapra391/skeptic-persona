@@ -13,6 +13,7 @@ import {
   type QueueEntry,
 } from "../lib/db";
 import { checkRegister } from "../templates/validate";
+import { CODE_VARIANT, postedButtons, type CardVariant } from "../rag/deliver";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -135,6 +136,13 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
 }
 
 const CALLBACK_RE = /^([are]):(\d{1,10})$/;
+// Card actions (p2r-05): c:<variant>:<qid> copy, p:<y|m|k>:<qid> posted
+// capture, g:<qid> regenerate, ce:<qid> card edit. callback_data is capped at
+// 64 BYTES by the API, hence single-letter codes.
+const CARD_COPY_RE = /^c:([csdt]):(\d{1,10})$/;
+const CARD_POSTED_RE = /^p:([ymk]):(\d{1,10})$/;
+const CARD_REGEN_RE = /^g:(\d{1,10})$/;
+const CARD_EDIT_RE = /^ce:(\d{1,10})$/;
 
 async function handleCallback(env: ConfiguredEnv, cb: TgCallbackQuery): Promise<void> {
   const token = env.TELEGRAM_BOT_TOKEN;
@@ -145,6 +153,14 @@ async function handleCallback(env: ConfiguredEnv, cb: TgCallbackQuery): Promise<
   }
   // Callback data is client-supplied — validate strictly (verified doc
   // warning: a client can send arbitrary data).
+  const copy = cb.data ? CARD_COPY_RE.exec(cb.data) : null;
+  if (copy) return handleCardCopy(env, cb, CODE_VARIANT[copy[1]!]!, Number(copy[2]));
+  const posted = cb.data ? CARD_POSTED_RE.exec(cb.data) : null;
+  if (posted) return handleCardPosted(env, cb, posted[1] as "y" | "m" | "k", Number(posted[2]));
+  const regen = cb.data ? CARD_REGEN_RE.exec(cb.data) : null;
+  if (regen) return handleCardRegenerate(env, cb, Number(regen[1]));
+  const cardEdit = cb.data ? CARD_EDIT_RE.exec(cb.data) : null;
+  if (cardEdit) return handleCardEdit(env, cb, Number(cardEdit[1]));
   const m = cb.data ? CALLBACK_RE.exec(cb.data) : null;
   if (!m) {
     await answerCallbackQuery(token, cb.id);
@@ -217,6 +233,183 @@ async function handleCallback(env: ConfiguredEnv, cb: TgCallbackQuery): Promise<
   }
 }
 
+interface CardRow {
+  queue_id: number;
+  telegram_message_id: number | null;
+  chosen_variant: string | null;
+  posted_state: string | null;
+}
+
+async function getCard(db: D1Database, queueId: number): Promise<CardRow | null> {
+  return db
+    .prepare(`SELECT queue_id, telegram_message_id, chosen_variant, posted_state FROM cards WHERE queue_id = ?1`)
+    .bind(queueId)
+    .first<CardRow>();
+}
+
+/** The text a variant code stands for, resolved the same way the card built it. */
+async function resolveVariantText(db: D1Database, queueId: number, variant: CardVariant): Promise<string | null> {
+  if (variant === "template") {
+    const q = await db
+      .prepare(`SELECT COALESCE(edited_text, draft_text) AS t FROM queue WHERE id = ?1`)
+      .bind(queueId)
+      .first<{ t: string }>();
+    return q?.t ?? null;
+  }
+  const g = await db
+    .prepare(`SELECT text FROM generations WHERE queue_id = ?1 AND variant = ?2 AND status = 'valid' ORDER BY attempt DESC LIMIT 1`)
+    .bind(queueId, variant)
+    .first<{ text: string }>();
+  return g?.text ?? null;
+}
+
+async function handleCardCopy(env: ConfiguredEnv, cb: TgCallbackQuery, variant: CardVariant, queueId: number): Promise<void> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  const card = await getCard(env.DB, queueId);
+  if (!card) {
+    await answerCallbackQuery(token, cb.id, `No card for #${queueId}.`);
+    return;
+  }
+  const text = await resolveVariantText(env.DB, queueId, variant);
+  if (text === null) {
+    await answerCallbackQuery(token, cb.id, `No ${variant} text exists for #${queueId}.`);
+    return;
+  }
+  await answerCallbackQuery(token, cb.id, `${variant} ready to copy.`);
+  await env.DB.prepare(`UPDATE cards SET chosen_variant = ?1, updated_at = ?2 WHERE queue_id = ?3`)
+    .bind(variant, iso(new Date()), queueId)
+    .run();
+  // The copyable text rides ALONE as a monospace pre block: long-press (or
+  // tap on most clients) copies it whole. Then the card asks what happened.
+  await sendMessage(token, env.TELEGRAM_CHAT_ID, text, { monospace: true });
+  await sendMessage(token, env.TELEGRAM_CHAT_ID, `#${queueId}: paste to X, then answer —`, {
+    buttons: postedButtons(queueId),
+  });
+}
+
+async function handleCardPosted(env: ConfiguredEnv, cb: TgCallbackQuery, action: "y" | "m" | "k", queueId: number): Promise<void> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  const card = await getCard(env.DB, queueId);
+  if (!card) {
+    await answerCallbackQuery(token, cb.id, `No card for #${queueId}.`);
+    return;
+  }
+  if (card.posted_state) {
+    await answerCallbackQuery(token, cb.id, `#${queueId} already recorded as ${card.posted_state}.`);
+    return;
+  }
+
+  if (action === "k") {
+    await env.DB.prepare(`UPDATE cards SET posted_state = 'skipped', updated_at = ?1 WHERE queue_id = ?2 AND posted_state IS NULL`)
+      .bind(iso(new Date()), queueId)
+      .run();
+    await answerCallbackQuery(token, cb.id, `#${queueId} recorded as skipped.`);
+    return;
+  }
+
+  if (action === "m") {
+    const prompt = await sendMessage(
+      token,
+      env.TELEGRAM_CHAT_ID,
+      `#${queueId}: reply to THIS message with the text EXACTLY as you posted it.`,
+      { forceReply: true },
+    );
+    await env.DB.prepare(`UPDATE cards SET posted_prompt_message_id = ?1, updated_at = ?2 WHERE queue_id = ?3`)
+      .bind(prompt.message_id, iso(new Date()), queueId)
+      .run();
+    await answerCallbackQuery(token, cb.id);
+    return;
+  }
+
+  // action === "y": what was copied is what was posted.
+  const variant = (card.chosen_variant ?? "template") as CardVariant;
+  const finalText = await resolveVariantText(env.DB, queueId, variant);
+  await recordManualPost(env, queueId, finalText ?? "", cb.id);
+}
+
+/** The ledger write both Posted paths share. INSERT OR IGNORE + UNIQUE
+ *  (queue_id) makes a re-tap a no-op, same as the poster's pre-claim. */
+async function recordManualPost(env: ConfiguredEnv, queueId: number, finalText: string, callbackId: string): Promise<void> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  const meta = await env.DB.prepare(
+    `SELECT q.item_id, q.archetype, i.category FROM queue q JOIN items i ON i.id = q.item_id WHERE q.id = ?1`,
+  )
+    .bind(queueId)
+    .first<{ item_id: number; archetype: string; category: string }>();
+  if (!meta) {
+    await answerCallbackQuery(token, callbackId, `Unknown queue entry #${queueId}.`);
+    return;
+  }
+  const claim = await env.DB.prepare(
+    `INSERT OR IGNORE INTO post_log (queue_id, platform_post_id, posted_at, archetype, category, posted_manually, final_text)
+     VALUES (?1, NULL, ?2, ?3, ?4, 1, ?5)`,
+  )
+    .bind(queueId, iso(new Date()), meta.archetype, meta.category, finalText)
+    .run();
+  if (claim.meta.changes === 0) {
+    await answerCallbackQuery(token, callbackId, `#${queueId} was already recorded.`);
+    return;
+  }
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE cards SET posted_state = 'yes', updated_at = ?1 WHERE queue_id = ?2 AND posted_state IS NULL`).bind(iso(new Date()), queueId),
+    env.DB.prepare(`UPDATE items SET status = 'posted' WHERE id = ?1`).bind(meta.item_id),
+  ]);
+  await answerCallbackQuery(token, callbackId, `#${queueId} recorded as posted.`);
+  const card = await getCard(env.DB, queueId);
+  if (card?.telegram_message_id) {
+    try {
+      await editMessageText(token, env.TELEGRAM_CHAT_ID, card.telegram_message_id, `📤 Posted to X
+
+${finalText}`);
+    } catch (e) {
+      log("warn", "posted badge failed", { queueId, error: String(e) });
+    }
+  }
+}
+
+async function handleCardRegenerate(env: ConfiguredEnv, cb: TgCallbackQuery, queueId: number): Promise<void> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  const card = await getCard(env.DB, queueId);
+  if (card?.posted_state === "yes" || card?.posted_state === "modified") {
+    await answerCallbackQuery(token, cb.id, `#${queueId} is already posted; not regenerating.`);
+    return;
+  }
+  // Clean slate: the generation lifecycle re-picks the row (no terminal row)
+  // and delivery re-fires (no cards row). Attempt numbering restarts, which
+  // is correct for an owner-initiated do-over.
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM generations WHERE queue_id = ?1`).bind(queueId),
+    env.DB.prepare(`DELETE FROM cards WHERE queue_id = ?1`).bind(queueId),
+  ]);
+  await answerCallbackQuery(token, cb.id, `#${queueId} regenerating; a fresh card lands within ~5 minutes.`);
+  if (card?.telegram_message_id) {
+    try {
+      await editMessageText(token, env.TELEGRAM_CHAT_ID, card.telegram_message_id, `🔁 #${queueId} superseded — regenerating.`);
+    } catch (e) {
+      log("warn", "regen badge failed", { queueId, error: String(e) });
+    }
+  }
+}
+
+async function handleCardEdit(env: ConfiguredEnv, cb: TgCallbackQuery, queueId: number): Promise<void> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  const card = await getCard(env.DB, queueId);
+  if (!card) {
+    await answerCallbackQuery(token, cb.id, `No card for #${queueId}.`);
+    return;
+  }
+  await answerCallbackQuery(token, cb.id);
+  const prompt = await sendMessage(
+    token,
+    env.TELEGRAM_CHAT_ID,
+    `Editing #${queueId}. Reply to THIS message with the corrected post text; generation reruns against it.`,
+    { forceReply: true },
+  );
+  await env.DB.prepare(`UPDATE cards SET edit_prompt_message_id = ?1, updated_at = ?2 WHERE queue_id = ?3`)
+    .bind(prompt.message_id, iso(new Date()), queueId)
+    .run();
+}
+
 async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promise<void> {
   const token = env.TELEGRAM_BOT_TOKEN;
   if (String(msg.chat.id) !== env.TELEGRAM_CHAT_ID) {
@@ -227,6 +420,84 @@ async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promis
   if (msg.text === "/start") {
     await sendMessage(token, env.TELEGRAM_CHAT_ID, `Skeptic Wire approval bot connected. Chat id: ${msg.chat.id}.`);
     return;
+  }
+
+  // Card replies first (p2r-05): posted-modified capture and card edit.
+  if (msg.reply_to_message && msg.text) {
+    const replyId = msg.reply_to_message.message_id;
+    const postedTarget = await env.DB.prepare(`SELECT queue_id FROM cards WHERE posted_prompt_message_id = ?1 AND posted_state IS NULL`)
+      .bind(replyId)
+      .first<{ queue_id: number }>();
+    if (postedTarget) {
+      const meta = await env.DB.prepare(
+        `SELECT q.item_id, q.archetype, i.category FROM queue q JOIN items i ON i.id = q.item_id WHERE q.id = ?1`,
+      ).bind(postedTarget.queue_id).first<{ item_id: number; archetype: string; category: string }>();
+      if (meta) {
+        // What the owner ACTUALLY posted is ground truth — recorded verbatim,
+        // no register gate: it is already public, refusing it here would only
+        // blind the ledger to reality.
+        const claim = await env.DB.prepare(
+          `INSERT OR IGNORE INTO post_log (queue_id, platform_post_id, posted_at, archetype, category, posted_manually, final_text)
+           VALUES (?1, NULL, ?2, ?3, ?4, 1, ?5)`,
+        ).bind(postedTarget.queue_id, iso(new Date()), meta.archetype, meta.category, msg.text).run();
+        if (claim.meta.changes > 0) {
+          await env.DB.batch([
+            env.DB.prepare(`UPDATE cards SET posted_state = 'modified', updated_at = ?1 WHERE queue_id = ?2 AND posted_state IS NULL`)
+              .bind(iso(new Date()), postedTarget.queue_id),
+            env.DB.prepare(`UPDATE items SET status = 'posted' WHERE id = ?1`).bind(meta.item_id),
+          ]);
+        }
+        try {
+          await sendMessage(token, env.TELEGRAM_CHAT_ID, `#${postedTarget.queue_id} recorded as posted (edited).`, {
+            replyToMessageId: msg.message_id,
+          });
+        } catch (e) {
+          log("warn", "posted-modified ack failed", { queueId: postedTarget.queue_id, error: String(e) });
+        }
+      }
+      return;
+    }
+
+    const editTarget = await env.DB.prepare(`SELECT queue_id FROM cards WHERE edit_prompt_message_id = ?1`)
+      .bind(replyId)
+      .first<{ queue_id: number }>();
+    if (editTarget) {
+      const entry = await getQueueEntry(env.DB, editTarget.queue_id);
+      const payload = await env.DB.prepare(`SELECT i.payload FROM items i JOIN queue q ON q.item_id = i.id WHERE q.id = ?1`)
+        .bind(editTarget.queue_id)
+        .first<{ payload: string }>();
+      let parsed: Record<string, unknown> | undefined;
+      try {
+        parsed = payload ? (JSON.parse(payload.payload) as Record<string, unknown>) : undefined;
+      } catch {
+        parsed = undefined;
+      }
+      // Card edits feed the NEXT generation run, so they get the register
+      // gate like any hand-typed text (doctrine isn't optional here either).
+      const issues = checkRegister(msg.text, entry?.archetype as never, parsed as never);
+      if (issues.length > 0) {
+        await sendMessage(
+          token,
+          env.TELEGRAM_CHAT_ID,
+          `Edit rejected for #${editTarget.queue_id}: ${issues.map((i) => i.detail).join("; ")}. Reply again to retry.`,
+          { replyToMessageId: msg.message_id },
+        );
+        return;
+      }
+      await env.DB.prepare(`UPDATE queue SET edited_text = ?1, state = 'edited' WHERE id = ?2 AND state IN ('approved','edited')`)
+        .bind(msg.text, editTarget.queue_id)
+        .run();
+      // Clean slate; generation re-runs against the new fallback and a fresh
+      // card lands. Same shape as Regenerate.
+      await env.DB.batch([
+        env.DB.prepare(`DELETE FROM generations WHERE queue_id = ?1`).bind(editTarget.queue_id),
+        env.DB.prepare(`DELETE FROM cards WHERE queue_id = ?1`).bind(editTarget.queue_id),
+      ]);
+      await sendMessage(token, env.TELEGRAM_CHAT_ID, `#${editTarget.queue_id} edit accepted; regenerating against it.`, {
+        replyToMessageId: msg.message_id,
+      });
+      return;
+    }
   }
 
   // Edit-flow reply: match against a stored force-reply prompt id.
