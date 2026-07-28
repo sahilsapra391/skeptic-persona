@@ -40,6 +40,7 @@ const genEnv = () =>
 const OR = "https://openrouter.ai";
 let nextReply: () => unknown = () => ({});
 let nextStatus = 200; // persisted interceptors shadow later ones: ONE dynamic interceptor serves all cases
+let nextFinish = "stop";
 let orCalls = 0;
 
 const TGRAM = { calls: [] as string[] };
@@ -54,7 +55,7 @@ beforeAll(() => {
       orCalls += 1;
       const data =
         nextStatus === 200
-          ? JSON.stringify({ choices: [{ message: { content: JSON.stringify(nextReply()) } }] })
+          ? JSON.stringify({ choices: [{ message: { content: JSON.stringify(nextReply()) }, finish_reason: nextFinish }] })
           : JSON.stringify({ error: { message: "upstream says no", code: nextStatus } });
       return { statusCode: nextStatus, data };
     })
@@ -74,6 +75,7 @@ beforeEach(() => {
   // outright (finding #37).
   TGRAM.calls.length = 0;
   nextStatus = 200;
+  nextFinish = "stop";
   nextReply = () => ({});
 });
 
@@ -293,6 +295,19 @@ describe("runGeneration end-to-end", () => {
     ).bind(qid).first<{ status: string }>();
     expect(held!.status).toBe("fallback_blocked");
     expect(TGRAM.calls.some((c) => c.includes("held for your edit"))).toBe(true);
+  });
+
+  it("a TRUNCATED reply (finish_reason=length) is a transient failure, never a short answer", async () => {
+    // The House PDF lesson mechanically: a reply that parses but was cut off
+    // is a well-formed lie. The client must throw, the job must record
+    // api_error (non-terminal), and the row must retry.
+    const qid = await seedApproved("P-trunc");
+    nextFinish = "length";
+    nextReply = () => GOOD;
+    await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+    const rows = await env.DB.prepare(`SELECT status FROM generations WHERE queue_id = ?1`).bind(qid).all<{ status: string }>();
+    expect(rows.results.length).toBeGreaterThan(0);
+    expect(rows.results.every((r) => r.status === "api_error")).toBe(true);
   });
 
   it("transient upstream failure leaves NO terminal row: the row retries next tick (finding #9)", async () => {

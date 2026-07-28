@@ -33,7 +33,7 @@ export interface ChatMessage {
 }
 
 interface ChatResponse {
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
   error?: { message?: string; code?: number };
 }
 
@@ -72,9 +72,17 @@ export async function chatComplete(
   if (body.error || !res.ok) {
     throw new OpenRouterError(body.error?.code ?? res.status, body.error?.message ?? "unknown", res.status);
   }
-  const content = body.choices?.[0]?.message?.content;
+  const choice = body.choices?.[0];
+  const content = choice?.message?.content;
   if (typeof content !== "string" || content === "") {
     throw new OpenRouterError(res.status, "empty completion", res.status);
+  }
+  // The completeness principle (the House PDF lesson): a truncated reply that
+  // still parses is a well-formed lie. finish_reason "length" is the document
+  // telling us it was cut off — strictly better than any heuristic, so treat
+  // it as a transient failure (retry on cadence), never as a short answer.
+  if (choice?.finish_reason === "length") {
+    throw new OpenRouterError(res.status, "completion truncated at max_tokens (finish_reason=length)", res.status);
   }
   return content;
 }
