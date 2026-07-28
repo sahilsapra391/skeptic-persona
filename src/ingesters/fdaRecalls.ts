@@ -27,6 +27,50 @@ export const FDA_PAGE = "https://www.fda.gov/safety/recalls-market-withdrawals-s
 
 export const SOURCE = "fda_drug_recall";
 
+/**
+ * openFDA enforcement datasets, as a declarative family. Both serve the SAME
+ * record shape under the same field names, so one parser and one grouper
+ * cover them; the only per-dataset decision is which FDA grades are worth
+ * interrupting the owner for.
+ */
+export interface FdaEnforcementSource {
+  /** items.source and the D1 job name. */
+  id: string;
+  /** What is being recalled, in the post's own words. */
+  kind: string;
+  url: string;
+  pageUrl: string;
+  /**
+   * FDA classifications allowed to reach the approval queue. Everything else
+   * still lands in the lake.
+   *
+   * Drug takes Class I and II: a sterility failure or a CGMP deviation names
+   * a manufacturer that is usually a listed company, which is what this
+   * account is about. Food takes Class I ONLY. Measured 2026-07-28, food
+   * Class II runs ~33 grouped events a month, mostly undeclared allergens at
+   * regional producers -- real public-health notices, but not market
+   * intelligence, and the queue already expires more cards than it approves.
+   */
+  postableGrades: readonly string[];
+}
+
+export const FDA_SOURCES: readonly FdaEnforcementSource[] = [
+  {
+    id: SOURCE,
+    kind: "drug",
+    url: FDA_RECALLS,
+    pageUrl: FDA_PAGE,
+    postableGrades: ["Class I", "Class II"],
+  },
+  {
+    id: "fda_food_recall",
+    kind: "food",
+    url: "https://api.fda.gov/food/enforcement.json?limit=30&sort=report_date:desc",
+    pageUrl: FDA_PAGE,
+    postableGrades: ["Class I"],
+  },
+];
+
 export interface FdaRecall {
   eventId: string;
   firm: string;
@@ -155,15 +199,20 @@ export function eventKey(r: FdaRecall): string {
  * Grading uses FDA's OWN classification, never our reading of the reason
  * text. Class I is FDA's term for a reasonable probability of serious harm.
  */
-export function scoreRecall(r: FdaRecall): number {
+export function scoreRecall(r: FdaRecall, src?: FdaEnforcementSource): number {
   if (!r.reason || !r.product) return SCORE_LOG_ONLY;
+  // The GRADE is FDA's. Which grades are worth the owner's attention is ours,
+  // and it differs by dataset, so it is declared per source rather than
+  // decided here.
+  const allowed = src?.postableGrades ?? ["Class I", "Class II"];
+  if (!allowed.includes(r.classification)) return SCORE_LOG_ONLY;
   if (r.classification === "Class I") return SCORE_AUTO_ALERT;
   if (r.classification === "Class II") return SCORE_POSTABLE;
   return SCORE_LOG_ONLY;
 }
 
 /** Tier A: FDA's fields, verbatim. The reason text is the agency's wording. */
-export function draftRecall(r: FdaRecall | FdaRecallEvent): string {
+export function draftRecall(r: FdaRecall | FdaRecallEvent, kind = "drug"): string {
   // Truncate with a single character rather than "...": a period-collapsing
   // cleanup would eat an ellipsis, and the join below already normalises
   // trailing periods per part.
@@ -172,20 +221,26 @@ export function draftRecall(r: FdaRecall | FdaRecallEvent): string {
   // count without the marker would read as a single-product recall.
   const count = "productCount" in r ? r.productCount : 1;
   const listed = count > 1 ? `${product} +${count - 1} more products` : product;
-  const parts = [`FDA ${r.classification} recall: ${r.firm}`, listed, `Reason: ${r.reason}`];
+  const parts = [`FDA ${r.classification} ${kind} recall: ${r.firm}`, listed, `Reason: ${r.reason}`];
   if (r.initiatedIso) parts.push(`Initiated ${r.initiatedIso}`);
   return parts.map((p) => p.replace(/\.\s*$/, "")).join(". ");
 }
 
-export async function pollFdaRecalls(
+export function makeFdaHandler(src: FdaEnforcementSource) {
+  return (env: Env, now: Date = new Date(), budget: TickBudget = newTickBudget()): Promise<void> =>
+    pollFdaEnforcement(env, src, now, budget);
+}
+
+export async function pollFdaEnforcement(
   env: Env,
+  src: FdaEnforcementSource,
   now: Date = new Date(),
   budget: TickBudget = newTickBudget(),
 ): Promise<void> {
   if (!budget.take(1)) return;
-  const state = await getSourceState(env.DB, SOURCE);
+  const state = await getSourceState(env.DB, src.id);
   try {
-    const res = await politeFetch(FDA_RECALLS, { userAgent: buildUserAgent(env.CONTACT_EMAIL), timeoutMs: 20_000 });
+    const res = await politeFetch(src.url, { userAgent: buildUserAgent(env.CONTACT_EMAIL), timeoutMs: 20_000 });
     // Shared-IP quota: a 429 is not a broken source, it is a busy neighbour.
     if (res.status === 429) {
       log("warn", "openFDA rate limited (shared egress IP); backing off", { status: res.status });
@@ -199,24 +254,25 @@ export async function pollFdaRecalls(
 
     // One card per EVENT, not per product record.
     const events = groupRecalls(recalls);
-    log("info", "fda recalls grouped", { records: recalls.length, events: events.length });
+    log("info", "fda recalls grouped", { source: src.id, records: recalls.length, events: events.length });
 
     for (const r of events) {
-      const score = scoreRecall(r);
+      const score = scoreRecall(r, src);
       const result = await insertItem(
         env.DB,
         {
-          source: SOURCE,
+          source: src.id,
           externalId: eventKey(r),
           category: "recall",
           eventAt: r.reportedIso ? `${r.reportedIso}T00:00:00.000Z` : null,
-          sourceUrl: FDA_PAGE,
+          sourceUrl: src.pageUrl,
           payload: {
             ...r,
             // Derived at PARSE time from FDA's own field so the beat gates on
             // a boolean rather than re-reading prose at render.
             voluntaryIsFirmInitiated: /firm initiated/i.test(r.voluntary ?? ""),
-            factLine: draftRecall(r),
+            kind: src.kind,
+            factLine: draftRecall(r, src.kind),
           },
           score,
           status: score >= SCORE_POSTABLE ? "new" : "logged",
@@ -229,7 +285,7 @@ export async function pollFdaRecalls(
           [
             {
               itemId: result.id,
-              source: SOURCE,
+              source: src.id,
               entity: r.firm,
               metric: "recall_disclosure_lag_days",
               value: r.disclosureLagDays,
@@ -248,8 +304,8 @@ export async function pollFdaRecalls(
     state.consecutiveFailures += 1;
     state.lastPolledAt = iso(now);
     await putSourceState(env.DB, state);
-    await recordSourceError(env.DB, SOURCE, e, now);
-    log("error", "fda recall poll failed", { error: String(e), failures: state.consecutiveFailures });
+    await recordSourceError(env.DB, src.id, e, now);
+    log("error", "fda recall poll failed", { source: src.id, error: String(e), failures: state.consecutiveFailures });
     return;
   }
 
