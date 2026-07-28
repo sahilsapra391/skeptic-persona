@@ -11,7 +11,7 @@ const NOW = new Date("2026-07-28T15:00:00Z");
 // A PTR payload rich enough to render and to validate against.
 const PTR_PAYLOAD = {
   member: "Jane Roe",
-  chamber: "Senate",
+  chamber: "senate", // lowercase: the canonical key in PR #53's attribution map
   ticker: "LMT",
   company: "Lockheed Martin",
   band: "$1,000,001 - $5,000,000",

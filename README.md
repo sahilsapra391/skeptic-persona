@@ -59,6 +59,8 @@ Current secrets/vars by phase:
 | `THREADS_APP_ID` | secret | P2 | **parked** — Threads App ID; unread while `THREADS_PARKED` |
 | `THREADS_APP_SECRET` | secret | P2 | **parked** — Threads App Secret; unread while `THREADS_PARKED` |
 | `POST_DAILY_CAP` | var, optional | P2 | **parked** — editorial posts/day budget (default 25) |
+| `OPENROUTER_API_KEY` | secret | P2-R | generation LLM key; unset = generation holds, queue accumulates |
+| `OPENROUTER_MODEL` | var | P2-R | model id (config, never code), e.g. a current frontier model on OpenRouter |
 
 ## Telegram approval queue setup (owner, one-time)
 

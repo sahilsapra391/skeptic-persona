@@ -144,7 +144,7 @@ export function entityCheck(text: string, payload: Payload): ValidationIssue[] {
   }
   for (const m of text.matchAll(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b/g)) {
     // "per Senate eFD" style attribution is furniture, not an entity claim.
-    if (/^(Senate|Federal Register|Form|Schedule)\b/.test(m[1]!)) continue;
+    if (/^(Senate|House|Federal Register|Form|Schedule)\b/.test(m[1]!)) continue;
     flag("name", m[1]!);
   }
   return issues;
