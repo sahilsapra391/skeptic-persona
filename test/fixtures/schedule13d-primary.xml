@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?><edgarSubmission xmlns="http://www.sec.gov/edgar/schedule13D" xmlns:com="http://www.sec.gov/edgar/common">
+  <schemaVersion>X0202</schemaVersion>
+<headerData>
+    <submissionType>SCHEDULE 13D/A</submissionType>
+    <previousAccessionNumber>0001493152-26-018974</previousAccessionNumber>
+    <filerInfo>
+      <filer>
+        <filerCredentials>
+          <!-- Field: Pseudo-Tag; ID: Name; Data: Alon Haggai -->
+          <cik>0002105917</cik>
+          <ccc>XXXXXXXX</ccc>
+        </filerCredentials>
+      </filer>
+      <liveTestFlag>LIVE</liveTestFlag>
+
+
+
+    </filerInfo>
+  </headerData>
+  <formData>
+    <coverPageHeader>
+      <amendmentNo>1</amendmentNo>
+      <securitiesClassTitle>Ordinary Shares, par value $0.00000000558603475 par value per share</securitiesClassTitle>
+      <dateOfEvent>07/23/2026</dateOfEvent>
+      <previouslyFiledFlag>false</previouslyFiledFlag>
+      <issuerInfo>
+        <issuerCIK>0001940674</issuerCIK>
+        <issuerCusips>
+          <issuerCusipNumber>G8267K406</issuerCusipNumber>
+        </issuerCusips>
+        <issuerName>SMX (Security Matters) Public Limited Company</issuerName>
+        <address>
+          <com:street1>Mespil Business Centre</com:street1>
+          <com:street2>Mespil House, Sussex Road</com:street2>
+          <com:city>Dublin 4</com:city>
+          <com:stateOrCountry>L2</com:stateOrCountry>
+          <com:zipCode>D04 T4A6</com:zipCode>
+        </address>
+      </issuerInfo>
+      <authorizedPersons>
+        <notificationInfo>
+          <personName>Haggai Alon</personName>
+          <personPhoneNum>353-1-920-1000</personPhoneNum>
+          <personAddress>
+            <com:street1>Mespil Business Centre,</com:street1>
+            <com:street2>Mespil House, Sussex Road</com:street2>
+            <com:city>Dublin 4</com:city>
+            <com:stateOrCountry>L2</com:stateOrCountry>
+            <com:zipCode>D04 T4A6</com:zipCode>
+          </personAddress>
+        </notificationInfo>
+      </authorizedPersons>
+    </coverPageHeader>
+    <reportingPersons>
+      <reportingPersonInfo>
+        <reportingPersonCIK>0002105917</reportingPersonCIK>
+        <reportingPersonNoCIK>N</reportingPersonNoCIK>
+        <reportingPersonName>Haggai Alon</reportingPersonName>
+        <fundType>OO</fundType>
+        <legalProceedings>N</legalProceedings>
+        <citizenshipOrOrganization>L3</citizenshipOrOrganization>
+        <soleVotingPower>201485.00</soleVotingPower>
+        <sharedVotingPower>0.00</sharedVotingPower>
+        <soleDispositivePower>201485.00</soleDispositivePower>
+        <sharedDispositivePower>0.00</sharedDispositivePower>
+        <aggregateAmountOwned>201485.00</aggregateAmountOwned>
+        <isAggregateExcludeShares>N</isAggregateExcludeShares>
+        <percentOfClass>18.5</percentOfClass>
+        <typeOfReportingPerson>IN</typeOfReportingPerson>
+        <commentContent>See Item 5(a) below. All numbers reflect all reverse stock splits of the Issuer on a retroactive basis.</commentContent>
+      </reportingPersonInfo>
+    </reportingPersons>
+    <items1To7>
+      <item1>
+        <securityTitle>Ordinary Shares, par value $0.00000000558603475 par value per share</securityTitle>
+        <issuerName>SMX (Security Matters) Public Limited Company</issuerName>
+        <issuerPrincipalAddress>
+          <com:street1>Mespil Business Centre</com:street1>
+          <com:street2>Mespil House, Sussex Road</com:street2>
+          <com:city>Dublin 4</com:city>
+          <com:stateOrCountry>L2</com:stateOrCountry>
+          <com:zipCode>D04 T4A6</com:zipCode>
+        </issuerPrincipalAddress>
+      </item1>
+      <item2>
+        <filingPersonName>This Report is being filed pursuant to Rule 13d-1 under the Securities Exchange Act of 1934, as amended, by Haggai Alon (the "Reporting Person").</filingPersonName>
+        <principalBusinessAddress>The business address for the Reporting Person is located at Mespil Business Centre, Mespil House, Sussex Road, Dublin 4, D04 T4A6 Ireland.</principalBusinessAddress>
+        <principalJob>The Reporting Person's principal occupation is Chairman of the Board and Chief Executive Officer of the Company.</principalJob>
+        <hasBeenConvicted>During the past five years, the Reporting Person has not been convicted in a criminal proceeding (excluding traffic violations or similar misdemeanors).</hasBeenConvicted>
+        <convictionDescription>During the past five years, the Reporting Person has not been a party to a civil proceeding of a judicial or administrative body of competent jurisdiction where as a result of such proceeding was or is subject to a judgment, decree or final order enjoining future violations of, or prohibiting or mandating activities subject to federal or state securities laws or finding any violation with respect to such laws.</convictionDescription>
+        <citizenship>Israel</citizenship>
+      </item2>
+      <item3>
+        <fundsSource>The Company's 2022 Incentive Equity Plan, as amended (the "Incentive Plan"), authorizes 781,641 Ordinary Shares for grant under the Incentive Plan to officers, directors, employees, advisors and other service providers of the Company.
+
+The Company has granted to Mr. Alon 100,000 restricted stock units ("RSUs") under the Incentive Plan, each of which represents a contingent right to receive one (1) Ordinary Share. All of the RSUs vested upon grant and it was a condition to grant that the Reporting Person shall not have the underlying Ordinary Shares register for trading before January 22, 2027.</fundsSource>
+      </item3>
+      <item4>
+        <transactionPurpose>See Item 3 above.
+
+The Reporting Person acquired the securities described Item 3 for compensatory purposes pursuant to the Incentive Plan. Subject to applicable law and the Company's Articles of Association, the Reporting Person may acquire additional securities in the Company pursuant to the Incentive Plan.
+
+Other than as described above, the Reporting Person as of the date of the event requiring filing of Report does not currently have any plans or proposals that relate to, or would result in, any of the matters listed in Item 4(a)-(j) of Schedule 13D, although, depending on the factors discussed herein, the Reporting Person may change its purpose or formulate different plans or proposals with respect thereto at any time.</transactionPurpose>
+      </item4>
+      <item5>
+        <percentageOfClassSecurities>As of the filing date of this Report, the Reporting Person beneficially owns 201,485 Ordinary Shares, which number of shares represents approximately 18.5% of the 1,088,608 outstanding Ordinary Shares issued and outstanding as of July 23, 2026. It does not include 75,955 RSUs granted to the Reporting Person which do not vest within the next sixty (60) days. The percentage of ownership reported in this Item 5 was calculated in accordance with Rule 13d-3(d)(1)(i) promulgated under the Securities Exchange Act of 1934, as amended.</percentageOfClassSecurities>
+        <numberOfShares>See rows (7) through (10) of the cover page to this Report for the number of Ordinary Shares as to which the Reporting Person has the sole or shared power to vote or direct the vote and sole or shared power to dispose or to direct the disposition.</numberOfShares>
+        <transactionDesc>Except as described elsewhere in this Item 5 and in Item 3, which is hereby incorporated by reference, the Reporting Person has not effected any transaction in Ordinary Shares or other voting securities of the Company in the past 60 days from the date of the event requiring filing of this Report.</transactionDesc>
+        <listOfShareholders>The Reporting Person has the right to receive the dividends from and proceeds of sales from the Ordinary Shares beneficially owned by him.</listOfShareholders>
+        <date5PercentOwnership>See Item 5(a) above.</date5PercentOwnership>
+      </item5>
+      <item6>
+        <contractDescription>Reference is made to Items 3 and 4, which are hereby incorporated by reference.</contractDescription>
+      </item6>
+      <item7>
+        <filedExhibits>2022 Incentive Equity Plan (incorporated by reference to Exhibit 4.33 to the Company's Report on Form 20-F for the fiscal year ended December 31, 2022, filed with the SEC on April 28, 2023).</filedExhibits>
+      </item7>
+    </items1To7>
+    <signatureInfo>
+      <signaturePerson>
+        <signatureReportingPerson>Haggai Alon</signatureReportingPerson>
+        <signatureDetails>
+          <signature>/s/ Haggai Alon</signature>
+          <title>Haggai Alon</title>
+          <date>07/27/2026</date>
+        </signatureDetails>
+      </signaturePerson>
+    </signatureInfo>
+  </formData>
+</edgarSubmission>

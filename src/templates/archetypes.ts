@@ -753,6 +753,65 @@ const positioning: Archetype = {
 };
 
 // ---------------------------------------------------------------------------
+// OWNERSHIP_STAKE (Schedule 13D / 13G)
+
+const ownershipStake: Archetype = {
+  id: "OWNERSHIP_STAKE",
+  attribution: "per SEC",
+  skeletons: [
+    {
+      id: "stake.report",
+      build: (p) => {
+        const line = str(p, "factLine");
+        return line ? { lines: [line] } : null;
+      },
+    },
+    {
+      id: "stake.holderFirst",
+      build: (p) => {
+        const who = str(p, "topPersonName");
+        const issuer = str(p, "issuerName");
+        const pct = num(p, "topPercent");
+        if (!who || !issuer || pct === null) return null;
+        return { lines: [`${who} reports ${pct}% of ${issuer}`] };
+      },
+    },
+  ],
+  beats: [
+    {
+      id: "stake.13dIsIntent",
+      text: "A 13D is the activist form. A 13G is the passive one.",
+      tier: "base",
+      literals: ["13", "13"],
+      when: { op: "eq", field: "isSchedule13D", value: true },
+    },
+    {
+      id: "stake.eventDate",
+      text: "Triggering event dated {dateOfEvent}.",
+      tier: "base",
+      when: { op: "has", field: "dateOfEvent" },
+    },
+    {
+      id: "stake.coverPage",
+      text: "Cover-page numbers, not the narrative items.",
+      tier: "base",
+      when: { op: "has", field: "topPercent" },
+    },
+    // Escalation: a controlling-size position.
+    {
+      id: "stake.large",
+      text: "{topPercent}% of the class, in one filer's hands.",
+      tier: "escalation",
+      when: { op: "gte", field: "topPercent", value: 10 },
+    },
+  ],
+  guards: [
+    // An amendment restates a position we may already have posted.
+    { id: "stake.notAmendment", ok: (p) => p.isAmendment !== true },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // HALT
 
 const halt: Archetype = {
@@ -831,5 +890,6 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   PRODUCT_RECALL: productRecall,
   POLICY_ACTION: policyAction,
   POSITIONING: positioning,
+  OWNERSHIP_STAKE: ownershipStake,
   HALT: halt,
 };

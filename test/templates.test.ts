@@ -219,7 +219,9 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{signingDate\}/g, "{d1}")
         .replace(/\{publicationDate\}/g, "{d2}")
         .replace(/\{signingLagDays\}/g, "{n}")
-        .replace(/\{openInterest\}/g, "{n}");
+        .replace(/\{openInterest\}/g, "{n}")
+        .replace(/\{dateOfEvent\}/g, "{date}")
+        .replace(/\{topPercent\}/g, "{n}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -260,6 +262,7 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       FED_PRESS: ["title", "category"],
       HALT: ["reasonCode", "symbol", "name", "reasonText", "haltTimeEtShort", "haltCountToday"],
       RATE_DECISION: ["changeBps", "priorValue", "priorDate", "observedDate", "factLine", "country", "label", "value", "direction"],
+      OWNERSHIP_STAKE: ["isSchedule13D", "dateOfEvent", "topPercent", "isAmendment", "factLine", "topPersonName", "issuerName"],
       POSITIONING: ["reportDate", "changeLevNet", "openInterest", "factLine", "contract", "levNet"],
       POLICY_ACTION: ["signingDate", "publicationDate", "number", "documentNumber", "signingLagDays", "factLine", "title", "kind"],
       PRODUCT_RECALL: [
@@ -415,6 +418,15 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       yoyPct: 3.5,
     },
     FED_PRESS: { title: "Agencies issue joint statement", category: "Banking and Consumer Regulatory Policy" },
+    OWNERSHIP_STAKE: {
+      factLine: "Schedule 13D: Haggai Alon reports 201,485 shares, 18.5% of SMX",
+      topPersonName: "Haggai Alon",
+      issuerName: "SMX",
+      topPercent: 18.5,
+      dateOfEvent: "07/23/2026",
+      isSchedule13D: true,
+      isAmendment: false,
+    },
     POSITIONING: {
       factLine: "CFTC positioning: leveraged funds net short 361,875 E-MINI S&P 500 contracts, week ending 2026-07-21",
       contract: "E-MINI S&P 500",
