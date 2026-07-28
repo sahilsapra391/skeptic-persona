@@ -1,9 +1,16 @@
 # CLAUDE.md — skeptic-persona (Skeptic Wire)
 
-Automated market-intelligence account on **Threads** (not X; pivoted 2026-07-26),
-run by a Cloudflare Workers pipeline. Persona and archetypes live in the format
-guide; architecture in the build plan (both in ~/Downloads, distilled into
-docs/ here as needed).
+Automated market-intelligence account on **X** (@SkepticTrades), run by a
+Cloudflare Workers pipeline. Ingestion, scoring and the Telegram approval queue
+are automated; **publishing is manual** — the pipeline hands the owner
+copy-ready commentary and he posts it. Persona and archetypes live in the
+format guide; architecture in the build plan (both in ~/Downloads, distilled
+into docs/ here as needed). Current track: [docs/p2r-plan.md](docs/p2r-plan.md).
+
+> Platform history: X (planned) → Threads (2026-07-26, X free tier was
+> withdrawn) → X manual (2026-07-28, Meta banned the Threads account on
+> suspected bot activity). The Threads client is parked, not deleted:
+> [docs/verification/2026-07-28-threads-ban.md](docs/verification/2026-07-28-threads-ban.md).
 
 ## Non-negotiables (outrank everything, including speed)
 
@@ -17,8 +24,9 @@ docs/ here as needed).
    Skeptic's market desk: brand-affiliation transparent (skeptic.fyi
    visible), never a fake human (no invented name, avatar, or lore), and it
    never denies automation if asked (true answer: "Skeptic's desk, a human
-   runs it"). No fake typos, no engagement bait. Template rotation is also
-   a Meta-policy requirement (repetitive content is a named spam signal).
+   runs it"). No fake typos, no engagement bait. Rotation and shape variety
+   stay mandatory: repetitive content is a named spam signal on every platform
+   and is the most plausible cause of the Threads ban.
 5. **No advice language.**
 
 ## Engineering discipline
@@ -38,13 +46,24 @@ docs/ here as needed).
 - All times stored as ISO-8601 UTC. Feed timestamps arrive in four different
   conventions (ET-offset, UTC-Zulu, ET-naive, date-only) — normalize at parse.
 
-## Platform facts (verified 2026-07-26, see docs/verification/)
+## Platform facts
 
-- Threads API: free, 250 posts + 1,000 replies per rolling 24 h per profile.
-  Long-lived tokens die at 60 days — the weekly refresh job is load-bearing.
-  Invalid token = HTTP 500 with JSON `error.code` 190 (never trust status
-  class alone). `link_attachment` carries the source URL outside the 500-char
-  text limit (TEXT posts only).
+**X — NOT YET VERIFIED. Treat every number here as a claim, not a fact.**
+Working assumptions only: 280 chars on the free tier; t.co bills every link at
+23 chars regardless of real length; external links are deprioritised, so the
+source rides in a reply rather than the post body. No API means no token, no
+quota endpoint, and no automated publish path to defend. **p2r-02 sizes
+`POST_TEXT_LIMIT` against these numbers and must live-verify them first and
+file the record in docs/verification/** — endpoint verification is law and
+these arrived by assumption during the platform pivot, not by checking.
+
+### Verified 2026-07-26, see docs/verification/
+
+- Threads API (PARKED 2026-07-28, account banned): free, 250 posts + 1,000
+  replies per rolling 24 h. Long-lived tokens die at 60 days. Invalid token =
+  HTTP 500 with JSON `error.code` 190; a ban shows up as `code 1`, so never
+  trust status class alone and never trust code class alone either.
+  `link_attachment` carried the source URL outside the 500-char text limit.
 - SEC: declared User-Agent mandatory, ≤10 req/s, content-type headers lie.
 - BLS: 403s default UAs; no cache headers on release pages (content-diff).
 - Telegram: secret arrives in `X-Telegram-Bot-Api-Secret-Token`; non-2xx

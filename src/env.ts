@@ -18,11 +18,12 @@ export interface Env {
   /** BLS watcher tight-poll tuning (defaults 2500 / 90000; tests shrink them). */
   BLS_POLL_INTERVAL_MS?: string;
   BLS_POLL_DEADLINE_MS?: string;
-  // Threads poster (P2). App credentials are secrets; the live long-lived
-  // token lives in KV (the Worker refreshes it weekly and can't update
-  // its own secrets).
+  // Threads poster (P2) — PARKED 2026-07-28, account banned (poster.ts
+  // THREADS_PARKED). The secrets are still set in Cloudflare and the types
+  // stay so the parked client keeps typechecking for the appeal; nothing
+  // reads them while parked.
   THREADS_APP_ID?: string;
   THREADS_APP_SECRET?: string;
-  /** Editorial posts/day cap (default 25) — our budget, far under Threads' 250. */
+  /** Editorial posts/day cap (default 25). Unused while the publish path is parked. */
   POST_DAILY_CAP?: string;
 }
