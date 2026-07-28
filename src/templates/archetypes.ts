@@ -902,6 +902,53 @@ const settlementFailure: Archetype = {
 };
 
 // ---------------------------------------------------------------------------
+// DELISTING (Form 25 / 25-NSE)
+
+const delisting: Archetype = {
+  id: "DELISTING",
+  attribution: "per SEC",
+  skeletons: [
+    {
+      id: "delist.exchangeFirst",
+      build: (p) => {
+        const line = str(p, "factLine");
+        return line ? { lines: [line] } : null;
+      },
+    },
+    {
+      id: "delist.issuerFirst",
+      build: (p) => {
+        const issuer = str(p, "issuerName");
+        const exchange = str(p, "exchange");
+        if (!issuer || !exchange) return null;
+        const cls = str(p, "securityClass");
+        return { lines: [`${issuer}${cls ? ` (${cls})` : ""} is being removed from listing by ${exchange}`] };
+      },
+    },
+  ],
+  beats: [
+    {
+      id: "delist.thisIsTheDelisting",
+      text: "This is the delisting, not the notice.",
+      tier: "base",
+      when: { op: "eq", field: "exchangeInitiated", value: true },
+    },
+    {
+      id: "delist.rule",
+      text: "Filed under {ruleProvision}.",
+      tier: "base",
+      when: { op: "has", field: "ruleProvision" },
+    },
+    {
+      id: "delist.exchangeActed",
+      text: "The exchange filed it, not the company.",
+      tier: "base",
+      when: { op: "eq", field: "exchangeInitiated", value: true },
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // HALT
 
 const halt: Archetype = {
@@ -983,5 +1030,6 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   OWNERSHIP_STAKE: ownershipStake,
   REGULATORY_NEWS: regulatoryNews,
   SETTLEMENT_FAILURE: settlementFailure,
+  DELISTING: delisting,
   HALT: halt,
 };
