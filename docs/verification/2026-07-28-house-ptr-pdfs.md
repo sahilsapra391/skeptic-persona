@@ -52,6 +52,19 @@ Caught only by comparing a loose substring count (16) against the anchored
 match count (15) — the two fixtures alone would not have revealed it, because
 the single-transaction filing has a wrapped name.
 
+## The completeness check
+
+`countTxnMarkers()` counts the same transactions with a deliberately LOOSE
+pattern (the concatenated date pair plus a dollar sign, anywhere in the text)
+so the strict parser can be checked against something other than itself.
+
+That is the only reason the Home Depot bug was findable: 15 parsed rows look
+exactly like a 15-transaction filing. **A completeness check has to count
+against a signal the document emits, not against what the parser managed to
+read.**
+
+Both live fixtures now assert `countTxnMarkers(text) === parseHousePtrText(text).length`.
+
 ## Why the courier, not the Worker
 
 A Worker has no PDF library and the project allows zero runtime npm
