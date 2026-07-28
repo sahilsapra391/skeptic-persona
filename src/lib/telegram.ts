@@ -74,13 +74,19 @@ export async function sendMessage(
   token: string,
   chatId: string,
   text: string,
-  opts?: { buttons?: TgInlineButton[][]; forceReply?: boolean; replyToMessageId?: number },
+  opts?: { buttons?: TgInlineButton[][]; forceReply?: boolean; replyToMessageId?: number; monospace?: boolean },
 ): Promise<TgMessageResult> {
+  const clamped = clampText(text);
   const payload: Record<string, unknown> = {
     chat_id: chatId,
-    text: clampText(text),
+    text: clamped,
     link_preview_options: { is_disabled: true },
   };
+  // One-tap copy WITHOUT parse_mode (the no-parse_mode rule stands: MarkdownV2
+  // rejects unescaped . - ( ) and every numeric draft would 400). An explicit
+  // entities array marks the whole message as a pre block — Telegram clients
+  // render it monospace with a copy control, and no escaping is involved.
+  if (opts?.monospace) payload.entities = [{ type: "pre", offset: 0, length: clamped.length }];
   if (opts?.buttons) payload.reply_markup = { inline_keyboard: opts.buttons };
   if (opts?.forceReply) payload.reply_markup = { force_reply: true, input_field_placeholder: "Corrected post text" };
   if (opts?.replyToMessageId) {
@@ -99,6 +105,7 @@ export async function editMessageText(
   chatId: string,
   messageId: number,
   text: string,
+  opts?: { buttons?: TgInlineButton[][] },
 ): Promise<void> {
   try {
     await tgCall(token, "editMessageText", {
@@ -106,6 +113,7 @@ export async function editMessageText(
       message_id: messageId,
       text: clampText(text),
       link_preview_options: { is_disabled: true },
+      ...(opts?.buttons ? { reply_markup: { inline_keyboard: opts.buttons } } : {}),
     });
   } catch (e) {
     if (e instanceof TelegramError && e.errorCode === 400 && e.message.includes("message is not modified")) return;
