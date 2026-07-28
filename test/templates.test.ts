@@ -156,7 +156,8 @@ describe("doctrine: structural law (fact first, beat last, never blended)", () =
         ],
         itemCodes: ["4.02", "7.01"],
       },
-      { seed: "attr:1", rotation: { recentSkeletons: ["8k.lead"], recentBeats: [] } },
+      // Exclude BOTH single-line variants so the multi-line one is chosen.
+      { seed: "attr:1", rotation: { recentSkeletons: ["8k.lead", "8k.compact"], recentBeats: [] } },
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
