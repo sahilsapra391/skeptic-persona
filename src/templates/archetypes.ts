@@ -343,7 +343,10 @@ const insiderCluster: Archetype = {
 
 const congressPtr: Archetype = {
   id: "CONGRESS_PTR",
-  attribution: "per Senate eFD",
+  // Both chambers share this archetype (same disclosure regime, same beats),
+  // but NOT the same source. Hardcoding Senate here would have stamped every
+  // House filing with a citation to a system it never touched.
+  attribution: { field: "chamber", map: { senate: "per Senate eFD", house: "per House Clerk" } },
   skeletons: [
     {
       id: "ptr.trades",

@@ -55,6 +55,7 @@ interface ApprovedRow {
   text: string;
   source_url: string;
   category: string;
+  payload: string;
   telegram_message_id: number | null;
 }
 
@@ -94,7 +95,7 @@ export async function runPoster(env: Env, now: Date, budget: TickBudget = newTic
     `SELECT q.id AS queue_id, q.item_id, q.archetype,
             COALESCE(q.edited_text, q.draft_text) AS text,
             q.telegram_message_id,
-            i.source_url, i.category
+            i.source_url, i.category, i.payload
      FROM queue q
      JOIN items i ON i.id = q.item_id
      LEFT JOIN post_log p ON p.queue_id = q.id
@@ -133,7 +134,15 @@ export async function runPoster(env: Env, now: Date, budget: TickBudget = newTic
     // and an edit made before the edit-time validation shipped (or while
     // posting was disabled) would otherwise sail straight through. A real
     // near-miss: an edit reply of "na" sat approved-and-ready in the queue.
-    const issues = checkRegister(row.text, row.archetype as ArchetypeId);
+    // Payload included so a multi-source archetype is checked against the
+    // citation correct for THIS item, not merely one of ours.
+    let itemPayload: Record<string, unknown> | undefined;
+    try {
+      itemPayload = JSON.parse(row.payload) as Record<string, unknown>;
+    } catch {
+      itemPayload = undefined;
+    }
+    const issues = checkRegister(row.text, row.archetype as ArchetypeId, itemPayload);
     if (issues.length > 0) {
       log("error", "post blocked by register check", {
         queueId: row.queue_id,

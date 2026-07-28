@@ -15,10 +15,18 @@
 # until 2026-08-01. Enable by uncommenting the schedule.
 name: ingest-relay
 
+# TWO cadences, because the sources move at different speeds. Job-level `if`
+# filters on which cron fired (github.event.schedule); a manual dispatch runs
+# everything.
+#
+# The House lane costs ~1.5 min per run (checkout + pip + 20 sequential PDF
+# downloads). On the 30-minute cadence that is ~530 min/month against a
+# 2,000 min free tier, for a bulk index that rebuilds ONCE per weekday.
 on:
   workflow_dispatch:
   # schedule:
   #   - cron: "*/30 13-21 * * 1-5"   # every 30 min, US market hours, weekdays
+  #   - cron: "20 14 * * 1-5"        # House PDFs, after the ~13:00 UTC index rebuild
 
 concurrency:
   group: ingest-relay
@@ -26,6 +34,8 @@ concurrency:
 
 jobs:
   relay:
+    # Every cadence EXCEPT the daily House slot.
+    if: github.event.schedule != '20 14 * * 1-5'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -82,6 +92,7 @@ jobs:
   # three and delivers a bundle; the Worker parses it with the same code the
   # direct poller uses.
   senate:
+    if: github.event.schedule != '20 14 * * 1-5'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -150,6 +161,90 @@ jobs:
                  '{source: $source, fetchedAt: $fetchedAt, body: .}' \
                  bundle.json > payload.json
           code=$(curl -sS --max-time 60 -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-Ingest-Secret: ${INGEST_SECRET}" \
+            --data-binary @payload.json \
+            -o relay-response.json -w "%{http_code}" \
+            "${WORKER_URL}/ingest")
+          cat relay-response.json
+          if [ "$code" != "200" ]; then echo "::error::relay returned $code"; exit 1; fi
+
+  # House Clerk PTR PDFs. The Worker indexes WHO filed and WHEN from the bulk
+  # ZIP, but the transactions live only in per-filing PDFs that are
+  # RC4-encrypted with an EMPTY owner password and need a real PDF library to
+  # read. That is not a 10ms regex job and there are no npm deps in the
+  # Worker, so the extraction runs here.
+  #
+  # This job still carries no parsing logic: pypdf turns bytes into text and
+  # the Worker's tested parser turns text into transactions. The Worker also
+  # decides which documents to fetch, so the courier holds no state.
+  house:
+    # Daily slot only. A manual dispatch has an empty schedule, so it runs too.
+    if: github.event.schedule == '20 14 * * 1-5' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # The only job that needs the repo: it runs our extractor script.
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pypdf
+        run: pip install --quiet "pypdf[crypto]==5.1.0"
+
+      - name: Ask the Worker which documents it still needs
+        env:
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS --max-time 60 \
+            -H "X-Ingest-Secret: ${INGEST_SECRET}" \
+            -o pending.json -w "%{http_code}" \
+            "${WORKER_URL}/ingest/pending/house_ptr")
+          if [ "$code" != "200" ]; then
+            echo "::error::pending returned $code"; cat pending.json; exit 1
+          fi
+          echo "pending=$(jq '.docs | length' pending.json)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Download and extract
+        run: |
+          set -euo pipefail
+          UA="Skeptic Wire admin@spechawk.ai"
+          mkdir -p pdfs
+          # Sequential and rate-limited: this is a disclosure system, not a
+          # scraping target. The Worker caps the list, so this is bounded.
+          jq -r '.docs[] | [.docId, .url] | @tsv' pending.json > work.tsv
+          while IFS=$'\t' read -r docId url; do
+            [ -z "$docId" ] && continue
+            # -f: a 404 error PAGE must not be written as if it were a PDF.
+            # A missing file is reported to the Worker by the extractor, which
+            # is what makes the retry counter advance.
+            curl -fsS -L --max-time 60 -A "$UA" -o "pdfs/${docId}.pdf" "$url" || {
+              echo "::warning::download failed for ${docId}"; rm -f "pdfs/${docId}.pdf"; }
+            sleep 1
+          done < work.tsv
+          python3 scripts/extract_house_pdfs.py pending.json pdfs bundle.json
+          echo "reported=$(jq '.docs | length' bundle.json)" >> "$GITHUB_STEP_SUMMARY"
+          echo "withText=$(jq '[.docs[] | select(.text != "")] | length' bundle.json)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Relay to Worker
+        env:
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+          WORKER_URL: ${{ secrets.WORKER_URL }}
+        run: |
+          set -euo pipefail
+          # No documents OFFERED is a normal quiet day. Documents offered but
+          # unreadable still relay, so the Worker counts the attempt.
+          if [ "$(jq '.docs | length' bundle.json)" = "0" ]; then
+            echo "no documents pending; nothing to relay"; exit 0
+          fi
+          jq -Rs --arg source "house_ptr" \
+                 --arg fetchedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                 '{source: $source, fetchedAt: $fetchedAt, body: .}' \
+                 bundle.json > payload.json
+          code=$(curl -sS --max-time 120 -X POST \
             -H "Content-Type: application/json" \
             -H "X-Ingest-Secret: ${INGEST_SECRET}" \
             --data-binary @payload.json \

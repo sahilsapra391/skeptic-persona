@@ -2,7 +2,7 @@ import type { Env } from "./env";
 import { tick } from "./dispatch";
 import { registerJobs } from "./jobs";
 import { handleTelegramWebhook, WEBHOOK_PATH } from "./telegram/webhook";
-import { handleIngestRelay, INGEST_PATH } from "./ingestRelay";
+import { handleIngestPending, handleIngestRelay, INGEST_PATH, PENDING_PATH } from "./ingestRelay";
 import { handleSeedTest } from "./admin";
 // src/threadsOauth.ts is intentionally left on disk but UNROUTED: the Threads
 // account is banned (poster.ts THREADS_PARKED). Re-import and re-add the two
@@ -24,6 +24,9 @@ export default {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
       return Response.json({ ok: true, now: new Date().toISOString() });
+    }
+    if (request.method === "GET" && url.pathname === PENDING_PATH) {
+      return handleIngestPending(request, env);
     }
     if (request.method === "POST" && url.pathname === INGEST_PATH) {
       return handleIngestRelay(request, env);

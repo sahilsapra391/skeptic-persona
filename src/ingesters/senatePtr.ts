@@ -4,7 +4,7 @@ import { buildUserAgent, politeFetch, type PoliteResponse } from "../lib/http";
 import { decodeEntities, extractAll, extractFirst } from "../lib/xml";
 import { getSourceState, insertItem, putSourceState, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
-import { isFreshDateOnly } from "./shared";
+import { bandSpan, bandWidth, isFreshDateOnly, lagDays, mdyToIso } from "./shared";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -158,6 +158,9 @@ export async function ingestEfdRow(
     .sort((a, b) => (lagDays(filedIso, a.transactionDate)! < lagDays(filedIso, b.transactionDate)! ? -1 : 1))[0];
   const minLag = newest ? lagDays(filedIso, newest.transactionDate) : null;
   const fresh = isFreshDateOnly(filedIso, now);
+  if (parsedOk && !fresh) {
+    log("info", "senate_ptr stale-at-ingest suppressed", { uuid: row.uuid, filedDate: row.filedDate });
+  }
   const draft = parsedOk ? draftSenatePtr(row, txns, filedIso) : "";
 
   const res = await insertItem(
@@ -175,12 +178,18 @@ export async function ingestEfdRow(
         lastName: row.lastName,
         filedDate: row.filedDate,
         transactions: txns,
+        // Attribution is resolved from this field at render time. A PTR post
+        // that cites the wrong chamber's disclosure system is a sourcing
+        // error, so the renderer fails closed when it is absent.
+        chamber: "senate",
         factLine: draft,
         who: row.display.replace(/\s*\(Senator\)\s*$/, ""),
-        tradeLine: txns
-          .slice(0, 3)
-          .map((t) => `${t.type} ${t.amount}, ${t.ticker ?? t.assetName.slice(0, 40)} (${t.transactionDate})`)
-          .join("; "),
+        // The "+N more" is NOT cosmetic. The ptr.whoWhen skeleton renders
+        // tradeLine alone, and on a filing with many trades the honest
+        // factLine is over budget, so whoWhen is the skeleton that actually
+        // ships. Without the marker the post reads as the member's complete
+        // activity while trades are simply gone.
+        tradeLine: tradeLineOf(txns),
         tradeDate: newest?.transactionDate ?? null,
         amountBand: newest?.amount ?? null,
         singleTxn: txns.length === 1,
@@ -217,48 +226,29 @@ export function parsePtrTable(html: string): EfdTxn[] {
 
 /** MM/DD/YYYY (date-only, as eFD serves it) -> ISO at UTC midnight. */
 export function efdDateToIso(mdY: string): string {
-  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(mdY.trim());
-  if (!m) return "";
-  return `${m[3]}-${m[1]!.padStart(2, "0")}-${m[2]!.padStart(2, "0")}T00:00:00.000Z`;
+  return mdyToIso(mdY);
 }
 
-function lagDays(filedIso: string, txnDate: string): number | null {
-  const txnIso = efdDateToIso(txnDate);
-  if (!filedIso || !txnIso) return null;
-  const days = Math.round((new Date(filedIso).getTime() - new Date(txnIso).getTime()) / 86_400_000);
-  return days >= 0 ? days : null;
+
+/** Tier A draft; the disclosure-lag line is the built-in editorial (all parsed). */
+function senateClause(t: EfdTxn): string {
+  const what = t.ticker ?? (t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName);
+  return `${t.type} ${t.amount}, ${what} (${t.transactionDate})`;
 }
 
 /**
- * Ratio between a band's upper and lower bound ("$1,001 - $15,000" -> ~15).
- * Gates the "The range is doing a lot of work." escalation beat: a wide band
- * is a parsed property of the disclosure, not an inference about the trade.
+ * The trade list as a template slot, ALWAYS carrying its own elision marker.
+ * A truncated list that does not say it is truncated is a complete-looking
+ * post with trades missing.
  */
-export function bandWidth(band: string): number | null {
-  const nums = band.match(/[\d,]+/g);
-  if (!nums || nums.length < 2) return null;
-  const lo = Number(nums[0]!.replace(/,/g, ""));
-  const hi = Number(nums[nums.length - 1]!.replace(/,/g, ""));
-  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
-  return hi - lo;
+export function tradeLineOf(txns: EfdTxn[]): string {
+  const shown = txns.slice(0, 3).map(senateClause).join("; ");
+  return txns.length > 3 ? `${shown} +${txns.length - 3} more` : shown;
 }
 
-export function bandSpan(band: string): number | null {
-  const nums = band.match(/[\d,]+/g);
-  if (!nums || nums.length < 2) return null;
-  const lo = Number(nums[0]!.replace(/,/g, ""));
-  const hi = Number(nums[nums.length - 1]!.replace(/,/g, ""));
-  if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo <= 0) return null;
-  return Math.round((hi / lo) * 10) / 10;
-}
-
-/** Tier A draft; the disclosure-lag line is the built-in editorial (all parsed). */
 export function draftSenatePtr(row: EfdRow, txns: EfdTxn[], filedIso: string): string {
   const who = row.display.replace(/\s*\(Senator\)\s*$/, "");
-  const shown = txns.slice(0, 3).map((t) => {
-    const what = t.ticker ?? (t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName);
-    return `${t.type} ${t.amount}, ${what} (${t.transactionDate})`;
-  });
+  const shown = txns.slice(0, 3).map(senateClause);
   const more = txns.length > 3 ? ` +${txns.length - 3} more` : "";
   // "After the LATEST trade" = the smallest per-transaction lag (the newest
   // trade is the one closest to the filing date).
@@ -362,21 +352,7 @@ export async function pollSenatePtr(env: Env, now: Date, budget: TickBudget = ne
 
       if (row.kind === "paper") {
         // Scanned images; no table to parse. Lake-only, never guessed at.
-        const res = await insertItem(
-          env.DB,
-          {
-            source: SOURCE,
-            externalId: row.uuid,
-            category: "congress",
-            eventAt: filedIso || null,
-            sourceUrl: viewUrl,
-            payload: { kind: "paper", display: row.display, firstName: row.firstName, lastName: row.lastName, filedDate: row.filedDate },
-            score: SCORE_LOG_ONLY,
-            status: "logged",
-          },
-          now,
-        );
-        if (res.outcome === "inserted") inserted += 1;
+        if ((await ingestEfdRow(env, row, null, now)) === "inserted") inserted += 1;
         continue;
       }
 
@@ -429,55 +405,11 @@ export async function pollSenatePtr(env: Env, now: Date, budget: TickBudget = ne
         }
         continue;
       }
-      const txns = parsePtrTable(page.body);
-      const parsedOk = txns.length > 0;
-      // All beat fields describe the NEWEST transaction, the same one the
-      // lag line refers to: mixing txns[0]'s date with the min lag would
-      // imply a disclosure speed that isn't true of either trade.
-      const dated = txns.filter((t) => lagDays(filedIso, t.transactionDate) !== null);
-      const newest = dated.slice().sort((a, b) => (lagDays(filedIso, a.transactionDate)! < lagDays(filedIso, b.transactionDate)! ? -1 : 1))[0];
-      const minLag = newest ? lagDays(filedIso, newest.transactionDate) : null;
-      const singleTxn = txns.length === 1;
-      const fresh = isFreshDateOnly(filedIso, now);
-      if (parsedOk && !fresh) {
-        log("info", "senate_ptr stale-at-ingest suppressed", { uuid: row.uuid, filedDate: row.filedDate });
-      }
-      const draft = parsedOk ? draftSenatePtr(row, txns, filedIso) : "";
-      const res = await insertItem(
-        env.DB,
-        {
-          source: SOURCE,
-          externalId: row.uuid,
-          category: "congress",
-          eventAt: filedIso || null,
-          sourceUrl: viewUrl,
-          payload: {
-            kind: "ptr",
-            display: row.display,
-            firstName: row.firstName,
-            lastName: row.lastName,
-            filedDate: row.filedDate,
-            transactions: txns,
-            // Template-engine fields (rendered at enqueue, not frozen here).
-            factLine: draft,
-            who: row.display.replace(/\s*\(Senator\)\s*$/, ""),
-            tradeLine: txns
-              .slice(0, 3)
-              .map((t) => `${t.type} ${t.amount}, ${t.ticker ?? t.assetName.slice(0, 40)} (${t.transactionDate})`)
-              .join("; "),
-            tradeDate: newest?.transactionDate ?? null,
-            amountBand: newest?.amount ?? null,
-            singleTxn,
-            lagDays: minLag,
-            bandSpanRatio: bandSpan(newest?.amount ?? ""),
-            bandWidthUsd: bandWidth(newest?.amount ?? ""),
-          },
-          score: parsedOk ? SCORE_POSTABLE : SCORE_LOG_ONLY,
-          status: parsedOk && fresh ? "new" : "logged",
-        },
-        now,
-      );
-      if (res.outcome === "inserted") inserted += 1;
+      // ONE implementation, shared with the relay. This used to be a second
+      // inline copy of the scoring and drafting logic; it had already drifted
+      // (it logged stale-suppression, the extracted one did not) which is
+      // exactly the divergence the ingestEfdRow docstring warns about.
+      if ((await ingestEfdRow(env, row, page.body, now)) === "inserted") inserted += 1;
     }
 
     // Drain: same payload.draft pattern as form4.

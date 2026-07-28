@@ -1,4 +1,5 @@
-import type { ArchetypeId } from "./types";
+import type { ArchetypeId, Payload } from "./types";
+import { resolveAttribution } from "./render";
 import { ARCHETYPES } from "./archetypes";
 import { POST_TEXT_LIMIT, weightedLength } from "./length";
 
@@ -42,7 +43,7 @@ export interface RegisterIssue {
   readonly detail: string;
 }
 
-export function checkRegister(text: string, archetype?: ArchetypeId): RegisterIssue[] {
+export function checkRegister(text: string, archetype?: ArchetypeId, payload?: Payload): RegisterIssue[] {
   const issues: RegisterIssue[] = [];
   if (text.trim() === "") issues.push({ rule: "empty", detail: "post is empty" });
   const weighted = weightedLength(text);
@@ -58,9 +59,21 @@ export function checkRegister(text: string, archetype?: ArchetypeId): RegisterIs
   if (ADVICE_PATTERNS.some((re) => re.test(text))) {
     issues.push({ rule: "advice", detail: "advice language" });
   }
-  const attribution = archetype ? ARCHETYPES[archetype]?.attribution : undefined;
-  if (attribution && !text.includes(attribution)) {
-    issues.push({ rule: "attribution", detail: `missing "${attribution}"` });
+  const arch = archetype ? ARCHETYPES[archetype] : undefined;
+  if (arch !== undefined) {
+    // With the item's payload we check the ONE citation correct for THIS
+    // item. Hand-edited text is the only path that bypasses the renderer, so
+    // without this a House draft edited to say "per Senate eFD" would pass.
+    const exact = payload ? resolveAttribution(arch, payload) : null;
+    const accepted =
+      exact !== null
+        ? [exact]
+        : typeof arch.attribution === "string"
+          ? [arch.attribution]
+          : Object.values(arch.attribution.map);
+    if (!accepted.some((a) => text.includes(a))) {
+      issues.push({ rule: "attribution", detail: `missing ${accepted.map((a) => `"${a}"`).join(" or ")}` });
+    }
   }
   return issues;
 }
