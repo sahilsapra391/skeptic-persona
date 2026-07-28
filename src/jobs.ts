@@ -10,6 +10,7 @@ import { pollTreasury } from "./ingesters/treasury";
 import { pollFdaRecalls } from "./ingesters/fdaRecalls";
 import { pollFederalRegister } from "./ingesters/federalRegister";
 import { pollCftc } from "./ingesters/cftc";
+import { pollSchedule13 } from "./ingesters/schedule13d";
 import { pollNasdaqHalts, pollNyseHalts } from "./ingesters/halts";
 import { pollHousePtr } from "./ingesters/housePtr";
 import { pollSenatePtr } from "./ingesters/senatePtr";
@@ -90,6 +91,7 @@ export function registerJobs(): void {
   registry["fda_drug_recall"] = pollFdaRecalls;
   registry["federal_register"] = pollFederalRegister;
   registry["cftc_cot"] = pollCftc;
+  registry["sec_schedule13"] = pollSchedule13;
   registry["senate_ptr"] = pollSenatePtr;
   registry["house_ptr"] = pollHousePtr;
   registry["fed_press"] = pollFedPress;

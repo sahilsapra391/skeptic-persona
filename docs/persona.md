@@ -228,6 +228,19 @@ CFTC pre-computes every week-over-week delta, so the only arithmetic we do is
 long minus short. Never a claim about WHY positioning moved, and never a
 prediction from it.
 
+### OWNERSHIP STAKE (Schedule 13D / 13G)
+- `A 13D is the activist form. A 13G is the passive one.` [form type parsed]
+- `Triggering event dated {date}.` [event date parsed]
+- `Cover-page numbers, not the narrative items.`
+
+**Escalation tier:**
+- `{n}% of the class, in one filer's hands.` [≥10%]
+
+Numbers come from the COVER PAGE only. The narrative Items are unreliable in
+practice ("See Item 3 above", "Not applicable") and are never read for a
+figure. Amendments restate a position we may already have posted, so they
+carry no beat.
+
 ### HALT
 - `Pending is the whole disclosure.` [T1]
 - `The band did what the band does.` [LUDP/LUDS]
