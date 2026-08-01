@@ -197,19 +197,23 @@ async function insertGeneration(
 
 /** Alerts draw the RESERVED pool (an alert about a held post outranks a feed
  *  poll) and dropping one is itself logged loudly (finding #20). */
-async function alertOwner(env: Env, text: string, budget: TickBudget): Promise<void> {
+/** Returns TRUE only when the message actually reached Telegram, so callers
+ *  can gate a suppression key on delivery rather than on intent. */
+async function alertOwner(env: Env, text: string, budget: TickBudget): Promise<boolean> {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
     log("error", "generation alert DROPPED: telegram not configured", { alert: text.slice(0, 120) });
-    return;
+    return false;
   }
   if (!budget.take(1, { reserved: true })) {
     log("error", "generation alert DROPPED: budget exhausted", { alert: text.slice(0, 120) });
-    return;
+    return false;
   }
   try {
     await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, text);
+    return true;
   } catch (e) {
     log("error", "generation alert send FAILED", { alert: text.slice(0, 120), error: String(e) });
+    return false;
   }
 }
 
@@ -255,8 +259,15 @@ export async function runGeneration(
     // reads.
     log("error", "echo_ngrams is EMPTY; corpus echo check is disabled (run scripts/build-echo-hashes.mjs)");
     if (!(await env.KV.get(KV_ECHO_EMPTY_ALERTED))) {
-      await env.KV.put(KV_ECHO_EMPTY_ALERTED, "1", { expirationTtl: 24 * 3600 });
-      await alertOwner(env, "⚠️ echo_ngrams is empty: the corpus-echo check is OFF, so generated drafts are not being screened against competitor phrasing. Load it with scripts/build-echo-hashes.mjs.", budget);
+      // Suppress only AFTER a confirmed send. Writing the key first meant a
+      // failed send silenced the alert for 24h having never delivered it —
+      // the same silent-success shape as the bug it exists to report.
+      const delivered = await alertOwner(
+        env,
+        "⚠️ echo_ngrams is empty: the corpus-echo check is OFF, so generated drafts are not being screened against competitor phrasing. Load it with scripts/build-echo-hashes.mjs.",
+        budget,
+      );
+      if (delivered) await env.KV.put(KV_ECHO_EMPTY_ALERTED, "1", { expirationTtl: 24 * 3600 });
     }
   }
 

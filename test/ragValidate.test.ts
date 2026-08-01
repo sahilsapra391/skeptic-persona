@@ -396,6 +396,22 @@ describe("beatShapeCheck — a beat is a sentence (found in the first live gener
     }
   });
 
+  it("catches a SINGLE-newline beat — the original defect, one newline away", () => {
+    // Review finding: splitting only on blank lines meant the live
+    // `pay $35,000.` case passed when separated by \n instead of \n\n.
+    const single = "CFTC orders George Santos to pay $35,000 for manipulative trading, per CFTC.\npay $35,000.";
+    expect(beatShapeCheck(single).map((i) => i.rule)).toEqual(["beat_shape"]);
+  });
+
+  it("does NOT reject issuers whose names begin lowercase", () => {
+    // Deterministic false positives on companies we actually cover.
+    for (const beat of ["iShares was not the buyer.", "eBay's second restatement this year.", "loanDepot filed late."]) {
+      expect(beatShapeCheck(`Fact block, per SEC.\n\n${beat}`), beat).toEqual([]);
+    }
+    // A genuine fragment is still caught.
+    expect(beatShapeCheck("Fact block, per SEC.\n\npay $35,000.").length).toBe(1);
+  });
+
   it("checks every segment, not just the first take", () => {
     expect(beatShapeCheck("Fact, per SEC.\n\nGood sentence.\n\nand a bad fragment.").length).toBe(1);
   });
@@ -473,6 +489,21 @@ describe("echo + collisions", () => {
     const coat = "Senate PTR: purchase reported in the band disclosed forty five days after the trade date. Quite a lag.";
     expect(templateEchoCheck(coat, template).map((i) => i.rule)).toEqual(["template_echo"]);
     expect(templateEchoCheck("A fresh sentence with its own words entirely, per SEC.", template)).toEqual([]);
+  });
+
+  it("corpusEchoCheck CHUNKS under D1's 100-parameter cap — long text must not throw", async () => {
+    // Reproduced from review: one bound parameter per distinct 8-gram, and D1
+    // raises "variable number must be between ?1 and ?100" past that. Text
+    // over ~108 word tokens crossed it, and a throw inside validateVariant
+    // escapes runGeneration — a crashed run, not a rejected variant.
+    const long = Array.from({ length: 400 }, (_, i) => `token${i}`).join(" ");
+    expect(ngramHashes(long).size).toBeGreaterThan(100); // would have thrown
+    await expect(corpusEchoCheck(env.DB, long)).resolves.toEqual([]);
+    // And it still HITS when a hash from a later chunk is present.
+    const hashes = [...ngramHashes(long)];
+    await env.DB.prepare(`INSERT OR IGNORE INTO echo_ngrams (hash) VALUES (?1)`).bind(hashes.at(-1)).run();
+    expect((await corpusEchoCheck(env.DB, long)).map((i) => i.rule)).toEqual(["corpus_echo"]);
+    await env.DB.prepare(`DELETE FROM echo_ngrams WHERE hash = ?1`).bind(hashes.at(-1)).run();
   });
 
   it("corpusHasData + corpusEchoCheck: empty is empty; a seeded hash hits", async () => {
