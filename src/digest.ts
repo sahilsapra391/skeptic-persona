@@ -99,14 +99,17 @@ export async function pushedTodayByCategory(db: D1Database, archetype: string, n
   return row?.n ?? 0;
 }
 
-function summarise(archetype: string, count: number): string {
+function summarise(archetype: string, count: number, day: string, today: string): string {
   const noun = count === 1 ? "item" : "items";
   // Deliberately does NOT say "below the push bar": a row held by the daily
   // cap can score 79 against a floor of 45, and this repo insists that
   // distinction is load-bearing ('digested' is not 'logged' precisely because
   // "met the bar, lost the slot" must stay distinguishable). This is copy the
   // owner may screenshot, so it states what happened, not why.
-  return `Held back today: ${count} ${archetype} ${noun} not pushed.`;
+  // A rolled-over group sends on a LATER day, so "today" would be a false
+  // claim about when they were held.
+  const when = day === today ? "today" : `on ${day}`;
+  return `Held back ${when}: ${count} ${archetype} ${noun} not pushed.`;
 }
 
 /**
@@ -159,7 +162,19 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
         continue;
       }
       // The item's OWN fact line, attribution welded on by the renderer.
-      const rendered = await renderForQueue(env, h.archetype as ArchetypeId, payload, `digest:${h.item_id}`);
+      // renderForQueue can THROW, not just return ok:false — a skeleton that
+      // dereferences a field this payload lacks raises rather than declining
+      // (firstClause on a missing 8-K title, for one). Unwrapped, one bad row
+      // takes down the digest for EVERY category, which is the failure this
+      // whole chunk exists to prevent.
+      let rendered: Awaited<ReturnType<typeof renderForQueue>>;
+      try {
+        rendered = await renderForQueue(env, h.archetype as ArchetypeId, payload, `digest:${h.item_id}`);
+      } catch (e) {
+        log("warn", "digest render threw; row retired", { itemId: h.item_id, archetype: h.archetype, error: String(e) });
+        skipped.push(h.id);
+        continue;
+      }
       if (!rendered.ok) {
         skipped.push(h.id);
         continue;
@@ -190,7 +205,21 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
           day: g.day,
           archetype: g.archetype,
           rows: skipped.length,
+          itemIds: held.results.map((h) => h.item_id),
         });
+        // The owner must hear about it too. A log line is not a channel he
+        // reads, and silently retiring a whole category is the same class as
+        // a silently cut list — he would see nothing and conclude nothing
+        // was held.
+        try {
+          await sendMessage(
+            env.TELEGRAM_BOT_TOKEN,
+            env.TELEGRAM_CHAT_ID,
+            `⚠️ ${held.results.length} ${g.archetype} ${held.results.length === 1 ? "item" : "items"} were held on ${g.day} but none could be rendered, so there is no digest card for them. They are retired; see the log for their item ids.`,
+          );
+        } catch (e) {
+          log("warn", "could not alert the owner about an unrenderable digest group", { error: String(e) });
+        }
       }
       continue;
     }
@@ -203,13 +232,17 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
     // class this file's own doctrine comment forbids.
     const rolled = held.results.length - lines.length - skipped.length;
     const body = [
-      summarise(g.archetype, held.results.length),
+      summarise(g.archetype, held.results.length, g.day, etDay(now)),
       "",
       ...lines,
       // Truncation is ALWAYS announced: a silently cut list reads as complete.
       ...(rolled > 0 ? [`+${rolled} more held, in tomorrow's roll-up.`] : []),
       ...(skipped.length > 0
-        ? [`${skipped.length} could not be rendered and were retired; see the log for their item ids.`]
+        ? [
+            skipped.length === 1
+              ? "1 could not be rendered and was retired; see the log for its item id."
+              : `${skipped.length} could not be rendered and were retired; see the log for their item ids.`,
+          ]
         : []),
       "",
       "Tap ↑ to pull one out as a full card.",
@@ -280,10 +313,24 @@ export async function promoteHeldItem(
   // import is local to avoid a cycle (enqueue imports salience, salience is
   // imported here).
   const { enqueueForApproval } = await import("./pipeline/enqueue");
+  // Flip the item OUT of 'digested' FIRST. enqueueForApproval creates the
+  // queue row before it notifies Telegram, so a flood-control throw leaves a
+  // real card behind while returning an error — and a second tap would then
+  // build another one. Keying promotion off the item status makes the second
+  // tap a no-op regardless of how the first ended.
+  const claimed = await env.DB.prepare(`UPDATE items SET status = 'new' WHERE id = ?1 AND status = 'digested'`)
+    .bind(itemId)
+    .run();
+  if ((claimed.meta.changes ?? 0) === 0) return null; // someone already promoted it
+
   const res = await enqueueForApproval(env, itemId, row.archetype as ArchetypeId, payload, row.source_url, now, undefined, {
     bypassSalience: true,
   });
-  if (res.queueId === 0) return null;
+  if (res.queueId === 0) {
+    // Render failed or telegram never got it: put it back so the card is not lost.
+    await env.DB.prepare(`UPDATE items SET status = 'digested' WHERE id = ?1 AND status = 'new'`).bind(itemId).run().catch(() => {});
+    return null;
+  }
   return { queueId: res.queueId, archetype: row.archetype };
 }
 

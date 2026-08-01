@@ -157,13 +157,31 @@ Four green signals that answered a different question than the one being
 asked. Each cost real time or nearly shipped a defect; all four are cheap to
 avoid once named.
 
-**1. A local `.dev.vars` makes the suite disagree with CI, in EITHER direction.**
-It supplies `OPENROUTER_API_KEY`, so any test asserting unconfigured behaviour
-changes verdict. Measured on the same tree the same night: the ingestion
-session gained a pass, this session LOST one (48/48 clean versus 47/48 with
-the file present). So the safe statement is not "local is more permissive" —
-it is that **a local full-suite result is not evidence about CI in either
-direction.** Check on a clean worktree first, not last.
+**1. A local `.dev.vars` makes a passing test fail.** It supplies
+`OPENROUTER_API_KEY`, so the assertion that generation does nothing when
+unconfigured is no longer true locally. Both sessions hit it and both lost
+the SAME test:
+
+```
+with .dev.vars     ->  x runGeneration end-to-end > does nothing unconfigured
+                       Test Files  1 failed | 50 passed (51)
+without            ->  Test Files  51 passed (51)
+```
+
+CORRECTION, recorded rather than quietly fixed: an earlier version of this
+section claimed the two sessions failed in OPPOSITE directions — one gaining
+a pass, one losing one — and generalised from that to "local and CI disagree,
+and which way depends on which tests the key touches". **That was wrong.** It
+came from reading a cross-session report that itself contained both "fails
+locally" and "locally you get more passes than CI" in the same paragraph; the
+first was the measurement and the second was the error, and this document
+amplified the error into a general rule. Re-measured above: one direction,
+one test, both sessions.
+
+The operational rule survives the correction and is simpler than the version
+built on the mistake: **a local full-suite result is not evidence about CI.**
+Here it costs a false failure, which is the cheap direction — you go hunting
+a regression that does not exist. Check on a clean worktree first, not last.
 
 **2. `npm test` says nothing about compilation.** `npm run typecheck` is a
 separate CI step (ci.yml). PR #75 shipped 704 green tests and three

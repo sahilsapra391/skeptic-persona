@@ -1,5 +1,5 @@
-import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { env, fetchMock } from "cloudflare:test";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   salienceFor,
   parseCategoryCaps,
@@ -8,7 +8,7 @@ import {
   DEFAULT_CAP_BYPASS_SCORE,
   DEFAULT_CATEGORY_CAPS,
 } from "../src/salience";
-import { etDay, etDayStartUtc, holdForDigest, pushedTodayByCategory } from "../src/digest";
+import { etDay, etDayStartUtc, holdForDigest, promoteHeldItem, pushDigests, pushedTodayByCategory } from "../src/digest";
 import { insertItem, SCORE_POSTABLE } from "../src/lib/db";
 import { ARCHETYPES } from "../src/templates";
 import type { ArchetypeId, Payload } from "../src/templates/types";
@@ -148,32 +148,71 @@ describe("no category can be unreachable (review HIGH)", () => {
   });
 });
 
-describe("the digest accounts for every held row (review round 2)", () => {
-  it("a group with an unrenderable row announces it instead of cutting silently", async () => {
-    // The defect: skipped rows were marked sent and shown nowhere, so a
-    // group whose top scorer failed to render printed "5 items" above 4
-    // lines with no "+N" — a silently cut list reading as complete, which is
-    // the House-PTR class this chunk's own doc calls non-negotiable.
-    const ids: number[] = [];
-    for (let i = 0; i < 3; i++) {
-      const res = await insertItem(env.DB, {
-        source: "edgar_8k", externalId: `DIGEST-${i}`, category: "filing",
-        eventAt: NOW.toISOString(), sourceUrl: "https://www.sec.gov/x",
-        // A payload with no renderable skeleton: forces the skip path.
-        payload: i === 0 ? {} : { items: [{ code: "5.02" }], cik: "1", company: "A Co" },
-        score: SCORE_POSTABLE,
-      });
-      ids.push(res.id ?? 0);
-    }
-    for (const [i, id] of ids.entries()) {
-      await holdForDigest(CURATED, id, "FILING_8K", 90 - i, "below_floor", NOW);
-    }
-    const before = await env.DB.prepare(`SELECT COUNT(*) AS n FROM digest_items WHERE sent_at IS NULL`).first<{ n: number }>();
-    expect(before?.n).toBe(3);
-    // Every row must end marked — nothing may retry forever — and the
-    // arithmetic in the card must close over listed + rolled + retired.
-    const rows = await env.DB.prepare(`SELECT id, item_id FROM digest_items ORDER BY score DESC`).all<{ id: number; item_id: number }>();
-    expect(rows.results.length).toBe(3);
+describe("the digest accounts for every held row (review rounds 2-3)", () => {
+  // ONE persisted interceptor, registered once — several persisted mocks on
+  // the same path shadow each other and 404 the later calls.
+  let sends = 0;
+  beforeAll(() => {
+    fetchMock.activate();
+    fetchMock.disableNetConnect();
+    fetchMock
+      .get("https://api.telegram.org")
+      .intercept({ path: `/botTEST:TOKEN/sendMessage`, method: "POST" })
+      .reply(200, () => {
+        sends += 1;
+        return JSON.stringify({ ok: true, result: { message_id: 900 + sends } });
+      })
+      .persist();
+  });
+
+  async function held(externalId: string, payload: Record<string, unknown>, score: number): Promise<number> {
+    const res = await insertItem(env.DB, {
+      source: "edgar_8k", externalId, category: "filing",
+      eventAt: NOW.toISOString(), sourceUrl: "https://www.sec.gov/x",
+      payload, score: SCORE_POSTABLE,
+    });
+    const id = res.id ?? 0;
+    await holdForDigest(CURATED, id, "FILING_8K", score, "below_floor", NOW);
+    return id;
+  }
+
+  it("a partially-renderable group leaves nothing unsent", async () => {
+    // The TOP scorer is unrenderable: the exact shape that made round one
+    // mark a row sent while showing it nowhere.
+    await held("ACC-bad", {}, 99);
+    for (let i = 0; i < 3; i++) await held(`ACC-ok-${i}`, { items: [{ code: "5.02", title: "Departure of Directors or Certain Officers" }], cik: "1", company: "A Co" }, 50 - i);
+    const before = sends;
+
+    await pushDigests(CURATED as never, NOW);
+
+    expect(sends).toBeGreaterThan(before); // a card went out
+    const unsent = await env.DB.prepare(`SELECT COUNT(*) AS n FROM digest_items WHERE sent_at IS NULL`).first<{ n: number }>();
+    expect(unsent?.n).toBe(0); // and nothing is left to retry forever
+  });
+
+  it("a group where NOTHING renders still sends the owner a message", async () => {
+    for (let i = 0; i < 3; i++) await held(`ACC-none-${i}`, {}, 40 + i);
+    const before = sends;
+
+    await pushDigests(CURATED as never, NOW);
+
+    // Round three: this path used to send ZERO messages and log only, so the
+    // owner saw nothing and could conclude nothing had been held.
+    expect(sends).toBeGreaterThan(before);
+    const unsent = await env.DB.prepare(`SELECT COUNT(*) AS n FROM digest_items WHERE sent_at IS NULL`).first<{ n: number }>();
+    expect(unsent?.n).toBe(0);
+  });
+
+  it("promotion is idempotent — a second tap never builds a second card", async () => {
+    const id = await held("ACC-promote", { items: [{ code: "5.02", title: "Departure of Directors or Certain Officers" }], cik: "1", company: "A Co" }, 40);
+
+    const first = await promoteHeldItem(CURATED as never, id, NOW);
+    const second = await promoteHeldItem(CURATED as never, id, NOW);
+
+    expect(first).not.toBeNull();
+    expect(second).toBeNull(); // status is no longer 'digested'
+    const cards = await env.DB.prepare(`SELECT COUNT(*) AS n FROM queue WHERE item_id = ?1`).bind(id).first<{ n: number }>();
+    expect(cards?.n).toBe(1);
   });
 });
 
