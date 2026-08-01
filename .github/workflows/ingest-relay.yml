@@ -126,12 +126,16 @@ jobs:
             exit 1
           fi
 
-          # Step 2: accept the prohibition agreement to get a session.
-          AGREE_CODE=$(curl -sS --max-time 60 -A "$UA" -b "$JAR" -c "$JAR" \
+          # Step 2: accept the prohibition agreement to get a session. Django
+          # answers the POST with a 302; FOLLOW it (-L) so any session cookie
+          # set on the redirect target lands in the jar too — without this the
+          # first live run got search=503 on what may have been a sessionless
+          # request.
+          AGREE_CODE=$(curl -sS -L --max-time 60 -A "$UA" -b "$JAR" -c "$JAR" \
             -X POST "$BASE/search/home/" \
             -H "Referer: $BASE/search/home/" \
             --data "prohibition_agreement=1&csrfmiddlewaretoken=${HIDDEN}" \
-            -o /dev/null -w "%{http_code}")
+            -o /dev/null -w "%{http_code} -> %{url_effective}")
 
           CSRF=$(awk '$6=="csrftoken"{print $7}' "$JAR" | tail -1)
 
