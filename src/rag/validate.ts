@@ -214,6 +214,73 @@ export function groundingFacts(grounding: string): PayloadFacts {
 
 /** Union of two fact universes; the haystacks concatenate so entity and
  *  verbatim checks see both. */
+/**
+ * Does this grounding text actually belong to this item?
+ *
+ * THE THREAT (found 2026-08-01 by the ingestion session, on EDGAR). p4-01's
+ * fallback fetched `source_url`, which for edgar_8k is the INDEX page — 2,077
+ * characters of navigation chrome and a Google Tag Manager snippet. Every
+ * check downstream looked healthy: the fetch succeeded, the text was
+ * non-empty, the model wrote around it.
+ *
+ * The danger is not thin prose. `mergeFacts` widens the validator whitelist to
+ * payload ∪ source ∪ context, so a WRONG source document licenses ITS numbers
+ * and entities in our posts. Chrome carries script ids and timestamps; another
+ * company's filing carries another company's figures. A mis-fetch is a
+ * fabrication license, and the no-fabrication floor is precisely the thing
+ * that must not widen on unverified input.
+ *
+ * So the widening fails CLOSED: grounding facts merge only when the text
+ * carries at least one anchor the payload also carries (company, ticker, CIK,
+ * issuer, member, symbol — matched token-bounded, case-insensitively). The
+ * text still reaches the PROMPT either way; only its licensing authority is
+ * withheld, so a bad fetch degrades to "the model saw something unhelpful"
+ * rather than "the model may now state anything that document contained".
+ *
+ * Absent grounding is not a failure: no text means nothing to verify and
+ * nothing to widen. Absence and wrongness are different, and this returns
+ * `ok` for the first and `false` for the second.
+ */
+const ANCHOR_FIELDS = [
+  "company", "companyName", "issuer", "issuerName", "ticker", "symbol",
+  "cik", "issuerCik", "member", "filer", "filerName", "name", "authority",
+] as const;
+
+export interface GroundingProvenance {
+  readonly ok: boolean;
+  /** Which payload anchor matched — logged so a rejection is diagnosable. */
+  readonly matched: string | null;
+  readonly anchorsTried: number;
+}
+
+export function checkGroundingProvenance(grounding: string, payload: Payload): GroundingProvenance {
+  if (grounding.trim() === "") return { ok: true, matched: null, anchorsTried: 0 };
+  const hay = grounding.toLowerCase();
+  const anchors: string[] = [];
+  for (const f of ANCHOR_FIELDS) {
+    const v = (payload as Record<string, unknown>)[f];
+    if (typeof v === "string" && v.trim().length >= 3) anchors.push(v.trim());
+    else if (typeof v === "number" && String(v).length >= 3) anchors.push(String(v));
+  }
+  // No anchor to test with: we cannot prove it wrong, so we do not claim to.
+  if (anchors.length === 0) return { ok: true, matched: null, anchorsTried: 0 };
+  for (const raw of anchors) {
+    const a = raw.toLowerCase();
+    // Token-bounded so "ABC" does not match inside "ABCDEF"; the same
+    // boundary rule entityCheck uses.
+    if (new RegExp(`(?<![a-z0-9])${a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z0-9])`).test(hay)) {
+      return { ok: true, matched: raw, anchorsTried: anchors.length };
+    }
+    // Multi-word names: a filing may print "Blink Charging Co." where the
+    // payload says "Blink Charging Co". Longest token is the discriminator.
+    const longest = a.split(/[^a-z0-9]+/).filter((w) => w.length >= 4).sort((x, y) => y.length - x.length)[0];
+    if (longest && new RegExp(`(?<![a-z0-9])${longest}(?![a-z0-9])`).test(hay)) {
+      return { ok: true, matched: raw, anchorsTried: anchors.length };
+    }
+  }
+  return { ok: false, matched: null, anchorsTried: anchors.length };
+}
+
 export function mergeFacts(a: PayloadFacts, b: PayloadFacts): PayloadFacts {
   return {
     numbers: new Set([...a.numbers, ...b.numbers]),
