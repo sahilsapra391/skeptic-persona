@@ -93,7 +93,9 @@ describe("REGULATORY_NEWS is numberless by construction", () => {
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.text).toContain("per the issuing authority");
+    // p4-00b: the citation is the named body from the one authored map, not
+    // the generic phrase the owner's exemplars contradicted.
+    expect(r.text).toContain("per the FCA");
     expect(r.text).not.toContain("—");
     expect(checkRegister(r.text, "REGULATORY_NEWS")).toEqual([]);
   });
