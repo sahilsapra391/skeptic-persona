@@ -110,11 +110,35 @@ This is the third distinct way a feed has looked adoptable and not been: wrong
 content (OFAC's programme list), wrong dialect (BoC, OFSI), and now missing a
 field the doctrine requires.
 
-## GDELT: usable, deferred
+## GDELT: rejected on doctrine
 
-The 429 in batch 1 was transient — it returns 10 articles on retry. But it is
-**JSON, not RSS**, so it needs its own parser rather than a row in
-`PRESS_SOURCES`. Deferred to its own chunk rather than bolted on.
+**This entry corrects an earlier one.** The first version of this section read
+"usable, deferred" — the 429 in batch 1 was transient, it returns articles on
+retry, and the only obstacle looked like it being JSON rather than RSS. On
+that reading it was a chunk waiting to be written.
+
+That was wrong, and the transport question hid the real one. Fetching the
+payload settles it:
+
+```
+domain=biz.heraldcorp.com   (Korean)  "…美, 북한 핵 자금줄 이곳 정조준"
+domain=ria.ru               (Russian) "ЕС может отказаться от крупных
+                                        пакетов санкций… пишет FT"
+```
+
+The second one translates as *"the EU may abandon large sanctions packages
+against Russia, **the FT writes**"*. That is a Russian outlet relaying what a
+British newspaper reported. **GDELT does not publish facts; it indexes other
+people's coverage of them.**
+
+So it fails non-negotiable **#2** (primary sources only, no "reportedly") on
+every single row, and arguably **#3** as an aggregator's product. No parser
+would fix that, because the parser was never the problem.
+
+Recorded loudly because the earlier "deferred to its own chunk" framing was an
+open invitation for someone to spend a chunk building it. **A source has to
+clear doctrine before transport is worth discussing**, and I checked those in
+the wrong order — the probe script only ever asked whether bytes came back.
 
 ## Rejected (17 across both batches)
 
