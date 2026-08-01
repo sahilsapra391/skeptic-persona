@@ -102,9 +102,14 @@ jobs:
   # three and delivers a bundle; the Worker parses it with the same code the
   # direct poller uses.
   senate:
-    if: >-
-      (github.event_name == 'schedule' && github.event.schedule != '20 14 * * 1-5') ||
-      (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","senate"]'), inputs.lane))
+    # PARKED FROM THE SCHEDULE 2026-08-01 (p4-00), manual dispatch only. Two
+    # diagnostic runs (30710419446, 30710496292) from separate GitHub-hosted
+    # runners: home=200 but the search POST answers 503 with a bot-mitigation
+    # block page, invariant to session handling — eFD blocks this IP class at
+    # the data endpoint. We do not disguise clients (doctrine #4), so the lane
+    # waits for an honest network path (e.g. an owner-run residential courier
+    # POSTing the same bundle to /ingest). `lane=senate` keeps it testable.
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","senate"]'), inputs.lane)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
