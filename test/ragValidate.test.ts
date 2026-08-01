@@ -2,6 +2,10 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
   cadenceCheck,
+  checkGroundingProvenance,
+  looksLikeProse,
+  groundingFacts,
+  mergeFacts,
   collisionCheck,
   corpusEchoCheck,
   corpusHasData,
@@ -162,6 +166,142 @@ describe("entityCheck", () => {
 
   it("whitelists wire furniture: attribution vocab, months, form words", () => {
     expect(entityCheck("Filed in June, per SEC, before the FOMC meeting", PTR)).toEqual([]);
+  });
+});
+
+describe("grounding provenance — wrong document is a fabrication license", () => {
+  const filing = { company: "Blink Charging Co", ticker: "BLNK", issuerCik: "1429764", itemCode: "3.01" };
+
+  it("REJECTS the EDGAR index chrome that started this (no payload anchor in it)", () => {
+    // Shape of the real 2,077-char mis-fetch: navigation + a GTM snippet,
+    // non-empty and healthy-looking, mentioning neither company nor ticker.
+    const chrome = `EDGAR Filing Documents Home Search Company Filings About Contact
+      (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start': new Date().getTime(),event:'gtm.js'});
+      var f=d.getElementsByTagName(s)[0],j=d.createElement(s);j.src='https://www.googletagmanager.com/gtm.js?id=GTM-1234567';})
+      SEC.gov Accessibility Privacy Budget and Performance Inspector General No FEAR Act`;
+    const v = checkGroundingProvenance(chrome, filing);
+    expect(v.ok).toBe(false);
+    expect(v.anchorsTried).toBeGreaterThan(0);
+  });
+
+  it("ACCEPTS the real filing body on any one anchor", () => {
+    expect(checkGroundingProvenance("Blink Charging Co. received a notice from Nasdaq...", filing).ok).toBe(true);
+    expect(checkGroundingProvenance("...the common stock of BLNK will be suspended...", filing).ok).toBe(true);
+    expect(checkGroundingProvenance("Central Index Key 1429764 filed this report.", filing).ok).toBe(true);
+    // Trailing-period mismatch must not reject: longest-token fallback.
+    expect(checkGroundingProvenance("BLINK CHARGING CO. ANNOUNCES...", filing).matched).toBe("Blink Charging Co");
+  });
+
+  it("token-bounded: a substring of a longer word is NOT a match", () => {
+    expect(checkGroundingProvenance("The BLNKX fund reported inflows.", { ticker: "BLNK" }).ok).toBe(false);
+  });
+
+  it("REJECTS a PDF whose METADATA carries the company name — the anchor check alone is not enough", () => {
+    // Verified, not assumed: SEC litigation PDFs carry
+    // /Title (In the Matter of <RESPONDENT>), so a tag-stripped PDF contains
+    // the payload's company AND 106k chars of object tables. The anchor test
+    // passes on this; only the prose test refuses it.
+    const pdfish = `%PDF-1.6 /Type /Catalog /Pages 2 0 R
+      /Title (In the Matter of ACME CAPITAL ADVISERS LLC) /Producer (Acrobat)
+      1 0 obj << /Length 93 /Filter /FlateDecode >> stream
+      xref 0 312 /Size 312 /Prev 223302 /Root 1 0 R
+      0000000000 65535 f 0000000015 00000 n 0000223302 00000 n
+      /Length 41728 /Type /Font /BaseFont /Times-Roman trailer << /Size 312 >> startxref 224891 %%EOF`;
+    const acme = { company: "ACME CAPITAL ADVISERS LLC", authority: "SEC" };
+    // The anchor IS present — proving the two checks are not redundant.
+    expect(pdfish.toLowerCase()).toContain("acme capital advisers llc");
+    const v = checkGroundingProvenance(pdfish, acme);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe("not_prose");
+    // And the consequence it prevents:
+    expect(groundingFacts(pdfish).numbers.has("223302")).toBe(true);
+  });
+
+  it("REJECTS a tag-stripped spreadsheet — binary is binary at ANY length", () => {
+    // The hole my own 20-token exemption opened, found by testing against the
+    // XLSX class rather than assuming the prose ratio covered it. A stripped
+    // .xlsx is ~10 tokens (binary has no spaces), so it was EXEMPT, and its
+    // docProps title carries the payload's authority.
+    const strippedXlsx = "PK\u0003\u0004\u0014\u0000\u0000\u0000\b\u0000\uFFFD\uFFFD\u0001]\uFFFDtk [Content_Types].xml \uFFFDM \uFFFD Bank of Japan Monetary Base 223302 41728";
+    expect(strippedXlsx.split(/\s+/).filter(Boolean).length).toBeLessThan(20); // under the exemption
+    expect(looksLikeProse(strippedXlsx)).toBe(false);
+    const v = checkGroundingProvenance(strippedXlsx, { authority: "Bank of Japan" });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe("not_prose");
+  });
+
+  it("short LEGITIMATE text stays exempt — the reason the floor exists", () => {
+    // Lake-context lines are terse by design and must not be rejected.
+    for (const terse of [
+      "Second non-reliance filing from this issuer this year.",
+      "3 prior halts on this symbol today.",
+      "Filed 2026-06-03, disclosed 2026-07-18.",
+    ]) {
+      expect(looksLikeProse(terse), terse).toBe(true);
+    }
+  });
+
+  it("looksLikeProse separates document internals from every real sample", () => {
+    expect(looksLikeProse("%PDF-1.6 /Type /Catalog /Length 93 /Prev 223302 xref 0 312 f n /BaseFont /Times-Roman trailer /Size 312 startxref 224891 %%EOF /Filter /FlateDecode stream endstream obj endobj")).toBe(false);
+    for (const real of [
+      "On July 28, 2026, Blink Charging Co. received a letter from the Listing Qualifications Department of The Nasdaq Stock Market LLC notifying the Company that the closing bid price was below the minimum requirement for continued listing.",
+      "The Federal Trade Commission today sued to block the proposed acquisition, alleging that the deal would eliminate head-to-head competition between two of the largest suppliers and would likely lead to higher prices.",
+      "Senate PTR: $1,000,001 - $5,000,000 purchase in a defense prime, trade date June 3, per Senate eFD. Filed July 18. Legal, disclosed, and six weeks stale. Working as intended, apparently.",
+    ]) {
+      expect(looksLikeProse(real), real.slice(0, 40)).toBe(true);
+    }
+    // Short text is exempt: a ratio over a few tokens is noise.
+    expect(looksLikeProse("/Size 312 /Prev 223302")).toBe(true);
+  });
+
+  it("KNOWN RESIDUAL: an index page for the SAME record passes both gates (live SEC text)", () => {
+    // Verified against the live URL the p4 session flagged in review:
+    // https://www.sec.gov/Archives/edgar/data/1777393/000177739326000057/0001777393-26-000057-index.htm
+    //
+    // My earlier tests only proved the gates reject SYNTHETIC wrong-document
+    // text. Against real production content they both PASS, and 43 numbers
+    // stay licensed. Pinned as a failing-by-design fact so the gap is visible
+    // in the suite rather than only in a review thread.
+    //
+    // WHY NO CONTENT TEST CAN CLOSE IT: this is not the wrong document, it is
+    // the RIGHT RECORD's wrong representation. The index page is legitimately
+    // about accession 0001777393-26-000057, so every identifier the payload
+    // carries is honestly present. Note which anchor matches below — the CIK,
+    // because the accession number CONTAINS the CIK. That also rules out
+    // "require a payload-specific discriminator like the accession number":
+    // the index page is TITLED with the accession number.
+    //
+    // The durable fix is upstream (#75's shape): pre-populate raw_text from
+    // the primary document so the source_url fallback never fires. When that
+    // covers a source, this text stops being reachable for it.
+    const liveIndexText = `EDGAR Filing Documents for 0001777393-26-000057 This page uses Javascript. Your browser either doesn't support Javascript or you have it turned off. To see this page as it is meant to appear please use a Javascript enabled browser. SEC.gov EDGAR Latest Filings Filings search tools Filing Detail SEC Home &#187; Company Search &#187; Current Page Form 8-K - Current report: SEC Accession No. 0001777393-26-000057 Filing Date 2026-07-31 Accepted 2026-07-31 17:28:25 Documents 11 Period of Report 2026-07-28 Items Item 2.05: Cost Associated with Exit or Disposal Activities Item 5.02: Departure of Directors or Certain Officers; Election of D`;
+    const payload = { cik: "0001777393", company: "ChargePoint Holdings, Inc." };
+
+    expect(looksLikeProse(liveIndexText)).toBe(true); // navigation chrome IS prose
+    const v = checkGroundingProvenance(liveIndexText, payload);
+    expect(v.ok).toBe(true);
+    expect(v.matched).toBe("0001777393"); // the CIK, matched inside the accession
+
+    // The consequence, stated so it cannot be lost: junk enters the whitelist.
+    const licensed = groundingFacts(liveIndexText).numbers;
+    expect(licensed.has("57")).toBe(true); // accession fragment
+    expect(licensed.has("26")).toBe(true); // accession fragment
+  });
+
+  it("ABSENCE is not wrongness — no grounding and no anchors both pass", () => {
+    expect(checkGroundingProvenance("", filing).ok).toBe(true);
+    expect(checkGroundingProvenance("some text", { publishedIso: "2026-07-31" }).ok).toBe(true);
+  });
+
+  it("the whitelist does NOT widen on unverified grounding — the actual threat", () => {
+    // A wrong document's numbers must not become legal in our posts.
+    const wrong = "Unrelated Corp reported 99,999 units and a $7,777,777 charge.";
+    expect(checkGroundingProvenance(wrong, filing).ok).toBe(false);
+    // Proof of consequence: if it HAD been merged, 99,999 would validate.
+    const widened = mergeFacts(payloadFacts(filing), groundingFacts(wrong));
+    expect(widened.numbers.has("99999")).toBe(true);
+    // Gated instead, the payload-only whitelist rejects it.
+    expect(numberCheck("99,999 units, per SEC", filing).map((i) => i.rule)).toEqual(["number"]);
   });
 });
 
