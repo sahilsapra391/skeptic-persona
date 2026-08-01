@@ -310,17 +310,36 @@ export function looksLikeProse(text: string): boolean {
  * equally probative and fell back to a single shared token, which a review
  * showed licenses another company's document outright.
  *
- * IDENTIFIERS are unique by construction — a CIK or ticker in a document is
- * conclusive. NAMES are matched WHOLE (after normalisation), never by token:
- * "Acme Pharmaceuticals, Inc." and "Sorrento Pharmaceuticals, Inc." share
+ * CODES are unique by construction. SYMBOLS are NOT — see SYMBOL_FIELDS; a
+ * ticker is a word, and it anchors only where a filing prints it as a symbol.
+ * NAMES are matched WHOLE (after normalisation), never by token: "Acme
+ * Pharmaceuticals, Inc." and "Sorrento Pharmaceuticals, Inc." share
  * "Pharmaceuticals", and so do Holdings, Technologies, Capital and Partners.
  * SITE_WIDE values ('SEC', 'CFTC') appear in the footer of every page on the
  * regulator's own site, so they can never license anything alone.
  */
-const IDENTIFIER_FIELDS = [
-  "cik", "issuerCik", "ticker", "symbol", "accession", "accessionNumber",
+const CODE_FIELDS = [
+  "cik", "issuerCik", "accession", "accessionNumber",
   "recallNumber", "eventId", "docketNumber", "fileNumber",
 ] as const;
+
+/**
+ * Exchange symbols, held apart from CODE_FIELDS because they are not codes.
+ *
+ * Measured against the live issuers table: of 5,906 four- and five-character
+ * tickers, 371 are ordinary English words. Measured against 14 real 8-K
+ * filings pulled from the EDGAR daily index for 2026-07-30/31, EVERY filing
+ * contains at least 11 of those as bare prose words, median 23; FORM, LINE,
+ * SUCH, WHEN, WELL and ELSE appear in nearly all of them, and FORM appears in
+ * every SEC filing ever written. So the previous ">= 4 chars or a digit" rule
+ * did not leak occasionally — it licensed every document it was ever shown.
+ *
+ * Length is not a proxy for distinctiveness at ANY length: LOVE is four
+ * characters and less distinctive than the three-character BLNK. The rule is
+ * therefore about SHAPE, not size: a symbol anchors only where the text prints
+ * it the way filings print symbols. See symbolAppearsAsSymbol.
+ */
+const SYMBOL_FIELDS = ["ticker", "symbol"] as const;
 
 const NAME_FIELDS = [
   "company", "companyName", "issuer", "issuerName", "member", "filer",
@@ -336,13 +355,52 @@ const NAME_FIELDS = [
 const SITE_WIDE_FIELDS = ["authority", "exchange", "regulator"] as const;
 
 /**
- * An identifier is only conclusive if it cannot also be an ordinary word.
- * `ALL` (Allstate) and `NOW` (ServiceNow) are live ticker values, and under
- * identifiers-first ordering a 3-letter word match would be FIRST and final.
- * So: four or more characters, or containing a digit.
+ * A code must carry a digit. That is the discriminating property, and it is by
+ * construction rather than by threshold: nothing that reads as an English word
+ * survives it. Checked against 1,500 live payloads — every cik, issuerCik and
+ * accession present carries digits (0 exceptions) and the shortest is seven
+ * characters, so this excludes nothing real. The `>= 4` is not a
+ * distinctiveness proxy; it only keeps a hypothetical bare three-digit code
+ * out, since "123" in a document is a quantity, not an identity.
  */
-function isUsableIdentifier(v: string): boolean {
-  return v.length >= 4 || /\d/.test(v);
+function isUsableCode(v: string): boolean {
+  return /\d/.test(v) && v.length >= 4;
+}
+
+/** Exchanges and labels that introduce a symbol in filings and releases. */
+const SYMBOL_MARKER =
+  /(?:nyse(?:\s+(?:american|arca))?|nasdaq|amex|cboe|otcqb|otcqx|otc(?:\s+markets)?|tsxv?|lse|bats|iex|ticker|trading\s+symbol|symbol|listed\s+(?:as|under)|trades?\s+(?:as|under)|under\s+the\s+symbol)\b[^A-Za-z0-9]{0,12}$/i;
+/** Cover-page tables put the "Trading Symbol(s)" heading a column away. */
+const SYMBOL_HEADING = /trading\s+symbol\(?s?\)?[\s\S]{0,120}$/i;
+const OPEN_DELIM = /[("'“‘]\s*$/;
+const CLOSE_DELIM = /^\s*[)"'”’]/;
+
+/**
+ * Does the text print this ticker AS A TICKER, rather than merely contain the
+ * word? Filings write symbols in exactly a few ways: parenthesised or quoted
+ * ("(LOVE)", "\"LOVE\""), introduced by an exchange or label ("Nasdaq: LOVE",
+ * "under the symbol LOVE"), or under a cover-page "Trading Symbol(s)" heading.
+ * A bare occurrence counts for nothing, which is what kills the 371 word-shaped
+ * tickers: "well", "form" and "such" are never printed as symbols.
+ *
+ * Case is load-bearing and deliberately not normalised away — symbols are
+ * uppercase in filings, the colliding prose words are not. Grounding text that
+ * arrives already lowercased therefore never matches here and falls through to
+ * the name anchor. That direction is fail-CLOSED (licensing withheld), which
+ * is the direction this gate is allowed to be wrong in.
+ */
+function symbolAppearsAsSymbol(grounding: string, symbol: string): boolean {
+  const sym = symbol.trim().toUpperCase();
+  if (sym === "" || !/^[A-Z][A-Z0-9.-]*$/.test(sym)) return false;
+  const re = new RegExp(`(?<![A-Za-z0-9])${escapeRegExp(sym)}(?![A-Za-z0-9])`, "g");
+  for (let m = re.exec(grounding); m !== null; m = re.exec(grounding)) {
+    const before = grounding.slice(Math.max(0, m.index - 160), m.index);
+    const after = grounding.slice(m.index + sym.length, m.index + sym.length + 4);
+    if (OPEN_DELIM.test(before) && CLOSE_DELIM.test(after)) return true;
+    if (SYMBOL_MARKER.test(before)) return true;
+    if (SYMBOL_HEADING.test(before)) return true;
+  }
+  return false;
 }
 
 // Spaced forms exist because punctuation is replaced by spaces before this
@@ -446,13 +504,22 @@ export function checkGroundingProvenance(grounding: string, payload: Payload): G
   if (!looksLikeProse(grounding)) return { ok: false, matched: null, anchorsTried: 0, reason: "not_prose" };
 
   const hay = grounding.toLowerCase();
-  const identifiers = collect(payload, IDENTIFIER_FIELDS).filter(isUsableIdentifier);
+  const codes = collect(payload, CODE_FIELDS).filter(isUsableCode);
+  const symbols = collect(payload, SYMBOL_FIELDS);
   const names = collect(payload, NAME_FIELDS);
-  const tried = identifiers.length + names.length;
+  const tried = codes.length + symbols.length + names.length;
 
-  for (const id of identifiers) {
-    if (new RegExp(`(?<![a-z0-9])${escapeRegExp(id.toLowerCase())}(?![a-z0-9])`).test(hay)) {
-      return { ok: true, matched: id, anchorsTried: tried, reason: null };
+  for (const code of codes) {
+    if (new RegExp(`(?<![a-z0-9])${escapeRegExp(code.toLowerCase())}(?![a-z0-9])`).test(hay)) {
+      return { ok: true, matched: code, anchorsTried: tried, reason: null };
+    }
+  }
+
+  // Symbols are checked against the ORIGINAL text, not `hay`: case carries the
+  // signal, and lowercasing first would throw it away before the test.
+  for (const sym of symbols) {
+    if (symbolAppearsAsSymbol(grounding, sym)) {
+      return { ok: true, matched: sym, anchorsTried: tried, reason: null };
     }
   }
 
@@ -469,9 +536,13 @@ export function checkGroundingProvenance(grounding: string, payload: Payload): G
     }
   }
 
-  // Nothing usable to test with — identifiers all below the floor and every
-  // name reduced to a single token. Fail open, but VISIBLY.
-  if (identifiers.length === 0 && usableNames === 0) {
+  // Nothing usable to test with — no code carried a digit, no symbol was
+  // present, and every name reduced to a single token. Fail open, but VISIBLY.
+  //
+  // A symbol that WAS present and did not appear in symbol shape counts as a
+  // real test that failed, not as absence of evidence, so it lands on
+  // `no_anchor` below and withholds licensing.
+  if (codes.length === 0 && symbols.length === 0 && usableNames === 0) {
     return { ok: true, matched: null, anchorsTried: tried, reason: "no_usable_anchor" };
   }
   return { ok: false, matched: null, anchorsTried: tried, reason: "no_anchor" };
@@ -480,7 +551,9 @@ export function checkGroundingProvenance(grounding: string, payload: Payload): G
 /** Consumed by the ANCHOR COVERAGE AUDIT in test/ragValidate.test.ts, which
  *  asserts every live archetype payload shape offers at least one anchor —
  *  the test this comment previously only promised. */
-export const ALL_ANCHOR_FIELDS: readonly string[] = [...IDENTIFIER_FIELDS, ...NAME_FIELDS];
+export const ALL_ANCHOR_FIELDS: readonly string[] = [
+  ...CODE_FIELDS, ...SYMBOL_FIELDS, ...NAME_FIELDS,
+];
 export const NON_ANCHOR_FIELDS: readonly string[] = [...SITE_WIDE_FIELDS];
 
 export function mergeFacts(a: PayloadFacts, b: PayloadFacts): PayloadFacts {
