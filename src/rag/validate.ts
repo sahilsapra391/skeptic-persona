@@ -750,6 +750,22 @@ function furnitureSet(): Set<string> {
 
 const FURNITURE = furnitureSet();
 
+/**
+ * All-caps tokens that name a FORMAT or a medium, not an entity.
+ *
+ * The all-caps rule exists to stop invented tickers and invented institutions.
+ * A file format is neither: it identifies nothing that could be fabricated,
+ * and "one PDF" says nothing about the world that needs sourcing. Measured
+ * 2026-08-01 — owner exemplar E4 ends "Three months of trading, one PDF, zero
+ * consequences" and was rejected on `all-caps token "PDF"`, against the very
+ * archetype whose exemplars teach that line.
+ *
+ * Kept deliberately tiny and formats-only. Anything that could name a market,
+ * an issuer or a regulator stays checked, so ETF, CEO and SEC are absent on
+ * purpose: those carry claims about the world, and PDF does not.
+ */
+const FORMAT_ACRONYMS = new Set(["PDF", "CSV", "XML", "JSON", "HTML", "URL", "PNG", "JPG"]);
+
 /** Token-bounded existence check against the payload JSON — substring
  *  containment let $ROE pass via "Jane Roe" (bypass #16). Tickers and CAPS
  *  match case-SENSITIVELY: "Roe" in the payload never licenses "ROE". */
@@ -769,6 +785,7 @@ export function entityCheck(text: string, payload: Payload, precomputed?: Payloa
   const withoutTickers = text.replace(/\$[A-Z]{1,5}\b/g, "");
   for (const m of withoutTickers.matchAll(/\b([A-Z]{2,})\b/g)) {
     if (FURNITURE.has(m[1]!)) continue;
+    if (FORMAT_ACRONYMS.has(m[1]!)) continue; // a format names no entity
     if (!inPayload(json, m[1]!, true)) {
       issues.push({ rule: "entity", detail: `all-caps token "${m[1]}" does not appear in the payload` });
     }
@@ -780,11 +797,51 @@ export function entityCheck(text: string, payload: Payload, precomputed?: Payloa
     // Exact furniture phrases only — a PREFIX skip exempted "Senate Ethics
     // Committee" wholesale (bypass #6).
     if (FURNITURE.has(name.toUpperCase())) continue;
+    if (!isNameShaped(name)) continue;
     if (!inPayload(json, name, false)) {
       issues.push({ rule: "entity", detail: `name "${name}" does not appear in the payload` });
     }
   }
   return issues;
+}
+
+/**
+ * Is this capitalised run actually a NAME, or a phrase another validator owns?
+ *
+ * The two-capitalised-token pattern is satisfied by ordinary copy, and it was
+ * rejecting the owner's own exemplars in production. Measured 2026-08-01:
+ * exemplar E1's second line, "Filed July 18.", produced `name "Filed July"
+ * does not appear in the payload` against the very payload that carries
+ * disclosedDate 2026-07-18. E4's "One House PTR filed today" produced `One
+ * House`. Two of seven CONGRESS_PTR exemplars — our deepest archetype — failed
+ * the floor their own imitations must pass.
+ *
+ * The rule is a BOUNDARY BETWEEN VALIDATORS rather than a list of excuses. A
+ * month is a date component and dateCheck owns it; a spelled-out numeral is a
+ * quantity and wordNumberCheck owns it. Neither is a name token, and a name
+ * built only out of tokens another validator already governs is not a name.
+ * Both lexicons are the ones those validators already use, so the boundary
+ * cannot drift out of agreement with them.
+ *
+ * Deliberately NOT a sentence-initial exemption, which was the obvious fix and
+ * the wrong one: a fabricated name can open a sentence, and exempting position
+ * would blind the check exactly where a model most often puts a subject.
+ */
+function isNameShaped(name: string): boolean {
+  const parts = name.split(/[-\s]/).map((p) => p.toLowerCase());
+  const ownedElsewhere = (t: string): boolean => t in MONTHS || t in WORD_UNITS || t in WORD_SCALES;
+  // A LEADING numeral is a quantity, not part of the name: E4's "One House PTR
+  // filed today" is one filing from the House, and the name is "House".
+  // Stripping it and re-testing keeps "Three Arrows Capital" checkable, since
+  // "Arrows Capital" is still multi-token. It does surrender "Four Seasons",
+  // which reduces to a single token — but single-token names are ALREADY
+  // unchecked by this regex, so that is the existing hole and not a new one.
+  let i = 0;
+  while (i < parts.length - 1 && (parts[i]! in WORD_UNITS || parts[i]! in WORD_SCALES)) i++;
+  const rest = parts.slice(i);
+  if (rest.length < 2) return false;
+  // Every token after the first is governed by another validator -> not a name.
+  return !rest.slice(1).every(ownedElsewhere);
 }
 
 // --- sourcing, urls, structure, length -------------------------------------
