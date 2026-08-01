@@ -1,5 +1,11 @@
 -- Global wire fanout, batch 1: eight sources, live-probed before adoption.
 --
+-- NUMBERED 0056, not 0049: the RAG session was allocated 0049-0055 after I
+-- had already written this file. Neither was applied, so the free one moves.
+-- Recorded because a chunk-number collision earlier tonight cost a branch
+-- rename, and this is the same failure in the namespace where it would have
+-- cost a production migration instead.
+--
 -- Twenty candidates were fetched with a declared UA on 2026-08-01T22:4xZ and
 -- kept only if they returned 200 AND parsed to three or more items through
 -- our OWN parser, not merely through curl. Eleven failed and are recorded in
