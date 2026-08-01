@@ -339,6 +339,17 @@ describe("runGeneration end-to-end", () => {
     expect(valid!.n).toBe(3);
   });
 
+  it("an EMPTY echo_ngrams alerts loudly instead of silently disabling the check", async () => {
+    // It no-opped in production for four days behind a warn line. Absence of
+    // data is never evidence of no match.
+    await env.KV.delete("echo:empty_alert_sent");
+    await env.DB.prepare(`DELETE FROM echo_ngrams`).run();
+    await seedApproved("P-echoempty");
+    nextReply = () => GOOD;
+    await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+    expect(TGRAM.calls.some((c) => c.includes("echo_ngrams is empty"))).toBe(true);
+  });
+
   it("auth failure pauses the run after ONE call and alerts once per window (finding #32)", async () => {
     await seedApproved("P-auth1");
     await seedApproved("P-auth2");

@@ -55,6 +55,7 @@ export const MAX_ATTEMPTS = 4;
 export const RUN_TIME_CAP_MS = 120_000;
 
 const KV_OPENROUTER_ALERTED = "openrouter:auth_alert_sent";
+const KV_ECHO_EMPTY_ALERTED = "echo:empty_alert_sent";
 
 const VARIANTS: readonly Variant[] = ["dry", "sharp", "commentary"];
 
@@ -196,19 +197,23 @@ async function insertGeneration(
 
 /** Alerts draw the RESERVED pool (an alert about a held post outranks a feed
  *  poll) and dropping one is itself logged loudly (finding #20). */
-async function alertOwner(env: Env, text: string, budget: TickBudget): Promise<void> {
+/** Returns TRUE only when the message actually reached Telegram, so callers
+ *  can gate a suppression key on delivery rather than on intent. */
+async function alertOwner(env: Env, text: string, budget: TickBudget): Promise<boolean> {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
     log("error", "generation alert DROPPED: telegram not configured", { alert: text.slice(0, 120) });
-    return;
+    return false;
   }
   if (!budget.take(1, { reserved: true })) {
     log("error", "generation alert DROPPED: budget exhausted", { alert: text.slice(0, 120) });
-    return;
+    return false;
   }
   try {
     await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, text);
+    return true;
   } catch (e) {
     log("error", "generation alert send FAILED", { alert: text.slice(0, 120), error: String(e) });
+    return false;
   }
 }
 
@@ -246,7 +251,24 @@ export async function runGeneration(
   // One probe per run, not per variant (finding #22).
   const corpusPopulated = await corpusHasData(env.DB);
   if (!corpusPopulated) {
-    log("warn", "echo_ngrams is empty; corpus echo check is a no-op (run scripts/build-echo-hashes.mjs)");
+    // ABSENCE IS NOT EVIDENCE (the lesson the issuer gate paid for): an empty
+    // table means "not loaded", never "nothing matches". The check degrades
+    // open — style similarity is not doctrine — but it must be LOUD, because
+    // this silently no-opped in production from 2026-07-28 to 08-01 and only
+    // a manual row count found it. One alert per 24h, not a log line nobody
+    // reads.
+    log("error", "echo_ngrams is EMPTY; corpus echo check is disabled (run scripts/build-echo-hashes.mjs)");
+    if (!(await env.KV.get(KV_ECHO_EMPTY_ALERTED))) {
+      // Suppress only AFTER a confirmed send. Writing the key first meant a
+      // failed send silenced the alert for 24h having never delivered it —
+      // the same silent-success shape as the bug it exists to report.
+      const delivered = await alertOwner(
+        env,
+        "⚠️ echo_ngrams is empty: the corpus-echo check is OFF, so generated drafts are not being screened against competitor phrasing. Load it with scripts/build-echo-hashes.mjs.",
+        budget,
+      );
+      if (delivered) await env.KV.put(KV_ECHO_EMPTY_ALERTED, "1", { expirationTtl: 24 * 3600 });
+    }
   }
 
   for (const row of rows.results) {

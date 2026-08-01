@@ -29,6 +29,30 @@ export function maskSkeleton(text: string): string {
   return s;
 }
 
+/**
+ * ACCEPTED FALSE-REJECTION RATE (measured, 2026-08-01).
+ *
+ * 32-bit FNV-1a over a loaded set of 726,579 hashes occupies 1.692e-4 of the
+ * space. A draft carries 16-61 distinct 8-grams (median 31 across the owner's
+ * exemplars), so the chance of at least one PURE collision is:
+ *
+ *     16 grams -> 0.270%      31 grams -> 0.523%      61 grams -> 1.027%
+ *
+ * About one draft in 200 at the median is rejected for echoing a competitor
+ * post it never echoed. Recorded rather than hidden because the rejection
+ * reason reads as legitimate (`rejected:corpus_echo`), so the cost is
+ * invisible without this note. The consequence is bounded: a rejected variant
+ * regenerates once and then falls back to the template, so a false hit costs
+ * one extra LLM call, never a wrong post.
+ *
+ * WHY NOT WIDEN TO 64-BIT TODAY: the stored hashes ARE this function's output.
+ * Changing it silently invalidates all 726,579 rows — every lookup would miss,
+ * and the check would return to being a no-op that reports "no match", which
+ * is precisely the failure that hid it for four days. Widening is therefore a
+ * COORDINATED change: ship the new hash and reload the table in the same
+ * operation, then verify with a live probe (a known corpus 8-gram must hit, an
+ * owner-exemplar 8-gram must not). Do not do one without the other.
+ */
 /** FNV-1a 32-bit over UTF-16 code units, hex. Fast, sync, good enough for
  *  collision *detection* (we compare equality, we don't need crypto). */
 export function fnv1a(s: string): string {

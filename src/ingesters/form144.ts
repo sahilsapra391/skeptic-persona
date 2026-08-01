@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { gateContext, issuerGate } from "./issuers";
 import { fetchPool, newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
 import { decodeEntities, extractAllNs, extractAttr, extractFirst, extractFirstNs, stripBom } from "../lib/xml";
@@ -279,6 +280,8 @@ export async function pollForm144(env: Env, now: Date = new Date(), budget: Tick
 }
 
 async function processDetails(env: Env, userAgent: string, now: Date, budget: TickBudget): Promise<void> {
+  // ONCE per batch: see gateContext. Per filing this is a full table scan.
+  const ctx = await gateContext(env, now);
   const pending = await env.DB.prepare(
     `SELECT id, payload, event_at FROM items WHERE source = ?1 AND status = 'pending_detail' ORDER BY id LIMIT ?2`,
   )
@@ -303,7 +306,14 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
       const doc = parseForm144Xml(res.body);
       if (!doc) throw new Error("primary_doc did not parse");
 
-      const score = scoreForm144(doc);
+      let score = scoreForm144(doc);
+      // ISSUER GATE. Same reference the 8-K lane uses, same fail-open rules.
+      // The filing still lands in the lake; it just stops interrupting.
+      const gate = await issuerGate(env, doc.issuerCik, ctx);
+      if (!gate.keep) {
+        score = Math.min(score, SCORE_LOG_ONLY);
+        log("debug", "form144 suppressed by issuer gate", { cik: doc.issuerCik, reason: gate.reason });
+      }
       const fresh = isFreshAtIngest(row.event_at ?? "", now);
       await env.DB.prepare(
         `UPDATE items SET payload = ?1, score = ?2, status = ?3 WHERE id = ?4 AND status = 'pending_detail'`,
