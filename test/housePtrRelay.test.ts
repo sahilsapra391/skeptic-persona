@@ -21,24 +21,27 @@ function pending(secret: string | null = SECRET): Promise<Response> {
   return SELF.fetch(`${URL_BASE}${PENDING_PATH}`, { headers });
 }
 
-/** Seed a discovery-level House item exactly as pollHousePtr would. */
+/** Seed a discovery-level House item exactly as pollHousePtr would:
+ *  eventAt derives from filedDate (houseDateToIso does the same). */
 async function seedIndexRow(
   docId: string,
   now: Date,
   over: Partial<{ efiled: boolean; filedDate: string; member: string }> = {},
 ) {
+  const filedDate = over.filedDate ?? "07/27/2026";
+  const [m, d, y] = filedDate.split("/").map(Number);
   await insertItem(
     env.DB,
     {
       source: HOUSE_SOURCE,
       externalId: docId,
       category: "congress",
-      eventAt: "2026-07-27T00:00:00.000Z",
+      eventAt: new Date(Date.UTC(y!, m! - 1, d!)).toISOString(),
       sourceUrl: `https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/2026/${docId}.pdf`,
       payload: {
         member: over.member ?? "Hon. Example Member",
         stateDst: "CA01",
-        filedDate: over.filedDate ?? "07/27/2026",
+        filedDate,
         efiled: over.efiled ?? true,
         transactions: null,
       },
@@ -50,6 +53,17 @@ async function seedIndexRow(
 }
 
 const NOW = new Date("2026-07-28T14:00:00.000Z");
+
+// The /ingest endpoint is exercised through SELF.fetch, where the Worker
+// evaluates freshness on ITS OWN clock — a test cannot inject `now` through
+// an HTTP boundary. Tests that assert queue-vs-lake outcomes must therefore
+// seed filing dates relative to the real clock; everything date-insensitive
+// keeps the pinned NOW. (These two tests went red four days after they were
+// written because the pinned date quietly aged past the 48h freshness window.)
+const REAL_NOW = new Date();
+const FRESH_FILED = `${String(REAL_NOW.getUTCMonth() + 1).padStart(2, "0")}/${String(
+  REAL_NOW.getUTCDate(),
+).padStart(2, "0")}/${REAL_NOW.getUTCFullYear()}`;
 
 async function payloadOf(docId: string): Promise<Record<string, unknown>> {
   const row = await env.DB.prepare(`SELECT payload FROM items WHERE dedup_key = ?1`)
@@ -101,7 +115,7 @@ describe("house_ptr pending endpoint", () => {
 
 describe("house_ptr extraction relay", () => {
   it("merges transactions, drafts, and queues a fresh filing", async () => {
-    await seedIndexRow("20260100", NOW);
+    await seedIndexRow("20260100", REAL_NOW, { filedDate: FRESH_FILED });
     const res = await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260100", text: MULTI }] }) });
     expect(res.status).toBe(200);
 
@@ -200,7 +214,7 @@ describe("house_ptr items past the relay's drain limit still reach the queue", (
     // never looked at status='new'. Surplus postable filings sat unqueued
     // AND invisible to the pending endpoint (their transactions are set).
     const docs = ["20260200", "20260201", "20260202", "20260203", "20260204"];
-    for (const d of docs) await seedIndexRow(d, NOW);
+    for (const d of docs) await seedIndexRow(d, REAL_NOW, { filedDate: FRESH_FILED });
 
     const res = await post({
       source: HOUSE_SOURCE,
@@ -218,7 +232,7 @@ describe("house_ptr items past the relay's drain limit still reach the queue", (
     // The relay drains 3; the rest are the backlog this test exists for.
     expect(stranded!.n).toBeGreaterThan(0);
 
-    await pollHousePtr(env as never, NOW);
+    await pollHousePtr(env as never, REAL_NOW);
 
     const after = await env.DB.prepare(
       `SELECT COUNT(*) AS n FROM items WHERE source = ?1 AND status = 'new' AND external_id IN (${docs

@@ -33,6 +33,11 @@ CONTACT_EMAIL = "admin@spechawk.ai"
 POSTING_ENABLED = "false"
 # Owner's private chat; the only chat the approval bot listens to.
 TELEGRAM_CHAT_ID = "6504147349"
+# Queue TTLs (owner decision 2026-08-01): manual posting means a card must
+# survive a workday. Declared HERE (not the dashboard) because Workers Builds
+# re-applies [vars] on every merge deploy. Overrides merge over code defaults.
+QUEUE_TTL_HOURS = "48"
+QUEUE_TTL_OVERRIDES = "MACRO_PRINT:12,HALT:12,CONGRESS_PTR:96"
 # Generation model id (P2-R). Declared HERE because Workers Builds re-applies
 # [vars] on every merge deploy — a dashboard-set value would be wiped. Empty =
 # generation holds and the queue accumulates; the owner sets the real id in a

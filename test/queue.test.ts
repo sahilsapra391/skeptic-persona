@@ -121,6 +121,35 @@ describe("queue state machine", () => {
     expect((await expirePendingBefore(env.DB, cutoff, NOW)).length).toBe(0);
   });
 
+  it("expires per archetype when given a cutoff map (p4-00 owner TTLs)", async () => {
+    // At sweep time: HALT is 13h old (12h TTL -> expired), CONGRESS_PTR is
+    // 50h old (96h TTL -> alive), WIRE is 50h old (48h default -> expired).
+    const mk = async (ext: string, archetype: string, ageHours: number) => {
+      const itemId = await seedItem(ext);
+      return createQueueEntry(env.DB, itemId, archetype, "d", new Date(NOW.getTime() - ageHours * 3_600_000));
+    };
+    const halt = await mk("T-halt", "HALT", 13);
+    const ptr = await mk("T-ptr", "CONGRESS_PTR", 50);
+    const wire = await mk("T-wire", "WIRE", 50);
+
+    const at = (h: number) => new Date(NOW.getTime() - h * 3_600_000);
+    const expired = await expirePendingBefore(
+      env.DB,
+      { default: at(48), byArchetype: { HALT: at(12), MACRO_PRINT: at(12), CONGRESS_PTR: at(96) } },
+      NOW,
+    );
+
+    expect(expired.map((e) => e.id).sort()).toEqual([halt, wire].sort());
+    expect((await getQueueEntry(env.DB, ptr))?.state).toBe("pending");
+    // The same PTR expires once it outlives ITS OWN window.
+    const late = await expirePendingBefore(
+      env.DB,
+      { default: at(48), byArchetype: { CONGRESS_PTR: at(49) } },
+      NOW,
+    );
+    expect(late.map((e) => e.id)).toEqual([ptr]);
+  });
+
   it("expiry mirror self-heals items stranded 'queued' by a past partial failure", async () => {
     // Simulate historic divergence: queue row expired but item never mirrored.
     const strandedItem = await seedItem("Q-stranded");
@@ -135,5 +164,43 @@ describe("queue state machine", () => {
 
     expect(await itemStatus(strandedItem)).toBe("expired");
     expect(await itemStatus(otherItem)).toBe("expired");
+  });
+});
+
+describe("ttlCutoffs env parsing", () => {
+  const hoursAgo = (cutoff: Date) => Math.round((NOW.getTime() - cutoff.getTime()) / 3_600_000);
+
+  it("defaults: 48h fallback with the owner's per-archetype map", async () => {
+    const { ttlCutoffs } = await import("../src/jobs");
+    const cuts = ttlCutoffs({} as never, NOW);
+    expect(hoursAgo(cuts.default)).toBe(48);
+    expect(hoursAgo(cuts.byArchetype["MACRO_PRINT"]!)).toBe(12);
+    expect(hoursAgo(cuts.byArchetype["HALT"]!)).toBe(12);
+    expect(hoursAgo(cuts.byArchetype["CONGRESS_PTR"]!)).toBe(96);
+  });
+
+  it("env overrides merge key-by-key over the defaults", async () => {
+    const { ttlCutoffs } = await import("../src/jobs");
+    const cuts = ttlCutoffs(
+      { QUEUE_TTL_HOURS: "24", QUEUE_TTL_OVERRIDES: "HALT:6, STORM:120" } as never,
+      NOW,
+    );
+    expect(hoursAgo(cuts.default)).toBe(24);
+    expect(hoursAgo(cuts.byArchetype["HALT"]!)).toBe(6); // env wins
+    expect(hoursAgo(cuts.byArchetype["STORM"]!)).toBe(120); // env adds
+    expect(hoursAgo(cuts.byArchetype["CONGRESS_PTR"]!)).toBe(96); // default survives
+  });
+
+  it("a malformed override entry is skipped, never zeroed", async () => {
+    const { ttlCutoffs } = await import("../src/jobs");
+    const cuts = ttlCutoffs(
+      { QUEUE_TTL_OVERRIDES: "HALT:0,CONGRESS_PTR:abc,MACRO_PRINT:-4,,FILING_8K:2" } as never,
+      NOW,
+    );
+    // Invalid values (zero, non-numeric, negative) leave the defaults intact.
+    expect(hoursAgo(cuts.byArchetype["HALT"]!)).toBe(12);
+    expect(hoursAgo(cuts.byArchetype["CONGRESS_PTR"]!)).toBe(96);
+    expect(hoursAgo(cuts.byArchetype["MACRO_PRINT"]!)).toBe(12);
+    expect(hoursAgo(cuts.byArchetype["FILING_8K"]!)).toBe(2);
   });
 });
