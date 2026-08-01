@@ -132,6 +132,13 @@ honest.
 - `wrangler d1 migrations apply` prints **"No migrations to apply!"** identically
   for "nothing pending" and "your checkout doesn't contain the file". It bit the
   owner twice and a session once.
+- **Deploys are automatic on merge** (Workers Builds, measured at 25–40s after
+  each of four merges). A manual `npm run deploy` publishes **the checkout you
+  run it from** — so from a feature-branch worktree it silently overwrites
+  main-merged code with unmerged work, succeeds, and reports success. Two
+  sessions held opposite beliefs about this for hours; the timing table settled
+  it. Sits beside the migrations line for the same reason: both are commands
+  that succeed while doing something other than what the operator believes.
 - A `.bin.fixture` extension fails `?raw` at **module resolution**, not at read.
 - Literal control bytes inside committed fixtures are **invisible in every
   diff**, and made exact-match editing fail against the file. (The harness later
