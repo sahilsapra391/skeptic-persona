@@ -1124,17 +1124,45 @@ export interface ValidateOptions {
  * failure when both fire — an audit row saying rejected:cadence when the
  * draft also fabricated a number would bury the finding that matters.
  */
+/**
+ * THE FABRICATION FLOOR, as ONE list.
+ *
+ * These are the gates that are variant-INDEPENDENT: every one runs identically
+ * for dry, sharp and commentary. (What differs by variant is only
+ * `structuralCheck`'s segment cap and `lengthCheck`'s 200-char minimum, which
+ * is why neither is here.)
+ *
+ * It is a list rather than eleven inline calls so that the exemplar-parity
+ * test can enumerate the SAME gates instead of a hand-maintained copy of them.
+ * That gap is what produced the defect this exists to prevent: the owner's
+ * exemplars were tested against `checkRegister` and `fitsInPost` and never
+ * against the floor, so the pack taught `Filed July 18.` while `entityCheck`
+ * rejected it, and the pipeline generated drafts it was obliged to discard.
+ *
+ * The rule, generalised: **any artefact that teaches the model must pass every
+ * gate the model's output must pass** — and the assertion has to read its gates
+ * from the same place the pipeline does, or the two drift apart again the next
+ * time somebody adds a check.
+ */
+export const FLOOR_GATES: ReadonlyArray<{
+  readonly name: string;
+  readonly run: (text: string, payload: Payload, facts: PayloadFacts) => ValidationIssue[];
+}> = [
+  { name: "numberCheck", run: (t, p, f) => numberCheck(t, p, f) },
+  { name: "entityCheck", run: (t, p, f) => entityCheck(t, p, f) },
+  { name: "sourcingCheck", run: (t) => sourcingCheck(t) },
+  { name: "urlCheck", run: (t) => urlCheck(t) },
+  { name: "motiveCheck", run: (t) => motiveCheck(t) },
+];
+
 export async function validateVariant(db: D1Database, text: string, opts: ValidateOptions): Promise<ValidationIssue[]> {
   const facts = opts.grounding
     ? mergeFacts(payloadFacts(opts.payload), groundingFacts(opts.grounding))
     : payloadFacts(opts.payload);
   const issues: ValidationIssue[] = [
-    // Group 1 — the floor.
-    ...numberCheck(text, opts.payload, facts),
-    ...entityCheck(text, opts.payload, facts),
-    ...sourcingCheck(text),
-    ...urlCheck(text),
-    ...motiveCheck(text),
+    // Group 1 — the floor, enumerated from FLOOR_GATES so the exemplar-parity
+    // test cannot fall out of step with what actually runs here.
+    ...FLOOR_GATES.flatMap((g) => g.run(text, opts.payload, facts)),
     ...structuralCheck(text, opts.variant),
     // Payload arg (PR #53): resolves the single correct attribution for
     // chamber-mapped archetypes — the wrong-chamber check comes free.
