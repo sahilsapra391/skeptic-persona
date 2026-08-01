@@ -207,16 +207,40 @@ describe("grounding provenance — wrong document is a fabrication license", () 
     for (const f of NON_ANCHOR_FIELDS) expect(ALL_ANCHOR_FIELDS).not.toContain(f);
   });
 
-  it("REGRESSION: a one-word name after suffix stripping must not license unrelated prose", () => {
-    // "NOW INC" -> "now", and "now" is in nearly every document. Real EDGAR
-    // filers: DistributionNOW, Gap, Box. Merged main rejected these; the first
-    // hardening INTRODUCED the hole, so this pins the floor.
-    const unrelated = "Acme Industries said the deal should close now that regulators signed off, and the gap in the box was noted.";
-    for (const company of ["NOW INC", "GAP INC", "BOX INC"]) {
+  it("REGRESSION: TEN REAL FILERS whose name reduces to a common word license nothing", () => {
+    // Owner set a hard bar on this gate: it is the one validator whose failure
+    // puts invented facts on the account. So the poison cases are REAL, pulled
+    // from our own issuers table (8,043 rows) — not invented. 2,081 of those
+    // (26%) have a conformed name that reduces to a single token; these ten
+    // reduce to a common English word.
+    const REAL_FILERS = [
+      "Block, Inc.", "BOX INC", "CROWN HOLDINGS, INC.", "Freedom Holding Corp.",
+      "Frontier Group Holdings, Inc.", "GAP INC", "Noble Corp plc", "On Holding AG",
+      "Target Group Inc.", "TARGET CORP",
+    ];
+    const unrelated =
+      "Acme Industries said the block trade will close now that the gap in coverage is on target. " +
+      "The box was noted, a crown jewel asset, giving freedom at the frontier with noble intent.";
+    for (const company of REAL_FILERS) {
       expect(checkGroundingProvenance(unrelated, { company }).ok, company).toBe(false);
     }
-    // The full form with its suffix is distinctive again, so a real match holds.
-    expect(checkGroundingProvenance("NOW Inc. reported quarterly results today.", { company: "NOW INC" }).ok).toBe(true);
+  });
+
+  it("...and each still matches its OWN document", () => {
+    for (const company of ["Block, Inc.", "BOX INC", "CROWN HOLDINGS, INC.", "GAP INC", "On Holding AG"]) {
+      const own = `${company} today announced results for the quarter ended June 30, 2026, and filed a current report.`;
+      expect(checkGroundingProvenance(own, { company }).ok, company).toBe(true);
+    }
+  });
+
+  it("a name that cannot discriminate is DROPPED, never guessed", () => {
+    // "RH" reduces to one token in both forms, so no form of it can prove
+    // provenance. Dropping falls through to a VISIBLE fail-open rather than
+    // matching "rh" anywhere it appears.
+    const v = checkGroundingProvenance("Some unrelated prose mentioning rh in passing, at length, with many other words here.", { company: "RH" });
+    expect(v.ok).toBe(true);
+    expect(v.reason).toBe("no_usable_anchor"); // visible, not silent
+    expect(v.matched).toBeNull();
   });
 
   it("dotted and EDGAR-state name forms still match (punctuation runs before suffix stripping)", () => {
