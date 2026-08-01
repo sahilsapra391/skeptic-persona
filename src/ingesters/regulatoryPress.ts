@@ -153,6 +153,51 @@ export const PRESS_SOURCES: readonly PressSource[] = [
     url: "https://www.sebi.gov.in/sebirss.xml",
     categories: [],
   },
+  {
+    id: "press_sec_speeches",
+    authority: "SEC Commissioners",
+    // Statements and speeches, distinct from press_sec_enforcement. This is
+    // where policy direction is signalled before it becomes a rule.
+    url: "https://www.sec.gov/news/speeches-statements.rss",
+    categories: [],
+  },
+  {
+    id: "press_cfpb",
+    authority: "CFPB",
+    url: "https://www.consumerfinance.gov/about-us/newsroom/feed/",
+    categories: [],
+  },
+  {
+    id: "press_gao",
+    authority: "GAO",
+    // Government Accountability Office reports. Slow-moving and often the
+    // first public accounting of a programme's real numbers.
+    url: "https://www.gao.gov/rss/reports.xml",
+    categories: [],
+  },
+  {
+    id: "press_eba",
+    authority: "European Banking Authority",
+    url: "https://www.eba.europa.eu/rss.xml",
+    categories: [],
+    // The EBA feed carries conference and paper calls alongside supervisory
+    // actions; those are academic housekeeping, not supervision.
+    skipTitle: /\b(call for papers|research workshop|vacancy|recruit\w*)\b/i,
+  },
+  {
+    id: "press_boe_news",
+    authority: "Bank of England",
+    // News and publications. rate_boe already tracks the Bank Rate series
+    // itself; this is everything around it.
+    url: "https://www.bankofengland.co.uk/rss/news",
+    categories: [],
+  },
+  {
+    id: "press_riksbank",
+    authority: "Sveriges Riksbank",
+    url: "https://www.riksbank.se/en-gb/rss/press-releases/",
+    categories: [],
+  },
 ];
 
 export interface PressItem {

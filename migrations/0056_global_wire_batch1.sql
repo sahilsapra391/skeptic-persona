@@ -29,4 +29,13 @@ INSERT OR IGNORE INTO jobs (name, due_at, cadence_profile, enabled, priority) VA
   ('press_ons',          '2026-08-02T00:00:00.000Z', 'hourly', 1, 50),
   ('press_ofsi',         '2026-08-02T00:00:00.000Z', 'hourly', 1, 50),
   ('press_rbi',          '2026-08-02T00:00:00.000Z', 'hourly', 1, 50),
-  ('press_sebi',         '2026-08-02T00:00:00.000Z', 'hourly', 1, 50);
+  ('press_sebi',         '2026-08-02T00:00:00.000Z', 'hourly', 1, 50),
+  -- Batch 2, probed in the same pass: 24 more candidates, 8 returned usable
+  -- feeds, 6 survived parsing. GDELT is usable but JSON rather than RSS and
+  -- needs its own parser, so it is deferred rather than bolted on here.
+  ('press_sec_speeches', '2026-08-02T00:00:00.000Z', 'hourly', 1, 50),
+  ('press_cfpb',         '2026-08-02T00:00:00.000Z', 'hourly', 1, 50),
+  ('press_gao',          '2026-08-02T00:00:00.000Z', 'hourly', 1, 50),
+  ('press_eba',          '2026-08-02T00:00:00.000Z', 'hourly', 1, 50),
+  ('press_boe_news',     '2026-08-02T00:00:00.000Z', 'hourly', 1, 50),
+  ('press_riksbank',     '2026-08-02T00:00:00.000Z', 'hourly', 1, 50);
