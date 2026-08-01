@@ -137,6 +137,92 @@ export function payloadFacts(payload: Payload): PayloadFacts {
   return { numbers, percents, dates, json: JSON.stringify(payload) };
 }
 
+/**
+ * Facts from GROUNDING TEXT (source document + lake context) — the p4-01
+ * widening. Same primitives and the same bypass guards as payloadFacts:
+ * dates parse structurally (phrase and ISO), numbers enter at their PARSED
+ * value (a "45,000" in the source never licenses "$45 billion" — the draft
+ * side's scale multiplication runs against the parsed set), percents only
+ * from tokens the source itself marks as % / bps, spelled-out numbers at
+ * their word value. The raw text becomes part of the entity/verbatim
+ * haystack via mergeFacts.
+ */
+export function groundingFacts(grounding: string): PayloadFacts {
+  const numbers = new Set<string>();
+  const percents = new Set<string>();
+  const dates = new Set<string>();
+
+  const addNumber = (n: number): void => {
+    if (!Number.isFinite(n)) return;
+    numbers.add(canon(n));
+    numbers.add(canon(Math.abs(n)));
+    // Same scale-DOWN-only licensing as payloadFacts; nothing scales up.
+    if (Math.abs(n) >= 1000) for (const [, f] of SCALE_WORDS) numbers.add(canon(n / f));
+  };
+
+  // Dates first, consumed — their components must not leak into the numeric
+  // set as free integers. The grounding grammar is DELIBERATELY narrower than
+  // the draft-side DATE_PHRASE_RE: month-name and ISO forms only. Free prose
+  // is full of slash tokens that are not dates ("a 3/4 majority", "24/7"),
+  // and each would otherwise license a fabricated month-day (review finding).
+  const afterDates = grounding.replace(GROUNDING_DATE_RE, (_, mn1, d1, y1, d2, mn2, y2, yIso, mIso, dIso) => {
+    let m: number | undefined, d: number | undefined, y: number | undefined;
+    if (mn1) [m, d, y] = [MONTHS[String(mn1).toLowerCase()], Number(d1), y1 ? Number(y1) : undefined];
+    else if (mn2) [m, d, y] = [MONTHS[String(mn2).toLowerCase()], Number(d2), y2 ? Number(y2) : undefined];
+    else [y, m, d] = [Number(yIso), Number(mIso), Number(dIso)];
+    dates.add(`${m}-${d}`);
+    if (y !== undefined) {
+      dates.add(`${y}-${m}-${d}`);
+      addNumber(y);
+    }
+    return " ";
+  });
+
+  // Clock times consumed next, mirroring numberCheck's own time pass: "9:30
+  // a.m." must not hand 9 and 30 to the licensed set (review finding — the
+  // draft side closed this as bypass #4; the grounding side must match).
+  const afterTimes = afterDates.replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, " ");
+
+  // Numeric tokens with a grounding-specific suffix grammar: WORD scales
+  // only, case-insensitive ("$2.3 Billion" in a headline licenses 2.3e9),
+  // and NO single-letter [MKB] suffixes — "Exhibit 8 B" in a legal document
+  // must never license 8,000,000,000 (review finding).
+  for (const m of afterTimes.matchAll(/\$?(\d[\d,]*\.?\d*)\s*(%|bps\b|billion\b|bn\b|million\b|mm\b|thousand\b)?/gi)) {
+    const base = Number(m[1]!.replace(/,/g, ""));
+    if (!Number.isFinite(base)) continue;
+    const suffix = m[2]?.toLowerCase();
+    if (suffix === "%" || suffix === "bps") {
+      addNumber(base);
+      percents.add(canon(base));
+      percents.add(canon(Math.abs(base)));
+      continue;
+    }
+    const scale = suffix ? SCALE_WORDS.find(([re]) => re.test(suffix))?.[1] : undefined;
+    addNumber(scale !== undefined ? base * scale : base);
+  }
+  // Spelled-out numbers in the source license spelled-out claims.
+  const words = afterTimes.toLowerCase().split(/[^a-z0-9-]+/);
+  for (let i = 0; i < words.length; i++) {
+    const base = WORD_UNITS[words[i]!];
+    if (base === undefined) continue;
+    const scale = WORD_SCALES[words[i + 1] ?? ""];
+    addNumber(scale !== undefined ? base * scale : base);
+  }
+
+  return { numbers, percents, dates, json: grounding };
+}
+
+/** Union of two fact universes; the haystacks concatenate so entity and
+ *  verbatim checks see both. */
+export function mergeFacts(a: PayloadFacts, b: PayloadFacts): PayloadFacts {
+  return {
+    numbers: new Set([...a.numbers, ...b.numbers]),
+    percents: new Set([...a.percents, ...b.percents]),
+    dates: new Set([...a.dates, ...b.dates]),
+    json: `${a.json}\n${b.json}`,
+  };
+}
+
 const MONTHS: Record<string, number> = {
   january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
   july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
@@ -150,6 +236,16 @@ const DATE_PHRASE_RE = new RegExp(
     `|(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTH_NAME})\\.?(?:,?\\s+(\\d{4}))?` +
     `|(\\d{4})-(\\d{2})-(\\d{2})` +
     `|(\\d{1,2})/(\\d{1,2})(?:/(\\d{2,4}))?)\\b`,
+  "gi",
+);
+
+/** Grounding-side date grammar: month-name and ISO forms ONLY. The slash
+ *  form stays draft-side (DATE_PHRASE_RE) where it validates a claim; over
+ *  free source prose it would mint dates from fractions and dockets. */
+const GROUNDING_DATE_RE = new RegExp(
+  `\\b(?:(${MONTH_NAME})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?` +
+    `|(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTH_NAME})\\.?(?:,?\\s+(\\d{4}))?` +
+    `|(\\d{4})-(\\d{2})-(\\d{2}))\\b`,
   "gi",
 );
 
@@ -396,7 +492,12 @@ export function sourcingCheck(text: string): ValidationIssue[] {
 /** The model receives no URL and must emit none; the source link rides in a
  *  reply (p2r-05). Belt to that brace (finding #10). */
 export function urlCheck(text: string): ValidationIssue[] {
-  return /(?:https?:\/\/|\bwww\.|\bt\.co\b)/i.test(text)
+  // Scheme-less official domains too ("SEC.gov" in agency boilerplate): X
+  // links them like any URL, so they'd bill 23 weighted while our counter
+  // sees 7 — and the post contract is no links at all (review finding).
+  return /(?:https?:\/\/|\bwww\.|\bt\.co\b|\b[a-z0-9][a-z0-9.-]*\.(?:gov|mil|int)\b|\b[a-z0-9][a-z0-9.-]*\.(?:europa\.eu|org\.uk|or\.jp|gov\.au|gov\.br|co\.za)\b)/i.test(
+    text,
+  )
     ? [{ rule: "url", detail: "URLs never ride in the post body; the source goes in the reply" }]
     : [];
 }
@@ -549,6 +650,9 @@ export interface ValidateOptions {
   readonly variant: Variant;
   readonly archetype: ArchetypeId;
   readonly payload: Payload;
+  /** Grounding text shown to the model (source document + lake context);
+   *  widens the number/entity whitelist to exactly what the prompt showed. */
+  readonly grounding?: string;
   readonly templateDraft: string;
   readonly skeletonHash: string;
   readonly openerHash: string;
@@ -563,7 +667,9 @@ export interface ValidateOptions {
  * draft also fabricated a number would bury the finding that matters.
  */
 export async function validateVariant(db: D1Database, text: string, opts: ValidateOptions): Promise<ValidationIssue[]> {
-  const facts = payloadFacts(opts.payload);
+  const facts = opts.grounding
+    ? mergeFacts(payloadFacts(opts.payload), groundingFacts(opts.grounding))
+    : payloadFacts(opts.payload);
   const issues: ValidationIssue[] = [
     // Group 1 — the floor.
     ...numberCheck(text, opts.payload, facts),

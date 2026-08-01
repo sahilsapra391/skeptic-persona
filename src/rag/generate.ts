@@ -12,6 +12,8 @@ import { fitsInPost } from "../templates/length";
 import { checkRegister } from "../templates/validate";
 import { chatComplete, OpenRouterError, parseVariants } from "./openrouter";
 import { OWNER_EXEMPLARS, stylePackFor } from "./stylepack";
+import { fetchSourceText, isBlockedGroundingHost, type SourceText } from "./sourceText";
+import { lakeContext } from "./context";
 import { openerHash, skeletonHash } from "./echo";
 import { corpusHasData, validateVariant, type ValidationIssue, type Variant } from "./validate";
 
@@ -69,6 +71,9 @@ interface GenRow {
   edited_text: string | null;
   payload: string;
   source_url: string;
+  source: string;
+  raw_text: string | null;
+  raw_meta: string | null;
 }
 
 /** Beats whose gates PASS for this payload — the only beats the model sees.
@@ -103,6 +108,7 @@ export function buildPrompt(
   payload: Payload,
   exemplars: ReadonlyArray<{ archetype: ArchetypeId; text: string; register?: "wire" | "commentary" }>,
   feedback: readonly string[] = [],
+  grounding?: { source?: SourceText | null; contextLines?: readonly string[] },
 ): { system: string; user: string } {
   const beats = eligibleBeats(archetypeId, payload);
   const system = [
@@ -118,18 +124,44 @@ export function buildPrompt(
   // first live run produced correct-by-exemplar attributions the validator
   // rejected because the prompt never said which string the gauntlet demands.
   const attribution = resolveAttribution(ARCHETYPES[archetypeId], payload);
+  const hasSource = Boolean(grounding?.source?.text);
+  const hasContext = Boolean(grounding?.contextLines?.length);
+  // Name only the universes actually present below (review cosmetic).
+  const factSources =
+    hasSource && hasContext
+      ? "the payload, the SOURCE DOCUMENT, or the LAKE CONTEXT below"
+      : hasSource
+        ? "the payload or the SOURCE DOCUMENT below"
+        : hasContext
+          ? "the payload or the LAKE CONTEXT below"
+          : "the payload";
+  const modeLabel = (m: string): string => (m === "excerpt" ? "excerpt" : m === "ingest_rss" ? "ingest-captured summary" : "full text");
   const user = [
-    "PAYLOAD (the ONLY source of facts; every number, name, ticker, date and code in your output must appear here; derived figures are already computed as fields — never do arithmetic, never state relative quantities like 'double' or 'half'):",
+    `PAYLOAD (every number, name, ticker, date and code in your output must appear in ${factSources}; derived figures are already computed as fields — never do arithmetic, never state relative quantities like 'double' or 'half'):`,
     JSON.stringify(payload, null, 1),
+    ...(hasSource
+      ? [
+          `SOURCE DOCUMENT (${grounding!.source!.host}, fetched ${grounding!.source!.fetchedAt}, ${modeLabel(grounding!.source!.mode)}) — the primary record behind this item; its facts are usable:`,
+          // The delimiter must stay ours: third-party text containing """ would
+          // end the block early and read from instruction position.
+          `"""\n${grounding!.source!.text.replace(/"{3,}/g, "'''")}\n"""`,
+        ]
+      : []),
+    ...(hasContext
+      ? [
+          "LAKE CONTEXT (our own parsed history, machine-derived; usable in the take to place this item against the record):",
+          ...grounding!.contextLines!.map((l) => `- ${l}`),
+        ]
+      : []),
     `ARCHETYPE: ${archetypeId}`,
     "TASK: write THREE variants of one post about this payload, as strict JSON:",
     `{"commentary": "...", "sharp": "...", "dry": "..."}`,
-    "- commentary (THE deliverable; the other two are fallbacks): 200-280 weighted chars. Fact block with attribution FIRST (it must survive being screenshotted alone), then a blank line, then the take in one or two short segments (a punch line, then the argument): opinionated, a real point of view, no hedging, no advice, no imputed motive. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a payload fact as if it were the take. The take states what the record shows and stops.",
+    "- commentary (THE deliverable; the other two are fallbacks): 200-280 weighted chars. Fact block with attribution FIRST (it must survive being screenshotted alone), then a blank line, then the take in one or two short segments (a punch line, then the argument): opinionated, a real point of view, no hedging, no advice, no imputed motive. Engage the SPECIFIC record in the data above — what this actor did, how it sits against the prior record — not generalities about markets. No claims about market reaction (spreads, flows, pricing, positioning) unless stated in the data above. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a fact as if it were the take.",
     "- sharp: wire register (fact block + attribution, then at most one beat line), the escalation tier: the sharpest ELIGIBLE beat, compression at maximum.",
     "- dry: wire register, 100-140 weighted chars. Fact block + attribution, then at most one eligible beat on its own line.",
     attribution !== null
-      ? `Rules for all three: the fact block's head line ends with exactly "${attribution}" — any other citation fails validation. No hashtags, no questions, no em-dashes, no BREAKING, no URLs or links of any kind. Numbers exactly as they appear in the payload (bands stay bands).`
-      : "Rules for all three: attribution on the fact block. No hashtags, no questions, no em-dashes, no BREAKING, no URLs or links of any kind. Numbers exactly as they appear in the payload (bands stay bands).",
+      ? `Rules for all three: the fact block's head line ends with exactly "${attribution}" — any other citation fails validation. No hashtags, no questions, no em-dashes, no BREAKING, no URLs or links of any kind. Numbers exactly as they appear in ${factSources} (bands stay bands).`
+      : `Rules for all three: attribution on the fact block. No hashtags, no questions, no em-dashes, no BREAKING, no URLs or links of any kind. Numbers exactly as they appear in ${factSources} (bands stay bands).`,
     ...(feedback.length > 0
       ? [`PREVIOUS ATTEMPT WAS REJECTED. Fix exactly these and change nothing else:\n${feedback.map((f) => `- ${f}`).join("\n")}`]
       : []),
@@ -198,7 +230,7 @@ export async function runGeneration(
   // Rows without a TERMINAL generations row (see LIFECYCLE above).
   const rows = await env.DB.prepare(
     `SELECT q.id AS queue_id, q.item_id, q.archetype, q.draft_text, q.edited_text,
-            i.payload, i.source_url
+            i.payload, i.source_url, i.source, i.raw_text, i.raw_meta
      FROM queue q
      JOIN items i ON i.id = q.item_id
      WHERE q.state IN ('approved', 'edited')
@@ -284,6 +316,20 @@ export async function runGeneration(
       }
     }
 
+    // GROUNDING (p4-01): the source document (ingest-captured or fetched once
+    // and cached) plus our lake's context lines. Either may be absent —
+    // generation proceeds on what exists, and the validator whitelist widens
+    // to exactly what the prompt showed, nothing more.
+    const hasCachedText = row.raw_text !== null && row.raw_text !== "";
+    // Cached text costs no subrequest; a blocked host must not cost a budget
+    // token for a fetch that will never happen (review finding).
+    const canFetchSource = hasCachedText || (!isBlockedGroundingHost(row.source_url) && budget.take(1));
+    const source = canFetchSource
+      ? await fetchSourceText(env, { id: row.item_id, source_url: row.source_url, raw_text: row.raw_text, raw_meta: row.raw_meta }, now)
+      : null;
+    const context = await lakeContext(env.DB, { id: row.item_id, source: row.source, archetype: archetypeId }, payload);
+    const grounding = [source?.text ?? "", ...context.lines].filter(Boolean).join("\n") || undefined;
+
     const valid = new Set<Variant>();
     const feedback: string[] = [];
     let sawApiError = false;
@@ -292,9 +338,10 @@ export async function runGeneration(
       if (!budget.take(1, { reserved: true })) break;
       let content: string;
       try {
+        const prompt = buildPrompt(archetypeId, payload, bank, feedback, { source, contextLines: context.lines });
         content = await chatComplete(env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, [
-          { role: "system", content: buildPrompt(archetypeId, payload, bank, feedback).system },
-          { role: "user", content: buildPrompt(archetypeId, payload, bank, feedback).user },
+          { role: "system", content: prompt.system },
+          { role: "user", content: prompt.user },
         ]);
       } catch (e) {
         if (e instanceof OpenRouterError && e.isAuthInvalid) {
@@ -329,6 +376,7 @@ export async function runGeneration(
           variant: v,
           archetype: archetypeId,
           payload,
+          grounding,
           templateDraft: fallback,
           skeletonHash: skeletonHash(text),
           openerHash: openerHash(text),

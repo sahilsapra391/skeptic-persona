@@ -187,6 +187,6 @@ describe("enforcement wire (live fixtures)", () => {
   it("these feeds carry no categories, so everything is newsworthy by config", () => {
     const src = PRESS_SOURCES.find((s) => s.id === "press_sec_enforcement")!;
     expect(src.categories).toEqual([]);
-    expect(isNewsworthy(src, { title: "X v. Y", link: "https://sec.gov/x", publishedIso: "2026-07-27T00:00:00.000Z", categories: [], guid: "g" })).toBe(true);
+    expect(isNewsworthy(src, { title: "X v. Y", link: "https://sec.gov/x", publishedIso: "2026-07-27T00:00:00.000Z", categories: [], guid: "g", description: null })).toBe(true);
   });
 });
