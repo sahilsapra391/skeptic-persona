@@ -58,8 +58,39 @@ landed as p4-01. Exemplar depth remains the open owner task it always was.
 - **Nobody runs `npm run deploy`.** Workers Builds auto-deploys on merge in
   28-70s. With three sessions on worktrees, a manual deploy from a feature
   branch silently overwrites main-merged code with unmerged work.
-- A cross-branch verification states the SET it covered. A nine-of-eleven
-  merge check reads as exhaustive and is not.
+- A cross-branch verification states the SET it covered AND the SHA/time it
+  ran at. A nine-of-eleven merge check reads as exhaustive and is not; so
+  does a review whose branch moved underneath it. A push to a branch under
+  review invalidates that review for the changed PR — say so, and it is re-run.
+
+## Two defect classes with no automated guard (recorded 2026-08-01)
+
+Both were found only because someone went looking. Neither is catchable by
+the suite, so they are written down instead.
+
+**1. Locally correct code contradicting a decision recorded elsewhere.**
+Three instances in one evening: a health probe re-enabling sources that
+migrations 0024/0034 deliberately parked; a migration seeding an enabled job
+row whose handler was not in the deployed build; an echo check armed against
+a table nobody had loaded. Every individual assertion passes, because a test
+asserts one decision at a time.
+
+> The contradiction always runs in the direction of the newer code, because
+> the older decision is invisible unless you go looking for it.
+> — ingestion session, 2026-08-01
+
+The practical guard, and the only one we have: **when you write code that
+re-enables, re-schedules, or re-scores an existing row, first go read why it
+is in the state it is in.**
+
+**2. "Correct, and ruinous" — a defect whose only instrument is a cost meter.**
+`issuerGate` called a full-table scan once per filing: correct code, correct
+answers, ~12,000 rows read per call, ~87M/day against a 5M/day cap. Every
+output-based assertion passes forever. The guards that would catch it are all
+cost-side — `meta.rows_read` assertions on hot-path queries, an EXPLAIN QUERY
+PLAN check that no per-item query reports SCAN, a per-tick budget counter —
+and **we currently have none of them.** Recorded so the absence is known
+rather than assumed covered.
 
 ## Queue-volume rules (owner amendment 2026-08-01, plan of record)
 
