@@ -166,6 +166,24 @@ describe("deliverCards", () => {
     expect(await env.DB.prepare(`SELECT * FROM cards WHERE queue_id = ?1`).bind(qid).first()).not.toBeNull();
   });
 
+  it("the no-exemplar label NAMES the archetype", async () => {
+    const qid = await seedTerminal("D-label", [{ variant: "none", text: "", status: "skipped_no_exemplar" }]);
+    const card = await buildCard(env.DB, qid, "CONGRESS_PTR", "skipped_no_exemplar", await cycleOf(qid));
+    expect(card.text).toContain("no exemplar for CONGRESS_PTR");
+  });
+
+  it("a tap on a CLOSED card (no cards row) says closed, not 'use the newest card'", async () => {
+    const qid = await seedTerminal("D-closed", [{ variant: "commentary", text: "gone, per Senate eFD", status: "valid" }]);
+    await deliverCards(env, NOW);
+    const cy = await cycleOf(qid);
+    await env.DB.prepare(`DELETE FROM cards WHERE queue_id = ?1`).bind(qid).run(); // the flush shape
+    await tap(`c:c:${qid}:${cy}`);
+    // Main's wording: a flushed card must NOT point at a "newest card" that
+    // does not exist. Asserting the DISTINCTION, not the exact phrasing.
+    expect(String(ACK.calls.at(-1)!.text)).toMatch(/flushed|closed|expired/i);
+    expect(String(ACK.calls.at(-1)!.text)).not.toContain("newest card");
+  });
+
   it("rejected:payload rows get a HELD card instead of stranding silently", async () => {
     const qid = await seedTerminal("D-badpayload", [{ variant: "none", text: "", status: "rejected:payload" }]);
     const before = snap();
