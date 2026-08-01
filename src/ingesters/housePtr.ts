@@ -7,6 +7,7 @@ import { iso } from "../lib/time";
 import { log } from "../lib/log";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { bandSpan, bandWidth, isFreshDateOnly, lagDays, mdyToIso } from "./shared";
+import { scrubUrls } from "../lib/html";
 
 // House Clerk PTR discovery (live-verified 2026-07-26; ZIP fixture captured
 // 2026-07-27T04:52Z). The bulk index rebuilds ~once per weekday ~13:00 UTC;
@@ -458,14 +459,28 @@ export async function applyHousePtrText(
   // Trimmed to the same 24k ceiling the generation path uses for official
   // hosts, and NULs are stripped: House PDFs carry them from a font-encoding
   // quirk, and a NUL reaching a prompt is invisible junk at best.
-  const rawText = text.replace(/\u0000/g, "").trim().slice(0, HOUSE_RAW_TEXT_CAP) || null;
+  // scrubUrls, for the same reason every other raw_text writer does it
+  // (edgarBody, sourceText, regulatoryPress): the generation prompt is
+  // URL-free by contract. Not hypothetical here -- EVERY House PTR carries
+  // the asset-type footnote https://fd.house.gov/reference/... beneath its
+  // transaction table, all seven fixtures included. Without this the SOURCE
+  // DOCUMENT block would hold a URL in the same prompt that says "No URLs or
+  // links of any kind". Nothing bad ships, since urlCheck is fail-closed at
+  // publish, but every variant echoing it is rejected -- which burns the
+  // retries and pushes CONGRESS_PTR, the deepest-exemplared archetype,
+  // toward the template fallback this capture exists to avoid.
+  const cleaned = scrubUrls(text.replace(/\u0000/g, "")).trim();
+  const rawText = cleaned.slice(0, HOUSE_RAW_TEXT_CAP) || null;
   const rawMeta = rawText
     ? JSON.stringify({
         mode: "full",
         host: "disclosures-clerk.house.gov",
         fetchedAt: iso(now),
         bytes: text.length,
-        truncated: text.length > HOUSE_RAW_TEXT_CAP,
+        // Measured POST-strip, matching edgarBody and sourceText. Against the
+        // raw courier text a filing between ~24,000 and ~24,500 characters
+        // would store a complete body and stamp truncated: true.
+        truncated: cleaned.length > HOUSE_RAW_TEXT_CAP,
         // Provenance: this is the courier's pypdf extraction of the filing
         // itself, not a page fetched at generation time.
         document: `${docId}.pdf`,

@@ -269,6 +269,27 @@ describe("the filing's own text is kept as grounding", () => {
     expect(meta.document).toBe("20260400.pdf");
   });
 
+  it("scrubs the asset-type URL every House PTR carries", async () => {
+    // 100% of filings: all seven fixtures contain
+    // https://fd.house.gov/reference/asset-type-codes.aspx beneath the
+    // transaction table. Without scrubbing, raw_text puts a URL inside the
+    // SOURCE DOCUMENT block of a prompt that forbids URLs, and every variant
+    // echoing it is rejected -- burning both retries on the archetype with
+    // the deepest exemplar bank. The omission was untested in BOTH
+    // directions, which is why it survived.
+    expect(MULTI).toContain("https://fd.house.gov");
+    await seedIndexRow("20260500", NOW);
+    await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260500", text: MULTI }] }) });
+
+    const row = await env.DB.prepare(`SELECT raw_text AS t FROM items WHERE dedup_key = ?1`)
+      .bind(`${HOUSE_SOURCE}:20260500`)
+      .first<{ t: string }>();
+    expect(row!.t).not.toContain("fd.house.gov");
+    expect(row!.t).not.toMatch(/https?:\/\//);
+    // The filing itself must survive the scrub.
+    expect(row!.t).toContain("Home Depot");
+  });
+
   it("strips the NUL bytes the font encoding injects", async () => {
     // House PDFs carry NULs from a font quirk. A NUL reaching a generation
     // prompt is invisible junk at best; at worst it is the byte that makes a
