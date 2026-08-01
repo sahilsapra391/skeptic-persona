@@ -136,6 +136,15 @@ describe("prompt assembly", () => {
     expect(p.system).toContain("CONGRESS PTR, MEASURED NOTES");
   });
 
+  it("commentary leads the task spec and the resolved citation is stated verbatim (p4-00b)", () => {
+    const p = buildPrompt("CONGRESS_PTR", PTR_PAYLOAD, [EXEMPLAR]);
+    // The first live run (queue #918) proved the old prompt's two gaps: dry
+    // led the spec, and the model was never told WHICH citation validates.
+    expect(p.user.indexOf('"commentary"')).toBeLessThan(p.user.indexOf('"dry"'));
+    expect(p.user).toContain("THE deliverable");
+    expect(p.user).toContain('ends with exactly "per Senate eFD"');
+  });
+
   it("rejection feedback rides into the retry prompt (finding #25)", () => {
     const p = buildPrompt("CONGRESS_PTR", PTR_PAYLOAD, [EXEMPLAR], ['dry: "$9,999,999" does not appear in the payload']);
     expect(p.user).toContain("PREVIOUS ATTEMPT WAS REJECTED");
