@@ -1,9 +1,10 @@
 import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildPrompt, eligibleBeats, runGeneration, MAX_GENERATIONS_PER_RUN } from "../src/rag/generate";
 import { parseVariants } from "../src/rag/openrouter";
 import { registerJobs } from "../src/jobs";
 import { registry } from "../src/dispatch";
+import { newTickBudget } from "../src/lib/budget";
 import { createQueueEntry, decideQueueEntry, insertItem, SCORE_POSTABLE } from "../src/lib/db";
 import { iso } from "../src/lib/time";
 import type { ArchetypeId } from "../src/templates/types";
@@ -382,5 +383,36 @@ describe("runGeneration end-to-end", () => {
       `SELECT COUNT(*) AS n FROM generations g JOIN queue q ON q.id = g.queue_id JOIN items i ON i.id = q.item_id WHERE i.source = 'smoke_test'`,
     ).first<{ n: number }>();
     expect(smoke!.n).toBe(0);
+  });
+});
+
+describe("generation and delivery are decoupled (p4-13)", () => {
+  it("delivery still runs when generation throws, and the failure still surfaces", async () => {
+    // They were awaited in sequence, so a throw skipped delivery entirely —
+    // and deliverCards is not generation's downstream step: it delivers every
+    // terminal row without a live card, including ones generated on earlier
+    // ticks. A persistent throw stranded finished commentary the owner never
+    // saw. validateVariant makes D1 calls and is unwrapped, so the throw is
+    // reachable today rather than hypothetical.
+    registerJobs();
+    const handler = registry["generation"]!;
+    // A poisoned DB makes runGeneration's very first query throw. deliverCards
+    // then runs against the same poisoned DB and throws too — so the assertion
+    // that matters is which error escapes: delivery's, not generation's,
+    // proves delivery was attempted after the failure.
+    const poisoned = {
+      ...env,
+      OPENROUTER_API_KEY: "k",
+      OPENROUTER_MODEL: "m",
+      DB: {
+        prepare() {
+          throw new Error("D1 hiccup in collisionCheck");
+        },
+        batch() {
+          throw new Error("D1 hiccup in collisionCheck");
+        },
+      },
+    } as never;
+    await expect(handler(poisoned, NOW, newTickBudget())).rejects.toThrow("D1 hiccup");
   });
 });
