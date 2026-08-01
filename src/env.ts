@@ -23,6 +23,8 @@ export interface Env {
   QUEUE_NOTIFY_SPACING_MS?: string;
   /** Shared secret for the GitHub Actions ingest relay (blocked sources). */
   INGEST_SECRET?: string;
+  /** Jobs run concurrently per tick (default 3, max 6 — the Workers outbound-connection ceiling). */
+  TICK_JOB_CONCURRENCY?: string;
   /** Wall-clock ms a tick may run before it stops starting new jobs (default 60000). */
   TICK_TIME_BUDGET_MS?: string;
   /** BLS watcher tight-poll tuning (defaults 2500 / 90000; tests shrink them). */

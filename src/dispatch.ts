@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 import { nextDue } from "./cadence";
-import { newTickBudget, type TickBudget } from "./lib/budget";
+import { fetchPool, MAX_CONCURRENT_FETCHES, newTickBudget, type TickBudget } from "./lib/budget";
 import { iso } from "./lib/time";
 import { log } from "./lib/log";
 
@@ -15,7 +15,15 @@ import { log } from "./lib/log";
  * are the entire point of the scheduled-print archetype. TICK_TIME_BUDGET_MS
  * remains the real governor.
  */
-export const MAX_JOBS_PER_TICK = 12;
+export const MAX_JOBS_PER_TICK = 24;
+
+/**
+ * Jobs run per tick at once. Conservative on purpose: Workers allows 6
+ * simultaneous outbound connections, and several SEC-hosted jobs can be due
+ * in the same tick while SEC asks for <= 10 req/s. Raise it from [vars] after
+ * measuring, not before — the tick time budget is the safety net either way.
+ */
+export const TICK_JOB_CONCURRENCY = 3;
 
 /**
  * Per-tick TIME budget (wall clock, not CPU — performance.now() measures
@@ -112,55 +120,88 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
   const startedAt = performance.now();
   const timeBudgetMs = Number(env.TICK_TIME_BUDGET_MS ?? TICK_TIME_BUDGET_MS) || TICK_TIME_BUDGET_MS;
 
-  let ran = 0;
-  for (const row of due.results) {
-    // Don't START a job we probably can't finish: a killed invocation leaves
-    // partial state (a claimed-but-unpublished post, a half-written ledger).
-    // The first job always runs, or nothing would ever make progress.
-    if (ran > 0 && elapsedMs(startedAt) >= timeBudgetMs) {
-      log("warn", "tick time budget spent; deferring remaining jobs to the next tick", {
-        ranThisTick: ran,
-        deferred: due.results.length - ran,
-        elapsedMs: Math.round(elapsedMs(startedAt)),
-      });
-      break;
-    }
-    // Atomic claim + reschedule BEFORE running. The compare-and-set on the
-    // observed due_at means overlapping cron invocations (Cloudflare does
-    // not serialize them; a stalled tick can outlive the next cron fire)
-    // cannot double-run a job, and a crashing handler doesn't retry every
-    // minute against a source (politeness beats at-least-once; ingesters
-    // are idempotent via dedup anyway).
-    const claim = await env.DB.prepare(`UPDATE jobs SET due_at = ?1 WHERE name = ?2 AND due_at = ?3`)
-      .bind(iso(nextDue(row.cadence_profile, now)), row.name, row.due_at)
-      .run();
-    if (claim.meta.changes === 0) continue; // another invocation owns it
+  // CONCURRENT, not serial. Jobs are almost entirely network wait — a feed
+  // poll is one request and a few hundred ms of latency — and running them
+  // one after another made tick time the SUM of those waits. Measured in
+  // production 2026-07-28: 4 jobs, 68.6 seconds, against a 45s budget and a
+  // 60s cron interval, so ~36 of 40 jobs were deferred every tick and the
+  // slowest were effectively starved. That is a latency problem before it is
+  // a throughput one: a source polled "every 2 minutes" was running every
+  // ten, which is the opposite of being first to a filing.
+  //
+  // Concurrency is bounded and deliberately conservative. Workers allows 6
+  // simultaneous outbound connections on both plans (see lib/budget.ts), and
+  // several SEC-hosted jobs can be due together while SEC asks for <= 10
+  // req/s, so the default leaves headroom rather than saturating the ceiling.
+  // Per-source pacing inside each ingester still applies underneath this.
+  const rawConcurrency = Number(env.TICK_JOB_CONCURRENCY ?? TICK_JOB_CONCURRENCY);
+  const concurrency =
+    Number.isFinite(rawConcurrency) && rawConcurrency >= 1 && rawConcurrency <= MAX_CONCURRENT_FETCHES
+      ? Math.floor(rawConcurrency)
+      : TICK_JOB_CONCURRENCY;
 
-    const handler = registry[row.name];
-    if (!handler) {
-      log("warn", "no handler registered for job", { job: row.name });
-      continue;
-    }
-    try {
-      await handler(env, now, budget);
-      // .catch: a D1 hiccup on BOOKKEEPING must not be logged as the job
-      // failing — that would invert the very signal this column exists for.
-      await env.DB.prepare(`UPDATE jobs SET last_ok_at = ?1, consecutive_failures = 0 WHERE name = ?2`)
-        .bind(iso(now), row.name)
-        .run()
-        .catch(() => {});
-    } catch (e) {
-      log("error", "job failed", { job: row.name, error: String(e) });
-      // Job-level health: source_state tracks whether a SOURCE answers;
-      // this tracks whether the JOB itself completes, so a handler that
-      // throws before ever touching the network is still visible.
-      await env.DB.prepare(
-        `UPDATE jobs SET consecutive_failures = consecutive_failures + 1 WHERE name = ?1`,
-      )
-        .bind(row.name)
-        .run()
-        .catch(() => {});
-    }
-    ran += 1;
+  let ran = 0;
+  let deferred = 0;
+  await fetchPool(
+    due.results,
+    async (row: JobRow) => {
+      // Don't START a job we probably can't finish: a killed invocation leaves
+      // partial state (a claimed-but-unpublished post, a half-written ledger).
+      // Checked per item at dispatch time, so a slow first wave still stops
+      // the second from starting. `ran > 0` keeps the first job unconditional,
+      // or nothing would ever make progress on a slow tick.
+      if (ran > 0 && elapsedMs(startedAt) >= timeBudgetMs) {
+        deferred += 1;
+        return;
+      }
+      // Atomic claim + reschedule BEFORE running. The compare-and-set on the
+      // observed due_at means overlapping cron invocations (Cloudflare does
+      // not serialize them; a stalled tick can outlive the next cron fire)
+      // cannot double-run a job, and a crashing handler doesn't retry every
+      // minute against a source (politeness beats at-least-once; ingesters
+      // are idempotent via dedup anyway). Concurrency does not weaken this:
+      // the CAS is a single D1 statement and the loser sees changes === 0.
+      const claim = await env.DB.prepare(`UPDATE jobs SET due_at = ?1 WHERE name = ?2 AND due_at = ?3`)
+        .bind(iso(nextDue(row.cadence_profile, now)), row.name, row.due_at)
+        .run();
+      if (claim.meta.changes === 0) return; // another invocation owns it
+
+      const handler = registry[row.name];
+      if (!handler) {
+        log("warn", "no handler registered for job", { job: row.name });
+        return;
+      }
+      ran += 1;
+      try {
+        await handler(env, now, budget);
+        // .catch: a D1 hiccup on BOOKKEEPING must not be logged as the job
+        // failing — that would invert the very signal this column exists for.
+        await env.DB.prepare(`UPDATE jobs SET last_ok_at = ?1, consecutive_failures = 0 WHERE name = ?2`)
+          .bind(iso(now), row.name)
+          .run()
+          .catch(() => {});
+      } catch (e) {
+        log("error", "job failed", { job: row.name, error: String(e) });
+        // Job-level health: source_state tracks whether a SOURCE answers;
+        // this tracks whether the JOB itself completes, so a handler that
+        // throws before ever touching the network is still visible.
+        await env.DB.prepare(
+          `UPDATE jobs SET consecutive_failures = consecutive_failures + 1 WHERE name = ?1`,
+        )
+          .bind(row.name)
+          .run()
+          .catch(() => {});
+      }
+    },
+    concurrency,
+  );
+
+  if (deferred > 0) {
+    log("warn", "tick time budget spent; deferring remaining jobs to the next tick", {
+      ranThisTick: ran,
+      deferred,
+      elapsedMs: Math.round(elapsedMs(startedAt)),
+      concurrency,
+    });
   }
 }

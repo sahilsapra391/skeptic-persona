@@ -170,7 +170,7 @@ describe("tick", () => {
 });
 
 describe("tick time budget", () => {
-  it("stops starting new jobs once the budget is spent, but always runs at least one", async () => {
+  it("stops starting new WAVES once the budget is spent, bounded by the concurrency", async () => {
     const ran: string[] = [];
     for (let i = 0; i < 3; i++) {
       const name = `slowjob${i}`;
@@ -181,11 +181,60 @@ describe("tick time budget", () => {
       };
       await seedJob(name, `2026-07-22T13:0${i}:00.000Z`);
     }
-    const tiny = Object.assign(Object.create(Object.getPrototypeOf(env)), env, { TICK_TIME_BUDGET_MS: "10" });
+    // CONTRACT CHANGE, stated rather than relaxed. Jobs now run concurrently
+    // (p4-12), so the guard can only stop the NEXT wave: up to `concurrency`
+    // jobs dispatch before any wall time has elapsed to measure. The bound
+    // that matters is preserved — the tick cannot keep starting work
+    // indefinitely — and the exposure is capped at the concurrency rather
+    // than at one. That is tolerable here only because every handler is
+    // idempotent via dedup, which is the same property the atomic claim
+    // already relies on.
+    const tiny = Object.assign(Object.create(Object.getPrototypeOf(env)), env, {
+      TICK_TIME_BUDGET_MS: "10",
+      TICK_JOB_CONCURRENCY: "2",
+    });
     await tick(tiny, NOW);
-    // First job always runs (otherwise nothing would ever progress); the rest
-    // defer rather than risk being killed mid-flight.
-    expect(ran.length).toBe(1);
+    expect(ran.length).toBeGreaterThanOrEqual(1); // something always progresses
+    expect(ran.length).toBeLessThanOrEqual(2); // and never more than the concurrency
+  });
+
+  it("runs jobs CONCURRENTLY, not one after another", async () => {
+    // The whole point of p4-12: tick time was the SUM of network waits.
+    let inFlight = 0;
+    let peak = 0;
+    for (let i = 0; i < 6; i++) {
+      const name = `parjob${i}`;
+      registry[name] = async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 20));
+        inFlight -= 1;
+      };
+      await seedJob(name, `2026-07-22T13:1${i}:00.000Z`);
+    }
+    const env3 = Object.assign(Object.create(Object.getPrototypeOf(env)), env, { TICK_JOB_CONCURRENCY: "3" });
+    await tick(env3, NOW);
+    expect(peak).toBeGreaterThan(1); // serial execution would peak at 1
+    expect(peak).toBeLessThanOrEqual(3); // and never exceed the configured bound
+  });
+
+  it("one failing job does not void the rest of the tick", async () => {
+    const ok: string[] = [];
+    registry["boomjob"] = async () => {
+      throw new Error("boom");
+    };
+    await seedJob("boomjob", "2026-07-22T13:20:00.000Z");
+    for (let i = 0; i < 3; i++) {
+      const name = `survivor${i}`;
+      registry[name] = async () => {
+        ok.push(name);
+      };
+      await seedJob(name, `2026-07-22T13:2${i + 1}:00.000Z`);
+    }
+    await tick(env, NOW);
+    expect(ok.length).toBe(3);
+    const row = await env.DB.prepare(`SELECT consecutive_failures AS f FROM jobs WHERE name = 'boomjob'`).first<{ f: number }>();
+    expect(row?.f).toBe(1);
   });
 
   it("a generous budget lets the full tick run", async () => {
