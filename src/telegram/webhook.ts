@@ -262,7 +262,14 @@ async function getCard(db: D1Database, queueId: number): Promise<CardRow | null>
  *  and DOES NOTHING — the fix for the review's stale-button CRITICAL. */
 async function cardForTap(env: ConfiguredEnv, cb: TgCallbackQuery, queueId: number, cycle: number): Promise<CardRow | null> {
   const card = await getCard(env.DB, queueId);
-  if (!card || card.cycle !== cycle) {
+  // Two distinct stale cases: no cards row at all means the card was flushed
+  // or voided (pointing at a "newest card" that does not exist misled the
+  // owner during go-live); a cycle mismatch means a newer card really exists.
+  if (!card) {
+    await answerCallbackQuery(env.TELEGRAM_BOT_TOKEN, cb.id, `This card for #${queueId} was flushed; nothing is awaiting an answer here.`);
+    return null;
+  }
+  if (card.cycle !== cycle) {
     await answerCallbackQuery(env.TELEGRAM_BOT_TOKEN, cb.id, `Stale button from a superseded card for #${queueId}; use the newest card.`);
     return null;
   }

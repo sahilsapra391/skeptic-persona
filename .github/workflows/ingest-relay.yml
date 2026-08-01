@@ -11,22 +11,29 @@
 # that is already tested. Nothing is reimplemented here, because a second
 # implementation of the parser is the failure this design exists to avoid.
 #
-# Currently DISABLED (schedule commented out): the Actions quota is exhausted
-# until 2026-08-01. Enable by uncommenting the schedule.
+# ENABLED 2026-08-01 (p4-00): quota reset arrived, billing fixed, and the
+# secret pair was live-verified end to end (run 30710041354: treasury + CFTC
+# + house lanes returned 200 through the authenticated /ingest path).
 name: ingest-relay
 
 # TWO cadences, because the sources move at different speeds. Job-level `if`
 # filters on which cron fired (github.event.schedule); a manual dispatch runs
-# everything.
+# the chosen lane ("all" runs everything).
 #
 # The House lane costs ~1.5 min per run (checkout + pip + 20 sequential PDF
 # downloads). On the 30-minute cadence that is ~530 min/month against a
 # 2,000 min free tier, for a bulk index that rebuilds ONCE per weekday.
 on:
   workflow_dispatch:
-  # schedule:
-  #   - cron: "*/30 13-21 * * 1-5"   # every 30 min, US market hours, weekdays
-  #   - cron: "20 14 * * 1-5"        # House PDFs, after the ~13:00 UTC index rebuild
+    inputs:
+      lane:
+        description: "Lane to run (all | feeds | senate | house)"
+        type: choice
+        default: all
+        options: [all, feeds, senate, house]
+  schedule:
+    - cron: "*/30 13-21 * * 1-5"   # every 30 min, US market hours, weekdays
+    - cron: "20 14 * * 1-5"        # House PDFs, after the ~13:00 UTC index rebuild
 
 concurrency:
   group: ingest-relay
@@ -34,8 +41,11 @@ concurrency:
 
 jobs:
   relay:
-    # Every cadence EXCEPT the daily House slot.
-    if: github.event.schedule != '20 14 * * 1-5'
+    # Every scheduled cadence EXCEPT the daily House slot; on manual dispatch,
+    # only when the chosen lane includes it.
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule != '20 14 * * 1-5') ||
+      (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","feeds"]'), inputs.lane))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -92,7 +102,9 @@ jobs:
   # three and delivers a bundle; the Worker parses it with the same code the
   # direct poller uses.
   senate:
-    if: github.event.schedule != '20 14 * * 1-5'
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule != '20 14 * * 1-5') ||
+      (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","senate"]'), inputs.lane))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -105,29 +117,42 @@ jobs:
 
           # Step 1: home page sets csrftoken + LB cookies and carries a HIDDEN
           # csrfmiddlewaretoken whose value DIFFERS from the cookie.
-          curl -sS -L --max-time 60 -A "$UA" -c "$JAR" \
-            "$BASE/search/home/" -o home.html
+          HOME_CODE=$(curl -sS -L --max-time 60 -A "$UA" -c "$JAR" \
+            "$BASE/search/home/" -o home.html -w "%{http_code}")
           HIDDEN=$(grep -o 'name="csrfmiddlewaretoken" value="[^"]*"' home.html \
             | head -1 | sed 's/.*value="//;s/"//')
-          if [ -z "$HIDDEN" ]; then echo "::error::no csrfmiddlewaretoken"; exit 1; fi
+          if [ -z "$HIDDEN" ]; then
+            echo "::error::no csrfmiddlewaretoken (home=$HOME_CODE, $(wc -c < home.html) bytes); first bytes: $(head -c 200 home.html | tr -cd '[:print:]')"
+            exit 1
+          fi
 
           # Step 2: accept the prohibition agreement to get a session.
-          curl -sS --max-time 60 -A "$UA" -b "$JAR" -c "$JAR" \
+          AGREE_CODE=$(curl -sS --max-time 60 -A "$UA" -b "$JAR" -c "$JAR" \
             -X POST "$BASE/search/home/" \
             -H "Referer: $BASE/search/home/" \
             --data "prohibition_agreement=1&csrfmiddlewaretoken=${HIDDEN}" \
-            -o /dev/null
+            -o /dev/null -w "%{http_code}")
 
           CSRF=$(awk '$6=="csrftoken"{print $7}' "$JAR" | tail -1)
 
           # Step 3: the search endpoint returns {result:"ok", data:[[...]]}.
-          curl -sS --max-time 60 -A "$UA" -b "$JAR" \
+          SEARCH_CODE=$(curl -sS --max-time 60 -A "$UA" -b "$JAR" \
             -X POST "$BASE/search/report/data/" \
             -H "Referer: $BASE/search/" \
             -H "X-CSRFToken: ${CSRF}" \
             -H "X-Requested-With: XMLHttpRequest" \
             --data "start=0&length=25&report_types=[11]&filer_types=[]&submitted_start_date=&submitted_end_date=&candidate_state=&senator_state=&office_id=&first_name=&last_name=" \
-            -o search.json
+            -o search.json -w "%{http_code}")
+
+          # Diagnostics BEFORE parsing: eFD 403s Cloudflare egress by IP class,
+          # and whether it also blocks Azure-hosted runners was never verified
+          # (the schedule shipped disabled). A non-JSON body here must fail
+          # with the status trail, not a bare jq parse error downstream.
+          echo "senate: home=$HOME_CODE agree=$AGREE_CODE search=$SEARCH_CODE bytes=$(wc -c < search.json)" >> "$GITHUB_STEP_SUMMARY"
+          if ! jq -e '.result' search.json >/dev/null 2>&1; then
+            echo "::error::senate search returned non-JSON (home=$HOME_CODE agree=$AGREE_CODE search=$SEARCH_CODE); first bytes: $(head -c 300 search.json | tr -cd '[:print:]')"
+            exit 1
+          fi
 
           # Step 4: one detail page per electronic filing. Sequential and
           # rate-limited on purpose — this is somebody's disclosure system,
@@ -179,8 +204,10 @@ jobs:
   # the Worker's tested parser turns text into transactions. The Worker also
   # decides which documents to fetch, so the courier holds no state.
   house:
-    # Daily slot only. A manual dispatch has an empty schedule, so it runs too.
-    if: github.event.schedule == '20 14 * * 1-5' || github.event_name == 'workflow_dispatch'
+    # Daily slot only; on manual dispatch, only when the chosen lane includes it.
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '20 14 * * 1-5') ||
+      (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","house"]'), inputs.lane))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
