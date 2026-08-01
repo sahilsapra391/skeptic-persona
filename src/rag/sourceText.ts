@@ -36,6 +36,10 @@ import { log } from "../lib/log";
  * on payload alone until the capture lands, which is strictly better than
  * grounding on chrome and permanently so.
  */
+export function hasDedicatedCapture(source: string): boolean {
+  return DEDICATED_CAPTURE_SOURCES.includes(source);
+}
+
 const DEDICATED_CAPTURE_SOURCES = ["edgar_8k"];
 
 const EGRESS_BLOCKED_HOSTS = [
