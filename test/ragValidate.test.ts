@@ -254,12 +254,64 @@ describe("grounding provenance — wrong document is a fabrication license", () 
     }
   });
 
+  // A ticker is a word, and the first two attempts to handle that used a length
+  // floor — ">= 4 chars or a digit". Measured against the live issuers table:
+  // of 5,906 four- and five-character tickers, 371 are ordinary English words.
+  // Measured against 14 real 8-K filings from the EDGAR daily index for
+  // 2026-07-30/31, EVERY filing contains at least 11 of them as bare prose
+  // (median 23). The floor did not leak sometimes; it licensed everything.
+  const WORD_TICKERS = [
+    "LOVE", "WELL", "FORM", "LINE", "SUCH", "WHEN", "ELSE", "MAIN",
+    "REAL", "SAFE", "CASH", "COST", "PLAY", "ROAD", "PATH", "LIFE", "WAVE",
+  ] as const;
+
+  it("HIGH: a word-shaped ticker in bare prose licenses NOTHING, at any length", () => {
+    // One sentence of ordinary filing boilerplate containing every one of them.
+    const prose =
+      "When the board reviewed the real cost of the main line of business, it " +
+      "found no safe path forward, and so the form of the transaction was " +
+      "changed. Cash on hand will fund the road ahead; nothing else in the " +
+      "life of the agreement rides on such a wave, and there is much to love " +
+      "about how well the plan reads.";
+    const licensed = WORD_TICKERS.filter((t) => checkGroundingProvenance(prose, { ticker: t }).ok);
+    expect(licensed).toEqual([]);
+  });
+
+  it("a symbol anchors only where a filing PRINTS it as a symbol", () => {
+    // The four shapes real filings and releases actually use.
+    for (const body of [
+      "Lovesac Company (NASDAQ: LOVE) today reported results for the quarter.",
+      "The Lovesac Company (LOVE) filed a current report with the Commission.",
+      'The shares trade under the symbol "LOVE" on the Nasdaq Global Market.',
+      "Title of each class\nCommon Stock\nTrading Symbol(s)\nLOVE\nName of each exchange",
+    ]) {
+      expect(checkGroundingProvenance(body, { ticker: "LOVE" }).matched, body.slice(0, 40)).toBe("LOVE");
+    }
+  });
+
+  it("case is load-bearing — a lowercase word is never the uppercase symbol", () => {
+    // "well" in prose vs WELL, a live ticker. Same letters, opposite verdicts.
+    expect(checkGroundingProvenance("The transaction was received well by the market, as noted.", { ticker: "WELL" }).ok)
+      .toBe(false);
+    expect(checkGroundingProvenance("Welltower Inc. (NYSE: WELL) filed a current report today.", { ticker: "WELL" }).matched)
+      .toBe("WELL");
+  });
+
+  it("a present-but-unprinted symbol fails CLOSED, not open", () => {
+    // Absence of the symbol is not absence of evidence: we had something to
+    // test with and it did not check out, so licensing is withheld.
+    const v = checkGroundingProvenance("Acme Industries announced a restructuring of its operations today.", { ticker: "LOVE" });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe("no_anchor");
+  });
+
   it("three-letter word tickers are not conclusive identifiers", () => {
     // ALL (Allstate) and NOW (ServiceNow) are live ticker values, and under
     // identifiers-first ordering a word match would be FIRST and final.
-    expect(checkGroundingProvenance("The company said all outstanding shares would be exchanged.", { ticker: "ALL" }).reason)
-      .toBe("no_usable_anchor");
-    expect(checkGroundingProvenance("BLNK common stock will be suspended from listing.", { ticker: "BLNK" }).matched).toBe("BLNK");
+    expect(checkGroundingProvenance("The company said all outstanding shares would be exchanged.", { ticker: "ALL" }).ok)
+      .toBe(false);
+    expect(checkGroundingProvenance("Blink Charging Co (NASDAQ: BLNK) common stock will be suspended.", { ticker: "BLNK" }).matched)
+      .toBe("BLNK");
   });
 
   it("HIGH: another company's document is REJECTED — no single shared token licenses it", () => {
@@ -317,10 +369,23 @@ describe("grounding provenance — wrong document is a fabrication license", () 
 
   it("ACCEPTS the real filing body on any one anchor", () => {
     expect(checkGroundingProvenance("Blink Charging Co. received a notice from Nasdaq...", filing).ok).toBe(true);
-    expect(checkGroundingProvenance("...the common stock of BLNK will be suspended...", filing).ok).toBe(true);
+    expect(checkGroundingProvenance("Blink Charging Co (Nasdaq: BLNK) common stock will be suspended.", filing).ok).toBe(true);
     expect(checkGroundingProvenance("Central Index Key 1429764 filed this report.", filing).ok).toBe(true);
     // Trailing-period mismatch must not reject: longest-token fallback.
     expect(checkGroundingProvenance("BLINK CHARGING CO. ANNOUNCES...", filing).matched).toBe("Blink Charging Co");
+  });
+
+  it("a BARE ticker no longer licenses, even a non-word one like BLNK", () => {
+    // The cost of the shape rule, stated rather than hidden. It is a false
+    // negative only for a document that prints the symbol bare AND never names
+    // the company or its CIK — which no real filing does. Measured: all 14
+    // 8-Ks sampled from the EDGAR daily index print their own cover-page
+    // symbol in symbol shape, 14 of 14, so recall on real bodies is unharmed.
+    expect(checkGroundingProvenance("...the common stock of BLNK will be suspended...", { ticker: "BLNK" }).ok)
+      .toBe(false);
+    // And the same body is still accepted via the name or the CIK.
+    expect(checkGroundingProvenance("...the common stock of BLNK will be suspended...", filing).reason)
+      .toBe("no_anchor");
   });
 
   it("token-bounded: a substring of a longer word is NOT a match", () => {
