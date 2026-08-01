@@ -152,17 +152,27 @@ here as a docs follow-up on main per owner decision 2026-08-01.
 
 ## 6. Local signals that do not mean what they say
 
-Three commands that succeed while answering a different question than the one
-the operator is asking. All three cost real time on 2026-08-01 and none of
-them produced an error.
+Three commands that answer a question adjacent to the one being asked. All
+three cost real time on 2026-08-01.
 
-### 6a. A local full-suite result is not evidence about CI, in either direction
+**They do not all fail green, and an earlier draft of this section claimed
+they did.** Only 6b is a green signal hiding a red fact. The other two report
+*failure* — the `.dev.vars` case turns a passing test red, and the
+mergeability flag reads `CONFLICTING`, which is a blocking value. Getting that
+wrong mattered, because it produced an actionable line telling the reader to
+distrust a green run when the recorded cost came from believing a red one.
+
+The through-line is not the colour of the signal. It is that **the signal is
+answering a different question**, and a wrong answer in the safe direction
+still costs a night if you act on it.
+
+### 6a. A local full-suite result is not evidence about CI
 
 `.dev.vars` is gitignored, so it exists in a working checkout and not in a
 fresh worktree or on CI. It supplies real keys, which changes what the suite
 exercises.
 
-Observed the same evening, in **opposite directions**, in two sessions:
+Observed the same evening in two sessions, and **both moved the same way**:
 
 | Tree | Result |
 |---|---|
@@ -171,14 +181,26 @@ Observed the same evening, in **opposite directions**, in two sessions:
 | p4 session, `.dev.vars` present | 1 file FAILED (47/48) |
 | p4 session, moved aside | 48/48, 697 green |
 
-The first framing of this warning was "local is more permissive". That is
-wrong. **Local and CI disagree, and which way depends on which tests the key
-touches.** A key can make an assertion pass that should fail, or fail one
-that should pass.
+This warning has now been wrong twice, and both errors are worth keeping
+because they are the same mistake at different scales.
 
-So the only safe statement is the general one: **a local full-suite result is
-not evidence about CI in either direction.** Move `.dev.vars` aside, or check
-a clean worktree, before believing a green run.
+The first framing was *"local is more permissive than CI"*. Wrong: it cost
+both sessions a passing test.
+
+The second framing was *"observed in opposite directions, so a key can make
+an assertion pass that should fail, or fail one that should pass"*. Also
+wrong, and only the second disjunct was ever supported. The p4 session's
+account of gaining a pass was retracted on reproduction: for this test the key
+can only turn it red, because it makes `runGeneration` issue the very call the
+assertion forbids. There is no path by which the key turns a red assertion
+green. **The table above always said so; the conclusion drawn from it did
+not.**
+
+The surviving statement is simpler and needs no direction at all: **a local
+full-suite result is not evidence about CI.** Here it costs a false failure,
+which is the cheap direction — a false pass would have been the expensive
+one. Move `.dev.vars` aside, or check a clean worktree, before believing
+either colour.
 
 Cost of not knowing this: a long stretch spent reverting changes one at a
 time to find a regression that did not exist, every measurement taken against
@@ -206,9 +228,16 @@ which answers the question directly rather than by proxy.
 
 ### 6d. The general form
 
-Each of these is a green signal answering a question adjacent to the one being
-asked. The habit that catches them is the same one the review sessions
-converged on all evening: **before trusting a signal, say out loud what
-question it actually answers.** A suite answers "did these assertions hold in
-this tree"; it does not answer "does this compile", "will CI agree", or "can
-this merge".
+Each of these answers a question adjacent to the one being asked, and the
+colour it reports is incidental. The habit that catches them is the one the
+review sessions converged on all evening: **before trusting a signal, say out
+loud what question it actually answers.**
+
+A suite answers "did these assertions hold in this tree". It does not answer
+"does this compile", "will CI agree", or "can this merge". A mergeability flag
+answers "what was true at the head I last computed". Neither is lying; both
+are being asked something they were never measuring.
+
+The correction history of 6a is the case in point: two wrong framings, both
+drawn from a table that already contained the right answer. **The data was
+never the problem.**
