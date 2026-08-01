@@ -24,6 +24,7 @@ import { runGeneration } from "./rag/generate";
 import { deliverCards } from "./rag/deliver";
 import { newTickBudget, type TickBudget } from "./lib/budget";
 import { expirePendingBefore } from "./lib/db";
+import { pushDigests } from "./digest";
 import { editMessageText } from "./lib/telegram";
 import { iso } from "./lib/time";
 import { log } from "./lib/log";
@@ -152,6 +153,7 @@ export function registerJobs(): void {
   registry["bls_watch"] = watchBls;
   // One tick: generate, then deliver any undelivered terminal rows —
   // including rows a previous crashed run generated but never delivered.
+  registry["digest_push"] = pushDigests;
   registry["generation"] = async (env, now, budget) => {
     await runGeneration(env, now, budget);
     await deliverCards(env, now, budget);

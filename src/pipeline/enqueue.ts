@@ -4,12 +4,85 @@ import { sendMessage, TelegramError } from "../lib/telegram";
 import { renderForQueue } from "../templates";
 import type { ArchetypeId, Payload } from "../templates/types";
 import { log } from "../lib/log";
+import {
+  DEFAULT_CAP_BYPASS_SCORE,
+  DEFAULT_CATEGORY_CAP,
+  DEFAULT_SALIENCE_FLOOR,
+  parseCategoryCaps,
+  salienceFor,
+} from "../salience";
+import { holdForDigest, pushedTodayByCategory } from "../digest";
+
+/**
+ * Decide whether an item is held for the digest. Returns the hold reason, or
+ * null to push.
+ *
+ * Fail-OPEN by construction: any throw inside leaves the item pushing. A
+ * curation bug must cost noise, never silence — the owner can ignore a card
+ * he did not need, but he cannot approve one he never saw.
+ */
+async function salienceHold(
+  env: Env,
+  itemId: number,
+  archetype: ArchetypeId,
+  payload: Payload,
+  now: Date,
+): Promise<"below_floor" | "category_cap" | null> {
+  try {
+    const rawFloor = Number(env.SALIENCE_FLOOR ?? DEFAULT_SALIENCE_FLOOR);
+    const floor = Number.isFinite(rawFloor) && rawFloor >= 0 ? rawFloor : DEFAULT_SALIENCE_FLOOR;
+    const { score, reasons, exempt } = salienceFor(archetype, payload);
+
+    if (!exempt && score < floor) {
+      log("info", "held for digest: below floor", { itemId, archetype, score, floor, reasons });
+      await holdForDigest(env, itemId, archetype, score, "below_floor", now);
+      return "below_floor";
+    }
+    // Exempt categories (owner amendment 2026-08-01) ignore the ceiling
+    // entirely: "a hard cap that drops a congress PTR because a quiet
+    // category already filled the day is the failure mode to avoid."
+    if (exempt) return null;
+
+    // Strong items ignore the ceiling: caps are first-come-first-served, so
+    // without this a high-salience afternoon filing loses to a weak morning one.
+    // >= 0, not > 0: CAP_BYPASS_SCORE=0 is a real setting meaning "no daily
+    // caps at all" (every score clears it), which is how the test env turns
+    // curation off. Only a negative or unparseable value is a typo.
+    const rawBypass = Number(env.CAP_BYPASS_SCORE ?? DEFAULT_CAP_BYPASS_SCORE);
+    const bypass = Number.isFinite(rawBypass) && rawBypass >= 0 ? rawBypass : DEFAULT_CAP_BYPASS_SCORE;
+    if (score >= bypass) return null;
+
+    const { caps, skipped } = parseCategoryCaps(env.CATEGORY_DAILY_CAPS);
+    if (skipped.length > 0) log("warn", "invalid CATEGORY_DAILY_CAPS entries skipped", { skipped });
+    const cap = caps[archetype] ?? DEFAULT_CATEGORY_CAP;
+    const pushed = await pushedTodayByCategory(env.DB, archetype, now);
+    if (pushed >= cap) {
+      log("info", "held for digest: category cap", { itemId, archetype, score, pushed, cap });
+      await holdForDigest(env, itemId, archetype, score, "category_cap", now);
+      return "category_cap";
+    }
+    return null;
+  } catch (e) {
+    log("error", "salience gate failed; pushing the item", { itemId, archetype, error: String(e) });
+    return null;
+  }
+}
 
 export interface EnqueueResult {
   queueId: number;
   notified: boolean;
   /** Set when Telegram flood control pushed back — callers should stop batching. */
   retryAfter: number | null;
+  /** p4-03: the item was held for the daily digest instead of pushed. Not an
+   *  error — callers keep draining, exactly as they do for queueId 0. */
+  held?: "below_floor" | "category_cap";
+}
+
+export interface EnqueueOptions {
+  /** Digest promotion re-enters this path; the item already lost once on
+   *  salience and the owner has explicitly asked for it, so the gate is
+   *  skipped rather than re-litigated. */
+  bypassSalience?: boolean;
 }
 
 /**
@@ -28,7 +101,17 @@ export async function enqueueForApproval(
   sourceUrl: string,
   now: Date = new Date(),
   seed?: string,
+  opts: EnqueueOptions = {},
 ): Promise<EnqueueResult> {
+  // SALIENCE GATE (p4-03). One gate for all 20 call sites, ahead of the
+  // render so a held item costs nothing. Measured 2026-08-01: 181 cards/day
+  // against a 25/day target, 2.18% lifetime approval, zero approvals across
+  // the last three full days. Held items are NOT dropped — they are marked
+  // 'digested', listed in the day's roll-up, and promotable from it.
+  if (!opts.bypassSalience) {
+    const held = await salienceHold(env, itemId, archetype, payload, now);
+    if (held) return { queueId: 0, notified: false, retryAfter: null, held };
+  }
   // RENDER AT ENQUEUE TIME (persona.md: what Sahil approves is byte-identical
   // to what posts). Deterministic seed = the item's identity, so a re-render
   // produces the same text.
