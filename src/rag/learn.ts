@@ -2,6 +2,9 @@ import type { ArchetypeId } from "../templates/types";
 import type { CardVariant } from "./deliver";
 import type { OwnerExemplar } from "./stylepack";
 import { iso } from "../lib/time";
+import { log } from "../lib/log";
+import { checkRegister } from "../templates/validate";
+import { urlCheck } from "./validate";
 
 // P4-09: the learning loop.
 //
@@ -46,7 +49,7 @@ export interface EditPair {
  * essay in the Edit reply), where the exact distance stops being meaningful
  * anyway and the ratio saturates at 1.
  */
-export const EDIT_DISTANCE_MAX_LEN = 2000;
+export const EDIT_DISTANCE_MAX_LEN = 600;
 
 export function editDistance(a: string, b: string): number {
   if (a === b) return 0;
@@ -102,10 +105,38 @@ export interface PromotionInput {
  * promotion silently failed, is a split record — and the loop's whole value
  * is that the two agree.
  *
- * Returns null when there is nothing to promote (template fallback, or empty
- * text), which the caller treats as "no statement", not as an error.
+ * ONLY OWNER-EDITED FINALS ARE PROMOTED. This is the containment for voice
+ * collapse, and it replaces an earlier argument that did not survive review.
+ *
+ * The first version promoted both outcomes and relied on collisionCheck to
+ * stop the model converging on its own output. That defence was wrong three
+ * ways, each verified: skeletonHash masks only entities, numbers and CAPS, so
+ * changing one lowercase word ("director" -> "officer") defeats it; openerHash
+ * runs on RAW text whose leading tokens vary per item, so it effectively never
+ * fires; and an owner-EDITED final never gets a `generations` row at all, so
+ * the table collisionCheck reads cannot see it. Structural-similarity
+ * detection measures near-verbatim reproduction. Collapse is semantic. It is
+ * the wrong instrument, and any threshold picked for it would have the shape
+ * of the four ticker floors — each fix moving a boundary with a real case on
+ * the other side.
+ *
+ * So the loop is cut at the source instead. An UNEDITED final is, by
+ * definition, the model's own output that happened to be accepted: feeding it
+ * back is training on its own predictions, and it carries no signal the model
+ * did not already have. An EDITED final is the owner's words, and the
+ * difference between his text and ours is the only genuinely new information
+ * the whole loop produces.
+ *
+ * That also makes the bank grow at human rate, from human authorship, which
+ * is the property that makes it safe. Unedited finals are still recorded in
+ * post_log and still drive the zero-edit metric — they just never re-enter a
+ * prompt.
+ *
+ * Returns null when there is nothing to promote (unedited, template fallback,
+ * or empty text), which the caller treats as "no statement", not an error.
  */
 export function promotionStatement(db: D1Database, now: Date, input: PromotionInput): D1PreparedStatement | null {
+  if (!input.wasEdited) return null; // the model's own output never feeds itself
   const register = registerFor(typeof input.variant === "string" ? input.variant : null);
   if (register === null) return null;
   const text = input.finalText.trim();
@@ -123,14 +154,30 @@ export function promotionStatement(db: D1Database, now: Date, input: PromotionIn
 }
 
 /**
- * Owner finals for an archetype, newest first, shipped-unedited ranked above
- * rewritten.
+ * Owner finals for an archetype, newest first.
  *
- * The ordering is the opposite of what "learn from corrections" suggests, and
- * deliberately: an unedited final is a draft the model already got right, so
- * it is proof the voice is reachable from this prompt. A rewritten final is
- * the owner's voice but not evidence the model can reach it. Both are useful;
- * only the first is evidence.
+ * The previous version ranked `was_edited ASC` — shipped-unedited above
+ * rewritten — on the argument that an unedited final proves the voice is
+ * reachable. Two things were wrong with that. Proof-of-reachability is not
+ * training signal, since the model already emits what it already emits. And
+ * with a LIMIT, "rank unedited first" is not a preference but a starvation:
+ * once four unedited finals existed for an archetype, no owner rewrite could
+ * ever reach the prompt again, and the steady state was a prompt containing
+ * only the model's own successful output. Reproduced before fixing — three
+ * rewrites, all newer, and every returned slot was model output. Migration
+ * 0030's own comment claimed the opposite intent.
+ *
+ * Only edited finals are promoted now (see promotionStatement), so there is
+ * nothing left to rank against and recency is the whole ordering.
+ *
+ * Every row is re-validated on the way OUT rather than trusted from the way
+ * in. Committed exemplars are register- and length-tested in stylepack.test.ts;
+ * promoted ones had passed nothing. Waiving the register gate when RECORDING
+ * an already-public post is right — refusing it would only blind the ledger —
+ * but that decision was inherited here, where it does not apply: putting a
+ * string into a prompt as the voice to match is a different act from writing
+ * it to a ledger. Filtering at retrieval also covers rows promoted before this
+ * gate existed, which a promotion-time check alone would not.
  */
 export async function ownerFinals(
   db: D1Database,
@@ -138,20 +185,33 @@ export async function ownerFinals(
   limit: number,
 ): Promise<OwnerExemplar[]> {
   if (limit <= 0) return [];
-  const rows = await db
-    .prepare(
-      `SELECT register, text FROM voice_finals
-       WHERE archetype = ?1
-       ORDER BY was_edited ASC, promoted_at DESC
-       LIMIT ?2`,
-    )
-    .bind(archetype, limit)
-    .all<{ register: string; text: string }>();
-  return rows.results.map((r) => ({
-    archetype,
-    register: r.register === "commentary" ? ("commentary" as const) : ("wire" as const),
-    text: r.text,
-  }));
+  let rows;
+  try {
+    rows = await db
+      .prepare(
+        `SELECT register, text FROM voice_finals
+         WHERE archetype = ?1 AND was_edited = 1
+         ORDER BY promoted_at DESC
+         LIMIT ?2`,
+      )
+      .bind(archetype, limit)
+      .all<{ register: string; text: string }>();
+  } catch (e) {
+    // The table may not exist yet: Workers Builds deploys on merge, and
+    // `d1 migrations apply` is a separate manual step, so there is a real
+    // window where the code is live and the schema is not. Generation must
+    // degrade to the committed bank there, not throw out of runGeneration and
+    // leave the queue row stranded. Same precedent as corpusHasData().
+    log("warn", "voice_finals unavailable; using committed exemplars only", { error: String(e) });
+    return [];
+  }
+  return rows.results
+    .filter((r) => checkRegister(r.text).length === 0 && urlCheck(r.text).length === 0)
+    .map((r) => ({
+      archetype,
+      register: r.register === "commentary" ? ("commentary" as const) : ("wire" as const),
+      text: r.text,
+    }));
 }
 
 /**
@@ -168,29 +228,49 @@ export interface ZeroEditStats {
   readonly edited: number;
   /** Posted before pair capture existed — countable, not scoreable. */
   readonly uncaptured: number;
+  /**
+   * Posted from the TEMPLATE fallback, not from generation. Excluded from the
+   * rate and named separately.
+   *
+   * A template ships unedited almost by definition — it is our own rendered
+   * boilerplate — so counting it as a zero-edit win means the headline metric
+   * RISES WHENEVER GENERATION FAILS. Three template rows would have printed
+   * "100% — 3 of 3 went out exactly as generated" while the LLM path produced
+   * nothing at all. Same family as the two inflation defects already fixed
+   * here, and the same rule applies: name it, never fold it.
+   */
+  readonly templateFallbacks: number;
   readonly rate: number | null;
   /** Mean edit ratio over EDITED posts only; null when there are none. */
   readonly meanEditRatio: number | null;
 }
+
+/** post_log rows that represent a real GENERATION outcome, not a fallback. */
+const GENERATED_ONLY = `draft_variant IS NOT NULL AND draft_variant <> 'template'`;
 
 export async function zeroEditStats(db: D1Database, since: Date): Promise<ZeroEditStats> {
   const row = await db
     .prepare(
       `SELECT
          COUNT(*) AS posted,
-         SUM(CASE WHEN edit_distance = 0 THEN 1 ELSE 0 END) AS unedited,
-         SUM(CASE WHEN edit_distance > 0 THEN 1 ELSE 0 END) AS edited,
-         SUM(CASE WHEN edit_distance IS NULL THEN 1 ELSE 0 END) AS uncaptured
+         SUM(CASE WHEN edit_distance = 0 AND ${GENERATED_ONLY} THEN 1 ELSE 0 END) AS unedited,
+         SUM(CASE WHEN edit_distance > 0 AND ${GENERATED_ONLY} THEN 1 ELSE 0 END) AS edited,
+         SUM(CASE WHEN edit_distance IS NULL THEN 1 ELSE 0 END) AS uncaptured,
+         SUM(CASE WHEN draft_variant = 'template' THEN 1 ELSE 0 END) AS templates
        FROM post_log
        WHERE posted_manually = 1 AND posted_at >= ?1`,
     )
     .bind(iso(since))
-    .first<{ posted: number; unedited: number | null; edited: number | null; uncaptured: number | null }>();
+    .first<{
+      posted: number; unedited: number | null; edited: number | null;
+      uncaptured: number | null; templates: number | null;
+    }>();
 
   const posted = row?.posted ?? 0;
   const unedited = row?.unedited ?? 0;
   const edited = row?.edited ?? 0;
   const uncaptured = row?.uncaptured ?? 0;
+  const templateFallbacks = row?.templates ?? 0;
   // Scoreable = the pairs we actually captured. Rows from before capture
   // existed are reported separately and never enter the denominator.
   const scoreable = unedited + edited;
@@ -202,6 +282,7 @@ export async function zeroEditStats(db: D1Database, since: Date): Promise<ZeroEd
         `SELECT AVG(CAST(edit_distance AS REAL) / MAX(LENGTH(draft_text), LENGTH(final_text))) AS r
          FROM post_log
          WHERE posted_manually = 1 AND posted_at >= ?1 AND edit_distance > 0
+           AND ${GENERATED_ONLY}
            AND draft_text IS NOT NULL AND final_text IS NOT NULL
            AND MAX(LENGTH(draft_text), LENGTH(final_text)) > 0`,
       )
@@ -215,6 +296,7 @@ export async function zeroEditStats(db: D1Database, since: Date): Promise<ZeroEd
     unedited,
     edited,
     uncaptured,
+    templateFallbacks,
     rate: scoreable === 0 ? null : unedited / scoreable,
     meanEditRatio,
   };
@@ -269,6 +351,7 @@ export async function recentEditedPairs(db: D1Database, since: Date, limit: numb
       `SELECT queue_id, archetype, draft_variant, draft_text, final_text, edit_distance
        FROM post_log
        WHERE posted_manually = 1 AND posted_at >= ?1 AND edit_distance > 0
+         AND ${GENERATED_ONLY}
          AND draft_text IS NOT NULL AND final_text IS NOT NULL
        ORDER BY posted_at DESC
        LIMIT ?2`,

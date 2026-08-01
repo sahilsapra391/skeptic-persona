@@ -31,6 +31,29 @@ function pct(n: number): string {
 }
 
 /**
+ * The counts that are deliberately EXCLUDED from the rate, reported wherever
+ * the rate is reported. Shared by both branches because the no-score branch is
+ * exactly where they matter most: "nothing to score" reads like a quiet week,
+ * while "all six came from the fallback" reads like a broken generator, and
+ * they can be the same underlying data.
+ */
+function residualLines(stats: ZeroEditStats): string[] {
+  const out: string[] = [];
+  if (stats.uncaptured > 0) {
+    out.push(`${stats.uncaptured} post(s) had no captured draft and are excluded from the rate, not counted as edits.`);
+  }
+  if (stats.templateFallbacks > 0) {
+    // Named, never folded in: a template ships unedited by definition, so
+    // counting it would make this number RISE whenever generation failed.
+    out.push(
+      `${stats.templateFallbacks} post(s) came from the TEMPLATE fallback, not from generation, and are excluded`,
+      "from the rate. A high count here means generation is failing, whatever the rate says.",
+    );
+  }
+  return out;
+}
+
+/**
  * Exported for tests, and because the wording IS the feature: a reviewer
  * should be able to read the no-data branch without standing up a database.
  */
@@ -46,9 +69,14 @@ export function renderDigest(stats: ZeroEditStats, pairs: readonly EditPair[], w
 
   if (scoreable === 0) {
     lines.push(
-      `Zero-edit rate: unmeasurable. ${stats.posted} post(s) published, but none carries a captured draft`,
-      "to compare against, so there is nothing to score. (Pairs are captured from p4-09 onward.)",
+      `Zero-edit rate: unmeasurable. ${stats.posted} post(s) published, but none carries a captured`,
+      "generated draft to compare against, so there is nothing to score.",
     );
+    // The early return used to stop here, which hid the one fact that
+    // EXPLAINS the unmeasurability. "Nothing to score" and "everything we
+    // posted came from the fallback" are very different reports, and the
+    // second is the one that would make the owner act.
+    lines.push(...residualLines(stats));
     return lines.join("\n");
   }
 
@@ -58,9 +86,7 @@ export function renderDigest(stats: ZeroEditStats, pairs: readonly EditPair[], w
   if (scoreable < 5) {
     lines.push(`Small sample: ${scoreable} post(s). Treat the number as a direction, not a measurement.`);
   }
-  if (stats.uncaptured > 0) {
-    lines.push(`${stats.uncaptured} further post(s) had no captured draft and are excluded from the rate, not counted as edits.`);
-  }
+  lines.push(...residualLines(stats));
   if (stats.meanEditRatio !== null) {
     lines.push(`On the ${stats.edited} edited post(s), the owner changed ${pct(stats.meanEditRatio)} of the text on average.`);
   }

@@ -12,6 +12,7 @@ import {
   EDIT_DISTANCE_MAX_LEN,
 } from "../src/rag/learn";
 import { renderDigest, runVoiceDigest, DIGEST_WINDOW_DAYS } from "../src/rag/digest";
+import { MAX_OWNER_FINALS, ownerFinalsAllowance } from "../src/rag/generate";
 import { deliverCards } from "../src/rag/deliver";
 import { createQueueEntry, decideQueueEntry, insertItem, SCORE_POSTABLE } from "../src/lib/db";
 import { iso } from "../src/lib/time";
@@ -185,9 +186,11 @@ describe("pair capture through the real webhook", () => {
     expect(row!.draft_variant).toBe("commentary");
     expect(row!.edit_distance).toBe(0);
 
-    const promoted = await ownerFinals(env.DB, "CONGRESS_PTR", 10);
-    expect(promoted.map((p) => p.text)).toContain("Senate PTR: a real commentary line, per Senate eFD.");
-    expect(promoted[0]!.register).toBe("commentary");
+    // NOT promoted: an unedited final is the model's own output, and feeding
+    // it back is training on its own predictions. See promotionStatement.
+    const promoted = await env.DB.prepare(`SELECT COUNT(*) AS n FROM voice_finals WHERE queue_id = ?1`)
+      .bind(qid).first<{ n: number }>();
+    expect(promoted!.n).toBe(0);
   });
 
   it("Posted (edited): the pair is the DRAFT SHOWN and the text typed", async () => {
@@ -285,8 +288,11 @@ describe("the metric cannot be inflated by the capture path", () => {
 
     const row = await logRow(qid);
     expect(row!.edit_distance).toBe(0);
-    const promoted = await env.DB.prepare(`SELECT was_edited FROM voice_finals WHERE queue_id = ?1`).bind(qid).first<{ was_edited: number }>();
-    expect(promoted!.was_edited).toBe(0); // agrees with edit_distance
+    // was_edited would have been 0, and an unedited final is not promoted at
+    // all — so the two records agree by being consistently absent.
+    const promoted = await env.DB.prepare(`SELECT COUNT(*) AS n FROM voice_finals WHERE queue_id = ?1`)
+      .bind(qid).first<{ n: number }>();
+    expect(promoted!.n).toBe(0);
   });
 
   it("an empty draft is captured as MISSING, never as a perfect zero-edit post", async () => {
@@ -310,7 +316,7 @@ describe("the metric cannot be inflated by the capture path", () => {
 
 describe("the digest", () => {
   it("always shows a denominator and flags a small sample", async () => {
-    const stats = { posted: 2, unedited: 2, edited: 0, uncaptured: 0, rate: 1, meanEditRatio: null };
+    const stats = { posted: 2, unedited: 2, edited: 0, uncaptured: 0, templateFallbacks: 0, rate: 1, meanEditRatio: null };
     const text = renderDigest(stats, [], 7);
     expect(text).toContain("2 of 2");
     expect(text).toContain("Small sample");
@@ -319,7 +325,7 @@ describe("the digest", () => {
 
   it("quotes what changed on edited posts", async () => {
     const text = renderDigest(
-      { posted: 6, unedited: 4, edited: 2, uncaptured: 0, rate: 4 / 6, meanEditRatio: 0.25 },
+      { posted: 6, unedited: 4, edited: 2, uncaptured: 0, templateFallbacks: 0, rate: 4 / 6, meanEditRatio: 0.25 },
       [{ queueId: 11, archetype: "CONGRESS_PTR", variant: "commentary", draft: "drafted line", final: "posted line", distance: 3, ratio: 0.25 }],
       7,
     );
@@ -344,23 +350,56 @@ describe("the digest", () => {
   });
 });
 
-describe("ownerFinals ranking", () => {
-  it("shipped-unedited outrank rewritten", async () => {
+describe("ownerFinals — the collapse containment", () => {
+  it("CRITICAL: an UNEDITED final is never promoted, so the model cannot feed itself", () => {
+    // Review found the containment argument wrong three ways: skeletonHash
+    // masks only entities/numbers/CAPS so one lowercase word defeats it,
+    // openerHash runs on raw text whose leading tokens vary per item, and an
+    // owner-edited final has no `generations` row for collisionCheck to read.
+    // Detection was the wrong instrument; the loop is cut at the source.
+    expect(promotionStatement(env.DB, NOW, {
+      queueId: 1, archetype: "CONGRESS_PTR", variant: "commentary",
+      finalText: "a draft the owner shipped unchanged", wasEdited: false,
+    })).toBeNull();
+    // The owner's own rewrite still promotes: that is the only new signal.
+    expect(promotionStatement(env.DB, NOW, {
+      queueId: 1, archetype: "CONGRESS_PTR", variant: "commentary",
+      finalText: "what the owner actually wrote", wasEdited: true,
+    })).not.toBeNull();
+  });
+
+  it("owner rewrites can no longer be STARVED by shipped-unedited finals", async () => {
+    // Reproduced before fixing: three rewrites, all newer, and every returned
+    // slot was MODEL OUTPUT. Migration 0030's comment claimed the opposite.
     await env.DB.prepare(`DELETE FROM voice_finals`).run();
-    const mk = async (qid: number, text: string, edited: number, at: string): Promise<void> => {
-      const q = await seed(`L-rank-${qid}-${text.length}`, [{ variant: "dry", text }]);
+    const ins = async (tag: string, text: string, edited: number, at: string): Promise<void> => {
+      const q = await seed(`rank-${tag}`, [{ variant: "dry", text: "x" }]);
       await env.DB.prepare(
-        `INSERT INTO voice_finals (queue_id, archetype, register, text, was_edited, promoted_at) VALUES (?1,'CONGRESS_PTR','wire',?2,?3,?4)`,
-      )
-        .bind(q, text, edited, at)
-        .run();
+        `INSERT INTO voice_finals (queue_id, archetype, register, text, was_edited, promoted_at)
+         VALUES (?1,'CONGRESS_PTR','wire',?2,?3,?4)`,
+      ).bind(q, text, edited, at).run();
     };
-    await mk(1, "rewritten but newest", 1, "2026-08-02T00:00:00.000Z");
-    await mk(2, "shipped as generated", 0, "2026-07-01T00:00:00.000Z");
-    const finals = await ownerFinals(env.DB, "CONGRESS_PTR", 5);
-    // The unedited one is OLDER and still ranks first: it is the only one that
-    // proves the voice is reachable from the prompt.
-    expect(finals[0]!.text).toBe("shipped as generated");
+    for (let i = 0; i < 4; i++) await ins(`m${i}`, `MODEL OUTPUT ${i}`, 0, `2026-07-0${i + 1}T00:00:00.000Z`);
+    await ins("o1", "OWNER REWRITE, per Senate eFD.", 1, "2026-08-01T00:00:00.000Z");
+
+    const finals = await ownerFinals(env.DB, "CONGRESS_PTR", 4);
+    // Legacy unedited rows are filtered out entirely, so the rewrite is all
+    // that remains — it cannot be crowded out by the model's own output.
+    expect(finals.map((f) => f.text)).toEqual(["OWNER REWRITE, per Senate eFD."]);
+  });
+
+  it("a promoted final that fails the register gate never reaches a prompt", async () => {
+    // Committed exemplars are register- and length-tested in stylepack.test.ts;
+    // promoted ones passed nothing. Waiving the gate to RECORD an already
+    // public post is right; waiving it to put the string in a prompt as the
+    // voice to match is a different decision, and it was inherited not made.
+    await env.DB.prepare(`DELETE FROM voice_finals`).run();
+    const q = await seed("rank-bad", [{ variant: "dry", text: "x" }]);
+    await env.DB.prepare(
+      `INSERT INTO voice_finals (queue_id, archetype, register, text, was_edited, promoted_at)
+       VALUES (?1,'CONGRESS_PTR','wire',?2,1,?3)`,
+    ).bind(q, "see https://example.com for the filing", iso(NOW)).run();
+    expect(await ownerFinals(env.DB, "CONGRESS_PTR", 4)).toEqual([]);
   });
 
   it("returns nothing for an archetype with no finals, and honours limit 0", async () => {
@@ -369,49 +408,52 @@ describe("ownerFinals ranking", () => {
   });
 });
 
-describe("meanEditRatio is computed by SQL, so exercise the SQL", () => {
-  it("averages the ratio over EDITED rows only, from real captured pairs", async () => {
-    // Written because the expression lives in a query string: a typo there
-    // fails silently as NULL, and a digest that quietly stops reporting the
-    // edit size is the exact shape this project keeps paying for.
+describe("the promoted bank can never outvote the committed one", () => {
+  it("holds promoted finals to a strict minority at every real bank size", () => {
+    // Review finding: a FLAT cap of 4 is not a cap where it matters. Live
+    // committed banks are CONGRESS_PTR 7, FILING_FORM4 5, FILING_8K 4,
+    // REGULATORY_NEWS 3, and INSIDER_CLUSTER / HALT / MACRO_PRINT /
+    // RATE_DECISION 2 each — so four promoted finals would have made the bank
+    // majority-promoted for FIVE of the eight, placed first, under a header
+    // saying they outrank everything above on tone.
+    const LIVE_BANKS = [
+      ["CONGRESS_PTR", 7], ["FILING_FORM4", 5], ["FILING_8K", 4], ["REGULATORY_NEWS", 3],
+      ["INSIDER_CLUSTER", 2], ["HALT", 2], ["MACRO_PRINT", 2], ["RATE_DECISION", 2],
+    ] as const;
+    for (const [name, committed] of LIVE_BANKS) {
+      const allowed = ownerFinalsAllowance(committed);
+      expect(allowed, `${name}: promoted must stay a strict minority`).toBeLessThan(committed);
+      expect(allowed / (allowed + committed), `${name}`).toBeLessThan(0.5);
+    }
+    // The thin banks contribute nothing until the owner writes a third.
+    expect(ownerFinalsAllowance(2)).toBe(0);
+    expect(ownerFinalsAllowance(0)).toBe(0);
+    // And the absolute ceiling still binds for a hypothetically large bank.
+    expect(ownerFinalsAllowance(100)).toBe(MAX_OWNER_FINALS);
+  });
+});
+
+describe("the template fallback cannot inflate the headline", () => {
+  it("template rows are named separately, never counted as zero-edit wins", async () => {
+    // Three templates with distance 0 previously printed "100% - 3 of 3 went
+    // out exactly as generated" while the LLM path produced nothing at all.
     await env.DB.prepare(`DELETE FROM post_log`).run();
-    const mk = async (ext: string, draft: string, final: string, dist: number): Promise<void> => {
-      const q = await seed(ext, [{ variant: "dry", text: draft }]);
+    for (let i = 0; i < 3; i++) {
+      const q = await seed(`tmpl-${i}`, [{ variant: "none", text: "t", status: "fallback_template" }]);
       await env.DB.prepare(
         `INSERT INTO post_log (queue_id, platform_post_id, posted_at, archetype, category, posted_manually,
                                final_text, draft_text, draft_variant, edit_distance)
-         VALUES (?1, NULL, ?2, 'CONGRESS_PTR', 'congress', 1, ?3, ?4, 'dry', ?5)`,
-      )
-        .bind(q, iso(NOW), final, draft, dist)
-        .run();
-    };
-    await mk("M-clean", "abcdefghij", "abcdefghij", 0); // unedited
-    await mk("M-half", "abcdefghij", "abcdeXXXXX", 5); // 5/10 = 0.5
-    await mk("M-tenth", "abcdefghij", "abcdefghiX", 1); // 1/10 = 0.1
-
+         VALUES (?1, NULL, ?2, 'CONGRESS_PTR', 'congress', 1, 'boilerplate', 'boilerplate', 'template', 0)`,
+      ).bind(q, iso(NOW)).run();
+    }
     const stats = await zeroEditStats(env.DB, new Date(NOW.getTime() - 3600_000));
-    expect(stats.unedited).toBe(1);
-    expect(stats.edited).toBe(2);
-    expect(stats.rate).toBeCloseTo(1 / 3, 5);
-    // The unedited row must NOT drag the average toward zero.
-    expect(stats.meanEditRatio).toBeCloseTo(0.3, 5);
-    expect(renderDigest(stats, [], 7)).toContain("changed 30% of the text");
-  });
-
-  it("meanEditRatio stays null when nothing was edited", async () => {
-    await env.DB.prepare(`DELETE FROM post_log`).run();
-    const q = await seed("M-none", [{ variant: "dry", text: "x" }]);
-    await env.DB.prepare(
-      `INSERT INTO post_log (queue_id, platform_post_id, posted_at, archetype, category, posted_manually,
-                             final_text, draft_text, draft_variant, edit_distance)
-       VALUES (?1, NULL, ?2, 'CONGRESS_PTR', 'congress', 1, 'x', 'x', 'dry', 0)`,
-    )
-      .bind(q, iso(NOW))
-      .run();
-    const stats = await zeroEditStats(env.DB, new Date(NOW.getTime() - 3600_000));
-    expect(stats.rate).toBe(1);
-    expect(stats.meanEditRatio).toBeNull();
-    expect(renderDigest(stats, [], 7)).not.toContain("of the text on average");
+    expect(stats.templateFallbacks).toBe(3);
+    expect(stats.unedited).toBe(0);
+    expect(stats.rate).toBeNull(); // unmeasurable, NOT 100%
+    const text = renderDigest(stats, [], 7);
+    expect(text).not.toContain("100%");
+    expect(text).toContain("TEMPLATE fallback");
+    expect(text).toContain("generation is failing");
   });
 });
 
