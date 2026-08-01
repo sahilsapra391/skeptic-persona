@@ -347,3 +347,36 @@ describe("a young source is not a dead one", () => {
     expect(await read()).toBe(iso(t2));
   });
 });
+
+describe("a legacy row stays catchable", () => {
+  it("quarantines a pre-column row seeded straight into D1, not just in the pure function", async () => {
+    // Requested during review, and it is the assertion that fails loudly if
+    // someone later "tidies up" the null handling. Every row that existed
+    // when first_failure_at landed has NULL there, and those are exactly the
+    // long-running failures this chunk was built for. Read the other way --
+    // null as "brand new" -- and the whole quarantine silently stops working
+    // for precisely the sources it exists to catch.
+    await env.DB.prepare("DELETE FROM jobs").run();
+    await env.DB.prepare("DELETE FROM source_state").run();
+    await env.DB.prepare(
+      `INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority)
+       VALUES ('legacy_dead', '2026-08-01T00:00:00.000Z', 'hourly', 1, 50)`,
+    ).run();
+    // Written WITHOUT first_failure_at, exactly as a pre-migration row reads.
+    await env.DB.prepare(
+      `INSERT INTO source_state (source, consecutive_failures, last_ok_at)
+       VALUES ('legacy_dead', 16, NULL)`,
+    ).run();
+    const before = await env.DB.prepare(
+      `SELECT first_failure_at AS f FROM source_state WHERE source = 'legacy_dead'`,
+    ).first<{ f: string | null }>();
+    expect(before?.f).toBeNull();
+
+    await runSourceHealth(env as never, NOW);
+
+    const row = await env.DB.prepare(`SELECT enabled, quarantine_reason FROM jobs WHERE name = 'legacy_dead'`)
+      .first<{ enabled: number; quarantine_reason: string | null }>();
+    expect(row?.enabled).toBe(0);
+    expect(row?.quarantine_reason).toContain("never");
+  });
+});
