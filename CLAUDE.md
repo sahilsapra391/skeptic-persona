@@ -36,8 +36,10 @@ into docs/ here as needed). Current track: [docs/p2r-plan.md](docs/p2r-plan.md).
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.
-- Zero runtime npm dependencies in the Worker (free-tier CPU is 10 ms per
-  invocation; parsing is regex-first on hot paths). Dev deps are fine.
+- Zero runtime npm dependencies in the Worker; parsing is regex-first on hot
+  paths. (The account moved to Workers Paid 2026-07-27 when free-tier 10 ms
+  CPU killed the first posts — the discipline stays, the budget math is
+  against paid-plan limits now.) Dev deps are fine.
 - Dedup state lives in **D1** (`items.dedup_key` UNIQUE + INSERT OR IGNORE),
   not KV — KV free tier allows only 1k writes/day. KV holds only low-write
   state: template rotation, autonomy counters, kill switch.

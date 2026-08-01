@@ -137,7 +137,7 @@ export async function buildCard(
     const text = await resolveVariantText(db, queueId, "template");
     const label =
       terminalStatus === "skipped_no_exemplar"
-        ? "template draft (no exemplar for this archetype yet)"
+        ? `template draft (no exemplar for ${archetype} yet — write one to enable generation)`
         : "template draft (generation fell back)";
     sections.push(`— ${label} —\n${text ?? ""}`);
     copyRow.push({ text: "Copy draft", callback_data: `c:t:${queueId}:${cycle}` });
