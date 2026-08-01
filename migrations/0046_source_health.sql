@@ -1,5 +1,13 @@
 -- Source health: quarantine endpoints that cannot answer, probe them back.
 --
+-- NUMBERED 0046, not 0044: the p4 session's 0044_salience.sql was already
+-- applied to production when this was written. Two files sharing a prefix
+-- still apply, but their order relative to each other is undefined, which is
+-- the exact ambiguity the range discipline exists to prevent. Theirs could
+-- not move -- the ledger keys on filename, so renaming an applied migration
+-- makes wrangler re-run it and fail on an existing table. This one had been
+-- applied nowhere, so it was the free one.
+--
 -- Measured in production 2026-08-01, and the numbers are the whole argument:
 --
 --   name                    job_fails  src_fails  src_last_ok
@@ -26,5 +34,23 @@
 ALTER TABLE jobs ADD COLUMN quarantined_at TEXT;
 ALTER TABLE jobs ADD COLUMN quarantine_reason TEXT;
 
+-- Seeded ENABLED, deliberately, and the reasoning is worth recording because
+-- the p4 session hit the opposite failure and reached the opposite rule.
+--
+-- Their 0044 seeded an enabled job whose handler lived only in an unmerged
+-- branch, so the dispatcher burned a slot an hour finding no handler. Their
+-- conclusion was that a job row must not be enabled ahead of its handler.
+--
+-- That is right when a migration ships ahead of its code. This one does not:
+-- the handler is in the same PR, and this file should be applied after that
+-- PR merges. Seeding enabled=0 would trade a bounded, self-healing, LOGGED
+-- cost ("no handler registered" once per hour until merge) for an unbounded
+-- SILENT one -- a source that never runs because nobody remembered the
+-- follow-up UPDATE. That is the bls_watch shape, and the whole point of this
+-- chunk is catching it.
+--
+-- The cadence is 'hourly', a profile the dispatcher already knows, so an
+-- early apply parks it normally instead of falling through the unknown-
+-- profile path that made their case cost more than one slot.
 INSERT OR IGNORE INTO jobs (name, due_at, cadence_profile, enabled, priority) VALUES
   ('source_health', '2026-08-01T00:00:00.000Z', 'hourly', 1, 60);
