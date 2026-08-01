@@ -58,6 +58,17 @@ const KV_OPENROUTER_ALERTED = "openrouter:auth_alert_sent";
 
 const VARIANTS: readonly Variant[] = ["dry", "sharp", "commentary"];
 
+/**
+ * Commentary segment budgets. They sum to under POST_TEXT_LIMIT (280) with
+ * room for the blank line, so a draft that honours both parts is inside the
+ * post budget by construction. Stated to the model because a total-only
+ * budget makes it write a long fact block and then crush the take —
+ * observed live on queue #918, where the crush produced a fabricated-looking
+ * "April Maduro" compound that entityCheck correctly refused.
+ */
+export const COMMENTARY_FACT_BUDGET = 120;
+export const COMMENTARY_TAKE_BUDGET = 155;
+
 const TERMINAL_PREDICATE = `
   SELECT 1 FROM generations g
   WHERE g.queue_id = q.id
@@ -149,14 +160,17 @@ export function buildPrompt(
       : []),
     ...(hasContext
       ? [
-          "LAKE CONTEXT (our own parsed history, machine-derived; usable in the take to place this item against the record):",
+          "LAKE CONTEXT (our own parsed history, machine-derived; usable in the take to place this item against the record). Cite a prior item by its COUNT or its DATE, or by a phrase copied exactly from its title. Never compress a title into a shorter name, and never merge a date with a name (a April-plus-Maduro compound reads as a person who does not exist and fails validation):",
           ...grounding!.contextLines!.map((l) => `- ${l}`),
         ]
       : []),
     `ARCHETYPE: ${archetypeId}`,
     "TASK: write THREE variants of one post about this payload, as strict JSON:",
     `{"commentary": "...", "sharp": "...", "dry": "..."}`,
-    "- commentary (THE deliverable; the other two are fallbacks): 200-280 weighted chars. Fact block with attribution FIRST (it must survive being screenshotted alone), then a blank line, then the take in one or two short segments (a punch line, then the argument): opinionated, a real point of view, no hedging, no advice, no imputed motive. Engage the SPECIFIC record in the data above — what this actor did, how it sits against the prior record — not generalities about markets. No claims about market reaction (spreads, flows, pricing, positioning) unless stated in the data above. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a fact as if it were the take.",
+    // Segment budgets, not just a total: given only "200-280" the model wrote
+    // a 115-char fact block and then crushed the take to fit, which is where
+    // lossy name compression (and its fabrication risk) comes from.
+    `- commentary (THE deliverable; the other two are fallbacks): 200-280 weighted chars TOTAL, built as two budgeted parts. Fact block FIRST, at most ${COMMENTARY_FACT_BUDGET} weighted chars including the attribution — compress it yourself (drop clause padding, keep every number and name exact); it must survive being screenshotted alone. Then a blank line, then the take, at most ${COMMENTARY_TAKE_BUDGET} weighted chars: one or two short segments (a punch line, then the argument), opinionated, a real point of view, no hedging, no advice, no imputed motive. Engage the SPECIFIC record in the data above — what this actor did, how it sits against the prior record — not generalities about markets. No claims about market reaction (spreads, flows, pricing, positioning) unless stated in the data above. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a fact as if it were the take.`,
     "- sharp: wire register (fact block + attribution, then at most one beat line), the escalation tier: the sharpest ELIGIBLE beat, compression at maximum.",
     "- dry: wire register, 100-140 weighted chars. Fact block + attribution, then at most one eligible beat on its own line.",
     attribution !== null
