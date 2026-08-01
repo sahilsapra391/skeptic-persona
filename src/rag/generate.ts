@@ -12,6 +12,7 @@ import { fitsInPost } from "../templates/length";
 import { checkRegister } from "../templates/validate";
 import { chatComplete, OpenRouterError, parseVariants } from "./openrouter";
 import { OWNER_EXEMPLARS, stylePackFor } from "./stylepack";
+import { ownerFinals } from "./learn";
 import { fetchSourceText, isBlockedGroundingHost, type SourceText } from "./sourceText";
 import { lakeContext } from "./context";
 import { openerHash, skeletonHash } from "./echo";
@@ -53,6 +54,13 @@ export const MAX_GENERATIONS_PER_RUN = 3;
 export const MAX_ATTEMPTS = 4;
 /** Stop starting new rows after this much wall time (cadence is 300s). */
 export const RUN_TIME_CAP_MS = 120_000;
+/**
+ * Owner finals injected per archetype (p4-09). Capped because the prompt has
+ * a budget and because recency is the point: four recent posts in the owner's
+ * own words say more about the current voice than forty stale ones, and the
+ * committed bank is still there underneath carrying the archetype's range.
+ */
+export const MAX_OWNER_FINALS = 4;
 
 const KV_OPENROUTER_ALERTED = "openrouter:auth_alert_sent";
 const KV_ECHO_EMPTY_ALERTED = "echo:empty_alert_sent";
@@ -303,7 +311,29 @@ export async function runGeneration(
     }
 
     // THE EXEMPLAR GATE. No owner exemplar for this archetype = no LLM call.
-    const bank = exemplars.filter((e) => e.archetype === archetypeId);
+    //
+    // Owner finals (p4-09) join the committed bank rather than replacing it:
+    // they are posts the owner actually published, so they are the strongest
+    // available statement of the voice. They do NOT open the gate on their
+    // own — a promoted final is downstream of a generation that a committed
+    // exemplar already licensed, so treating them as gate-openers would let
+    // the loop bootstrap an archetype the owner never wrote for.
+    //
+    // The obvious hazard is voice COLLAPSE: feed our own posts back and the
+    // model converges on them, which is the repetition that is a named spam
+    // signal on every platform and the most plausible cause of the Threads
+    // ban. Three things hold it open, and none of them is this comment:
+    // collisionCheck already rejects a draft whose skeleton or opener matches
+    // any of the last 40 valid generations, MAX_OWNER_FINALS caps the feedback
+    // at four, and the committed bank stays underneath carrying the range.
+    // Convergence therefore shows up as REJECTIONS, not as repetitive posts —
+    // and a rising rejection rate on collision is the signal to widen the cap
+    // rather than something to tune away.
+    const committed = exemplars.filter((e) => e.archetype === archetypeId);
+    const bank =
+      committed.length === 0
+        ? committed
+        : [...(await ownerFinals(env.DB, archetypeId, MAX_OWNER_FINALS)), ...committed];
     if (bank.length === 0) {
       await insertGeneration(env.DB, { queueId: row.queue_id, variant: "none", text: "", status: "skipped_no_exemplar", attempt: 1 }, now);
       log("info", "generation skipped: no owner exemplar for archetype", { queueId: row.queue_id, archetype: archetypeId });
