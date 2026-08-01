@@ -2,6 +2,9 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
   cadenceCheck,
+  checkGroundingProvenance,
+  groundingFacts,
+  mergeFacts,
   collisionCheck,
   corpusEchoCheck,
   corpusHasData,
@@ -162,6 +165,50 @@ describe("entityCheck", () => {
 
   it("whitelists wire furniture: attribution vocab, months, form words", () => {
     expect(entityCheck("Filed in June, per SEC, before the FOMC meeting", PTR)).toEqual([]);
+  });
+});
+
+describe("grounding provenance — wrong document is a fabrication license", () => {
+  const filing = { company: "Blink Charging Co", ticker: "BLNK", issuerCik: "1429764", itemCode: "3.01" };
+
+  it("REJECTS the EDGAR index chrome that started this (no payload anchor in it)", () => {
+    // Shape of the real 2,077-char mis-fetch: navigation + a GTM snippet,
+    // non-empty and healthy-looking, mentioning neither company nor ticker.
+    const chrome = `EDGAR Filing Documents Home Search Company Filings About Contact
+      (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start': new Date().getTime(),event:'gtm.js'});
+      var f=d.getElementsByTagName(s)[0],j=d.createElement(s);j.src='https://www.googletagmanager.com/gtm.js?id=GTM-1234567';})
+      SEC.gov Accessibility Privacy Budget and Performance Inspector General No FEAR Act`;
+    const v = checkGroundingProvenance(chrome, filing);
+    expect(v.ok).toBe(false);
+    expect(v.anchorsTried).toBeGreaterThan(0);
+  });
+
+  it("ACCEPTS the real filing body on any one anchor", () => {
+    expect(checkGroundingProvenance("Blink Charging Co. received a notice from Nasdaq...", filing).ok).toBe(true);
+    expect(checkGroundingProvenance("...the common stock of BLNK will be suspended...", filing).ok).toBe(true);
+    expect(checkGroundingProvenance("Central Index Key 1429764 filed this report.", filing).ok).toBe(true);
+    // Trailing-period mismatch must not reject: longest-token fallback.
+    expect(checkGroundingProvenance("BLINK CHARGING CO. ANNOUNCES...", filing).matched).toBe("Blink Charging Co");
+  });
+
+  it("token-bounded: a substring of a longer word is NOT a match", () => {
+    expect(checkGroundingProvenance("The BLNKX fund reported inflows.", { ticker: "BLNK" }).ok).toBe(false);
+  });
+
+  it("ABSENCE is not wrongness — no grounding and no anchors both pass", () => {
+    expect(checkGroundingProvenance("", filing).ok).toBe(true);
+    expect(checkGroundingProvenance("some text", { publishedIso: "2026-07-31" }).ok).toBe(true);
+  });
+
+  it("the whitelist does NOT widen on unverified grounding — the actual threat", () => {
+    // A wrong document's numbers must not become legal in our posts.
+    const wrong = "Unrelated Corp reported 99,999 units and a $7,777,777 charge.";
+    expect(checkGroundingProvenance(wrong, filing).ok).toBe(false);
+    // Proof of consequence: if it HAD been merged, 99,999 would validate.
+    const widened = mergeFacts(payloadFacts(filing), groundingFacts(wrong));
+    expect(widened.numbers.has("99999")).toBe(true);
+    // Gated instead, the payload-only whitelist rejects it.
+    expect(numberCheck("99,999 units, per SEC", filing).map((i) => i.rule)).toEqual(["number"]);
   });
 });
 

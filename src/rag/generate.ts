@@ -15,7 +15,7 @@ import { OWNER_EXEMPLARS, stylePackFor } from "./stylepack";
 import { fetchSourceText, isBlockedGroundingHost, type SourceText } from "./sourceText";
 import { lakeContext } from "./context";
 import { openerHash, skeletonHash } from "./echo";
-import { corpusHasData, validateVariant, type ValidationIssue, type Variant } from "./validate";
+import { checkGroundingProvenance, corpusHasData, validateVariant, type ValidationIssue, type Variant } from "./validate";
 
 // The generation job (docs/p2r-plan.md Part D): approved queue rows become
 // three copy-ready variants. Runs AFTER the Approve tap, so the template
@@ -328,7 +328,24 @@ export async function runGeneration(
       ? await fetchSourceText(env, { id: row.item_id, source_url: row.source_url, raw_text: row.raw_text, raw_meta: row.raw_meta }, now)
       : null;
     const context = await lakeContext(env.DB, { id: row.item_id, source: row.source, archetype: archetypeId }, payload);
-    const grounding = [source?.text ?? "", ...context.lines].filter(Boolean).join("\n") || undefined;
+    // PROVENANCE GATE before the whitelist widens. The SOURCE DOCUMENT is the
+    // part that can be the wrong document (a mis-fetched EDGAR index page, an
+    // exhibit instead of the filing); lake context is built from our own rows
+    // keyed to this item, so it is trusted separately.
+    const sourceProvenance = checkGroundingProvenance(source?.text ?? "", payload);
+    if (source?.text && !sourceProvenance.ok) {
+      // The text still reaches the prompt — the model may make what it can of
+      // it — but it does NOT license facts. Fail closed on the widening only.
+      log("error", "grounding source failed provenance; not widening the whitelist", {
+        queueId: row.queue_id,
+        source: row.source,
+        anchorsTried: sourceProvenance.anchorsTried,
+        chars: source.text.length,
+        host: source.host,
+      });
+    }
+    const licensedSource = sourceProvenance.ok ? (source?.text ?? "") : "";
+    const grounding = [licensedSource, ...context.lines].filter(Boolean).join("\n") || undefined;
 
     const valid = new Set<Variant>();
     const feedback: string[] = [];
