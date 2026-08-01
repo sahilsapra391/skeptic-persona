@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <atom:link href="https://www.wto.org/library/rss/lanews_e.xml" rel="self" type="application/rss+xml" />
+    <title>World Trade Organization — Latest news</title>
+    <link>http://www.wto.org</link>
+    <description>World Trade Organization — Latest news</description>
+    <image>
+      <url>http://www.wto.org/images/podcast_logo_144x144pxls.gif</url>
+      <title>World Trade Organization — Latest news</title>
+      <link>http://www.wto.org</link>
+    </image>
+    <ttl>15</ttl>
+    <itunes:author>WTO</itunes:author>
+    <itunes:owner>
+      <itunes:name>WTO</itunes:name>
+      <itunes:email>webmaster@wto.org</itunes:email>
+    </itunes:owner>
+    <itunes:image href="http://www.wto.org/images/podcast_logo_300x300pxls.gif" />
+    <itunes:category text="Business" />
+    <itunes:explicit>clean</itunes:explicit>
+    <itunes:keywords>World Trade Organization, WTO</itunes:keywords>
+    <pubDate>Fri, 31 Jul 2026 12:04:43 GMT</pubDate>
+    <lastBuildDate>Fri, 31 Jul 2026 12:04:43 GMT</lastBuildDate>
+    <language>en-us</language>
+    <copyright>Copyright 2026 WTO</copyright>
+    <item>
+      <title>Global goods trade resilient in the first quarter of 2026 despite war in Middle East</title>
+      <description><![CDATA[World merchandise trade growth exceeded expectations in the first quarter of 2026 as surging trade in electronic components related to artificial intelligence (AI) offset the negative impact of the conflict in the Middle East, which began in the final month of the quarter. Trade disruptions in the Strait of Hormuz are expected to be more fully captured in trade data for the next quarter.]]></description>
+      <category domain="RESE">economic research and analysis</category>
+      <category domain="HORMZ">Strait of Hormuz and global trade</category>
+      <media:keywords>economic research and analysis,Strait of Hormuz and global trade</media:keywords>
+      <content><![CDATA[<p class="MsoNormal">The seasonally adjusted volume of world merchandise trade grew 1.9% in the first quarter compared to the previous quarter and 3.2% compared to the same quarter in the previous year according to recent WTO/UNCTAD data (downloadable from <a href="https://stats.wto.org/">stats.wto.org</a>). In value terms, world merchandise trade was up 2% quarter-on-quarter and 11% year-on-year in the first quarter (see Chart 1).</p>
+<p class="MsoNormal">The pace of year-on-year growth in the first quarter of 2026 was particularly impressive considering that trade in the first quarter of 2025 was boosted by the frontloading of imports in North America ahead of expected tariff hikes. Strong trade in electronic components related to AI outweighed the negative effects of the outbreak of war in the Middle East, including disrupted shipments of goods through the Strait of Hormuz and dampened GDP growth in net fuel-importing countries due to higher energy prices. Figures on world trade in AI‑enabling goods are not available in quantity terms, but the US dollar value of this trade was up more than 40% year-on-year in the first quarter.</p>
+<p class="MsoNormal"><strong><span>Chart 1: World merchandise trade volume and value, 2023Q1-2026Q1</span></strong></p>
+<p class="MsoNormal"><span>Index 2023Q1=100</span></p>
+<p class="MsoNormal"><img src="https://www.wto.org/images/img_news/chart1-20260730140646128.png" alt="Chart 1: World merchandise trade volume and value, 2023Q1-2026Q1" width="828" height="489"></p>
+<p class="MsoNormal small"><span>Note: World trade refers to average of exports and imports.</span></p>
+<p class="MsoNormal small"><span>Source: WTO-UNCTAD estimates.</span></p>
+<p class="MsoNormal">The WTO's most recent trade forecast, <a href="https://www.wto.org/english/news_e/news26_e/stat_19mar26_329_e.htm">issued in the Global Trade Outlook and Statistics (GTOS) report from last March</a>, predicted 1.9% growth in the volume of world merchandise trade in 2026 under a baseline scenario, less than the 3.2% increase recorded for the first quarter. The report estimated that the Middle East war could shave 0.5 percentage points off world trade growth in a high energy price scenario, but that continued strong AI-related investment could add 0.5 percentage points to growth. These estimates were produced very early in the conflict, with only partial information on the extent of shipping disruptions in the Strait of Hormuz. Considering subsequent developments, WTO economists expect to see larger contractions in Middle East trade flows by the end of the year together with stronger growth in Asia and North America. The global impact, meanwhile, will depend on whether it will be the AI boom or the Middle East conflict that predominates. The next GTOS report, including an updated trade forecast, will be issued in October.<span> </span></p>
+<h3><strong>Merchandise trade volume by region</strong></h3>
+<p class="MsoNormal"><span><span>The conflict has weighed heavily on merchandise trade flows of the Middle East. The region's seasonally adjusted export and import volumes were down 9.7% and 11.9% year-on-year in the first quarter, with larger contractions expected in the second quarter (see Chart 2.) The impact of the conflict on trade was only seen towards the end of the first quarter (see Box 1). WTO Secretariat estimates based on available reporting countries show the volume of world crude oil imports from the Middle East down roughly 45% year-on-year in March. Similarly, imports of Liquefied Natural Gas (LNG) and fertilizers from the region were down 52% and 26%, respectively, over the same period. </span></span></p>
+<table>
+<tbody>
+<tr>
+<td>
+<h3><strong><span>Box 1: Effect of the Middle East conflict on 2026Q1 merchandise trade statistics</span></strong></h3>
+<p class="MsoNormal"><span>The Strait of Hormuz has been effectively closed since early March following the outbreak of war in the Persian Gulf. The resulting disruption in maritime transport would only be partly reflected in merchandise trade statistics for the first quarter of 2026. </span><span></span></p>
+<p class="MsoNormal"><span>While exports and imports of Gulf states were immediately affected by the conflict, merchandise trade statistics for these countries are extremely limited, with few publishing quarterly trade data. Regional trade flows are therefore largely estimated from partner countries' mirror statistics.</span></p>
+<p class="MsoNormal"><span>Even the data for March probably also underestimate the extent of the trade disruption, since they primarily capture shipments that already departed before the start of the war. More generally, March import and export statistics for economies outside the Persian Gulf region would likewise show a modest impact from the disruption.</span></p>
+<p class="MsoNormal"><span>Consequently, the effects of the Strait of Hormuz disruption on world merchandise trade is expected to become visible primarily in data from April 2026 onward.</span></p>
+</td>
+</tr>
+</tbody>
+</table>
+<p class="MsoNormal"><span><span>Meanwhile, AI‑related investment spending lifted trade volumes in Asia and to a lesser extent in North America in the first quarter. Seasonally adjusted exports and imports of Asia were up 12.9% and 14.6%, respectively, compared with the first quarter of 2025.  Asia's strong year-on-year trade growth was in part attributable to very large quarter-on-quarter increases in both exports and imports in the first quarter of 2026 (5.5% and 7.2%, respectively), with exports driven not only by China but also by Singapore, the Republic of Korea, Thailand and Chinese Taipei. Much of the rise in Asia was due to intra-regional circulation of AI-enabling goods.</span></span></p>
+<p class="MsoNormal"><strong><span>Chart 2: Merchandise export and import volume indices by region, 2023Q1-2026Q4</span></strong></p>
+<p class="MsoNormal"><span>Volume index, 2023Q1=100</span></p>
+<p class="MsoNormal"><img src="https://www.wto.org/images/img_news/chart2-20260730141254276.png" alt="Chart 2: Merchandise export and import volume indices by region, 2023Q1-2026Q4 Volume index, 2023Q1=100" width="602" height="320"></p>
+<p class="MsoNormal small"><span>a   Refers to South and Central America and the Caribbean. </span></p>
+<p class="MsoNormal small"><span>b   Refers to Commonwealth of Independent States (CIS), including certain associate and former member states.</span></p>
+<p class="MsoNormal small"><span>Note: Quarterly merchandise trade volume indices may diverge slightly from annual indices due to differences in data availability and methodology.</span></p>
+<p class="MsoNormal small"><span>Source: WTO-UNCTAD.</span></p>
+<p class="MsoNormal">As for North America, its first quarter exports were up 7.0% year-on-year. North American imports were down 10.7% from the first quarter of 2025, which saw a surge of imports due to frontloading ahead of expected tariff increases. Quarter-on-quarter growth, however, remained strong at 3.4%.</p>
+<p class="MsoNormal">A 2.6% year-on-year decline in the volume of Europe's exports was also mostly related to frontloading of shipments of gold and pharmaceuticals to North America in the first quarter of last year.<span>  </span>European import volume registered a modest 0.6% increase.</p>
+<p class="MsoNormal">In other regions, quarter-on-quarter export volume growth was moderate to negative in the first quarter (0.3% for South America<sup id="fntext-1"><a href="#fnt-1">(1)</a></sup>, -2.5% for Africa, and -7.4% for the CIS region<sup id="fntext-2"><a href="#fnt-2">(2)</a></sup>). However, the 22.5% cumulative increase in South America's exports since the start of 2023 was greater than any region other than Asia (33.4%). South America's 24.5% cumulative rise on the import side over the same period was also the second largest of any region, this time behind Africa (25.0%). Exports of South America, Africa and the CIS region are expected to rebound in the second quarter as petroleum producers try to make up for reduced output from the Middle East.</p>
+<h3><strong>Merchandise trade in value terms </strong></h3>
+<p class="MsoNormal"><span>Chart 3 shows year-on-year growth in the US dollar value of world merchandise trade by broad product category in the first quarters of both 2026 and 2025<sup id="fntext-3"><a href="#fnt-3">(3)</a></sup>. The strongest performance during the first quarter of 2026 was in office and telecom equipment (+44% year-on-year), followed by ores and other minerals (+27%) and other machinery (+9%). Among the product categories shown, only chemicals (-6%), iron and steel (-5%) and fuels (-3%) decreased in value terms. While fuel prices changed little year-on-year (+3%; +16% quarter-on-quarter), prices for metals and minerals (excluding gold &amp; silver) were 32% higher. Much of the strong increase in the office and telecom <span>sector can be attributed to the ongoing demand for AI-enabling technologies<sup id="fntext-4"><a href="#fnt-4">(4)</a></sup> (+42%, see memo item in the chart).</span> <!-- [if !supportFootnotes]--></span></p>
+<p class="MsoNormal"><strong><span>Chart 3: Year-on-year merchandise trade growth by product in the first quarters of 2026 and 2025</span></strong></p>
+<p class="MsoNormal"><span>% change in US$ values</span></p>
+<p class="MsoNormal"><span><img src="https://www.wto.org/images/img_news/chart3-20260730143654442.png" alt="Chart 3: Year-on-year merchandise trade growth by product in the first quarters of 2026 and 2025" width="772" height="828"></span></p>
+<p class="MsoNormal small"><span>a Includes electrical machinery, non-electrical machinery and power generating equipment.</span></p>
+<p class="MsoNormal small"><i><span>Source: </span></i><span>WTO for total merchandise, secretariat estimates for products.</span></p>
+<p class="MsoNormal">The value of merchandise exports in the first quarter increased the most in Asia, rising 20% year-on-year. This growth was driven particularly by exports of precious metals and gold, copper, machinery and electrical machinery, and ores, while exports of iron and steel, pharmaceuticals, and clothing dropped. Africa saw the second-highest increase, with 14% growth, supported by exports of precious metals and gold, copper, fertilizers, and ores, among others, though cocoa and fuels exports declined. South and Central America also grew by 14%, with increases in exports of oil seeds, precious metals and gold, meat, fuels, ores, coffee and tea. The region saw declines in exports of fruits, electrical machinery, and vehicles. Only the exports of the Middle East and the Commonwealth of Independent States (CIS) showed declines, both falling by 1%. As the majority of merchandise imports from both regions consists of fuels, this trend correlates with latest developments in world trade in fuels (see Chart 4).</p>
+<p class="MsoNormal"><strong><span>Chart 4: Merchandise trade growth by regions in the first quarter of 2026</span></strong></p>
+<p class="MsoNormal"><span>% change in US$ values</span></p>
+<p class="MsoNormal"> <img src="https://www.wto.org/images/img_news/chart4-20260730143828432.png" alt="Chart 4: Merchandise trade growth by regions in the first quarter of 2026" width="957" height="517"></p>
+<p class="MsoNormal small"><i><span>*</span></i><span> Including certain associate and former member states.<i></i></span></p>
+<p class="MsoNormal small"><i><span>Source: </span></i><span>WTO.</span></p>
+<p class="MsoNormal">On the imports side, strong year-on-year increases were observed for Asia (+22%) and Africa (+15%). Regarding Asia, imports of precious metals/gold, copper and machinery showed marked increases, while iron and steel imports went slightly down. African imports grew particularly for vehicles, machinery and ships/boats, while aircraft and organic chemicals imports fell. North America's merchandise imports in the first quarter decreased the most (-7%), with imports of precious metals, pharmaceuticals, vehicles and articles of iron or steel recording particularly strong contractions. The value of Middle East imports also fell 6% due to a combination of rising prices and falling volumes.</p>
+<p class="MsoNormal">All the top five exporters in the first quarter of 2026 recorded nominal export growth year-on-year, with the Republic of Korea leading with +38.4%; followed by Hong Kong, China (+38.3%); the United States (+15.2%); and China (+14.7%). The European Union (+9.2%) recorded a more modest growth rate.</p>
+<p class="MsoNormal">Of the top five importers, only US merchandise imports declined (-13.6%) during the first quarter of 2026, while imports of the other four increased in value terms: Hong Kong, China, +44.8%, the United Kingdom +28.0%, China +23.0% and the European Union +11.4%.</p>
+<hr>
+<h4>Footnotes</h4>
+<ol class="footnote-list">
+<li id="fnt-1"><span class="reference-text">Refers to South and Central American and the Caribbean.</span> <a href="#fntext-1" class="small"><em></em> Back to text</a></li>
+<li id="fnt-2"><span class="reference-text">Refers to Commonwealth of Independent States, including certain associate and former member states.</span> <a href="#fntext-2" class="small"><em></em> Back to text</a></li>
+<li id="fnt-3"><span class="reference-text">Total merchandise trade measured by exports, products estimated by mirror data.</span> <a href="#fntext-3" class="small"><em></em> Back to text</a></li>
+<li id="fnt-4"><span class="reference-text">See https://data.wto.org/dataset/wto_ai .</span> <a href="#fntext-4" class="small"><em></em> Back to text</a></li>
+</ol>]]></content>
+      <link>https://www.wto.org/english/news_e/news26_e/rese_31jul26_469_e.htm</link>
+      <pubDate>Fri, 31 Jul 2026 00:00:00 GMT</pubDate>
+      <guid>https://www.wto.org/english/news_e/news26_e/rese_31jul26_469_e.htm</guid>
+    </item>
+    <item>
+      <title>Brazil initiates dispute regarding additional duties imposed by the United States</title>
+      <description><![CDATA[Brazil has requested WTO dispute consultations with the United States regarding additional US duties on products originating in Brazil as a result of two investigations by the United States under Section 301 of the US Trade Act of 1974. Brazil said the additional duties are above the duties otherwise applicable under the US harmonized tariff schedule. The request was circulated to WTO members on 30 July.]]></description>
+      <category domain="DISP">dispute settlement</category>
+      <media:keywords>dispute settlement</media:keywords>
+      <content><![CDATA[<p class="MsoNormal">Brazil contends the US measures — which consist of an additional ad valorem duty of 25 per cent on all products originating in Brazil (subject to certain exemptions) as a result of a Section 301 investigation and an additional ad valorem duty of 12.5 per cent on products of Brazil (subject to certain exemptions) as a result of another Section 301 investigation focused on allegations related to forced labour - are inconsistent with various provisions of the WTO's General Agreement on Tariffs and Trade (GATT) 1994 and the Dispute Settlement Understanding.</p>
+<p class="MsoNormal">Further information is available in document <a href="https://docs.wto.org/dol2fe/Pages/SS/directdoc.aspx?filename=Q:/G/L/1630.pdf&amp;Open=True" target="_blank" rel="noopener"><span>WT/DS646/1.</span></a><span><!-- [if !supportAnnotations]--></span></p>
+<p class="MsoNormal"></p>
+<p><!-- [if !supportAnnotations]--></p>
+<p></p>
+<p></p>]]></content>
+      <link>https://www.wto.org/english/news_e/news26_e/ds646rfc_30jul26_468_e.htm</link>
+      <pubDate>Thu, 30 Jul 2026 00:00:00 GMT</pubDate>
+      <guid>https://www.wto.org/english/news_e/news26_e/ds646rfc_30jul26_468_e.htm</guid>
+    </item>
+    <item>
+      <title>WTO panel issues report regarding Turkish measures on EVs and other types of vehicles</title>
+      <description><![CDATA[On 28 July, the WTO circulated the panel report in the case brought by China in "Türkiye — Measures Concerning Electric Vehicles and Other Types of Vehicles from China" (DS629).]]></description>
+      <category domain="DISP">dispute settlement</category>
+      <media:keywords>dispute settlement</media:keywords>
+      <content><![CDATA[<p><a href="/english/tratop_e/dispu_e/cases_e/ds629_e.htm#accordion_1785247091865">Summary of key findings</a></p>
+<h2><strong>DS629: Türkiye — Measures Concerning Electric Vehicles and Other Types of Vehicles from China</strong></h2>
+<p><strong>Download</strong></p>
+<ul>
+<li><a href="/english/news_e/news_docs/629R_conc.pdf" target="_blank" rel="noopener">Just the findings and conclusions in pdf format</a></li>
+</ul>
+<p><strong>In pdf format</strong></p>
+<ul>
+<li><a href="/english/news_e/news_docs/629R.pdf" target="_blank" rel="noopener">Panel report</a></li>
+<li><a href="/english/news_e/news_docs/629RA1.pdf" target="_blank" rel="noopener">Addendum</a></li>
+</ul>]]></content>
+      <link>https://www.wto.org/english/news_e/news26_e/629r_465_e.htm</link>
+      <pubDate>Tue, 28 Jul 2026 00:00:00 GMT</pubDate>
+      <guid>https://www.wto.org/english/news_e/news26_e/629r_465_e.htm</guid>
+    </item>
+    </channel></rss>

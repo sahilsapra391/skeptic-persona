@@ -1,4 +1,4 @@
-# Global wire fanout — 44 probed, 14 adopted
+# Global wire fanout — 86 probed, 20 adopted
 
 **Verified 2026-08-01T22:4xZ**, declared UA (`Skeptic Wire admin@spechawk.ai`).
 
@@ -127,3 +127,107 @@ do Brasil (200, HTML, zero items), IMF alternate (200, 392 bytes, zero items).
 `rba_news` returned one item, below the three-item gate. Not rejected on
 merit — the gate is the gate — but worth a retry in a later batch, since a
 quiet week is indistinguishable from a broken feed at n=1.
+
+---
+
+# Batch 3 — 42 more probed, 6 adopted
+
+**Verified 2026-08-01T23:1xZ**, same declared UA, same two gates.
+
+Twelve of the 42 returned 200 with three or more items. **All twelve then
+parsed cleanly through `parsePressFeed` on the first attempt** — where batch 1
+had four of eight parse to zero.
+
+That is not the batch-3 feeds being better behaved. It is the batch-1 dialect
+work (RSS 1.0/RDF, Atom `<entry>`, CDATA on any field, four candidate date
+fields) covering the shapes that exist. Batch 3 contributed two Atom feeds
+(gov.uk) and a Swiss feed, and the parser had already met all of it.
+
+## Three of the twelve were already registered
+
+`press_ftc_competition`, `press_fca` and `press_eu_commission` came back
+"usable" under URLs **identical** to rows already in `PRESS_SOURCES`. The
+probe list was written from the plan document and never diffed against what
+the desk already polls.
+
+Nothing broke, because I read the source list before writing the config. Had I
+not, they would have been adopted a second time under new ids: double the poll
+rate against three hosts, and every item filed twice for dedup to absorb.
+
+A test now asserts **no two `PRESS_SOURCES` share a URL**. The next duplicate
+fails CI rather than depending on someone noticing.
+
+## Adopted (6)
+
+| Source | Authority | Why it earns a slot | Filter |
+|---|---|---|---|
+| `press_bea` | Bureau of Economic Analysis | GDP, PCE, trade balance — the releases themselves | none |
+| `press_eia` | US EIA | "Today in Energy": EIA reading its own series | explainers |
+| `press_wto` | WTO | Disputes, panel reports, quarterly goods trade | donations, explainers |
+| `press_cma` | UK CMA | Merger inquiries, named parties in the title | gov.uk doc prefix |
+| `press_hmt` | HM Treasury | Budget and fiscal announcements | gov.uk doc prefix |
+| `press_finma` | FINMA | Proceedings concluded against named Swiss firms | German items |
+
+### gov.uk serves a document library, not a wire
+
+CMA and HMT are the same endpoint shape: one Atom feed per organisation,
+carrying **everything that organisation publishes**. The CMA's Vodafone / CK
+Hutchison merger inquiry arrives interleaved with "Transparency data: CMA:
+spending over £500, June 2026".
+
+The separator is that gov.uk prefixes documents with their type and leaves
+press releases unprefixed. The filter is an **explicit list** of those types
+rather than a `/^[A-Z][a-z ]+:/` shape, because a real headline can lead with
+a colon too ("Vodafone: CMA opens phase 2 inquiry") and that one must survive.
+
+### FINMA's English feed is not all English
+
+`finma.ch/en/rss/news/` returns roughly half its items in German —
+"Aktualisierte Sanktionsmeldung: Russland". The desk has no translator, so
+posting one means relaying a regulator's exact wording in a language nobody
+here read.
+
+The filter drops the German openers. **Only `Aktualisierte` was observed; the
+others are prophylactic, and a German item opening some other way still gets
+through.** That residual risk is stated rather than papered over. The general
+lesson is the transferable part: **an `/en/` path is a routing hint, not a
+guarantee about content.**
+
+## Rejected on editorial grounds, not on fetch (2)
+
+Both return clean, well-formed, parseable feeds. Neither carries market
+intelligence, which the first two gates cannot see.
+
+**CBO** — 12 of 12 recent items are cost estimates for individual bills
+("S. 3747, Home School Graduation Recognition Act"). The publications that
+matter (Budget and Economic Outlook, Monthly Budget Review) exist but are rare
+enough that catching them needs an **allowlist**, and `skipTitle` is a
+blocklist. Wants its own chunk if it is worth having at all.
+
+**DOL** — grant awards, single-restaurant back-wage recoveries, OSHA citations
+against individual contractors. The one recurring item worth having is the
+Unemployment Insurance Weekly Claims Report, and its numbers live in a data
+file rather than the title, so a headline-only lane could not say anything
+about it. Wants a dedicated ingester, not a press row.
+
+This is a **third rejection class**, and it is the one the automated gates are
+blindest to. Batch 1 rejected on transport (404/403) and on shape (parsed to
+zero). Batch 3 adds *parses perfectly, says nothing worth saying*. Only
+reading twelve real titles per feed surfaced it.
+
+## Rejected on fetch (30)
+
+404: Treasury news, FERC, NLRB, GSA, Ofgem, BaFin, AMF France, SNB, CONSOB,
+DNB Netherlands, Norges alternate, JFSA, HKMA alternate, HKEX, APRA, ACCC,
+BIS, World Bank, OSFI, StatCan.
+403: Treasury OFAC XML, FAA, USDA, CNMV, RBNZ, OECD.
+Other: NRC (503), EPA (202, empty body).
+200 with zero items: MAS Singapore (854 KB of HTML).
+
+`rba_retry` returned **one item again**, unchanged from batch 1. Two probes a
+day apart both at n=1 is now weak evidence the feed is genuinely near-empty
+rather than momentarily quiet, but one item is still below the gate. Left
+parked.
+
+The 403s remain parked rather than worked around. Doctrine #4: the client
+declares itself, and a host that refuses a declared UA has answered.

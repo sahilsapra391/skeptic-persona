@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xml:lang="en-GB" xmlns="http://www.w3.org/2005/Atom">
+  <id>tag:www.gov.uk,2005:/government/organisations/hm-treasury</id>
+  <link rel="alternate" type="text/html" href="https://www.gov.uk/government/organisations/hm-treasury"/>
+  <link rel="self" type="application/atom+xml" href="https://www.gov.uk/government/organisations/hm-treasury.atom"/>
+  <title>HM Treasury - Activity on GOV.UK</title>
+  <author>
+    <name>HM Government</name>
+  </author>
+  <updated>2026-07-31T14:04:56Z</updated>
+  <entry>
+    <id>https://www.gov.uk/government/publications/chancellor-letter-to-the-treasury-select-committee-tsc-budget-2026-date#2026-07-31T14:04:56Z</id>
+    <updated>2026-07-31T14:04:56Z</updated>
+    <link rel="alternate" type="text/html" href="https://www.gov.uk/government/publications/chancellor-letter-to-the-treasury-select-committee-tsc-budget-2026-date"/>
+    <title>Correspondence: Chancellor letter to the Treasury Select Committee (TSC) - Budget 2026 date</title>
+    <category label="Correspondence" term="Correspondence"/>
+    <summary>The Chancellor has today written to the Treasury Select Committee (TSC) to confirm the date of the budget. </summary>
+  </entry>
+  <entry>
+    <id>https://www.gov.uk/government/news/budget-to-move-power-and-money-out-of-westminster-and-into-every-postcode-around-britain#2026-07-31T14:03:00Z</id>
+    <updated>2026-07-31T14:03:00Z</updated>
+    <link rel="alternate" type="text/html" href="https://www.gov.uk/government/news/budget-to-move-power-and-money-out-of-westminster-and-into-every-postcode-around-britain"/>
+    <title>Budget to move “power and money out of Westminster, and into every postcode around Britain”.</title>
+    <summary>Today (Friday 31 July), the Chancellor has confirmed that the date of the Budget will be Wednesday 28 October.</summary>
+  </entry>
+  <entry>
+    <id>https://www.gov.uk/government/news/g7-cyber-expert-group-2026-cross-border-coordination-exercise-cbce#2026-07-31T13:00:03Z</id>
+    <updated>2026-07-31T13:00:03Z</updated>
+    <link rel="alternate" type="text/html" href="https://www.gov.uk/government/news/g7-cyber-expert-group-2026-cross-border-coordination-exercise-cbce"/>
+    <title>G7 Cyber Expert Group 2026 Cross Border Coordination Exercise (CBCE)</title>
+    <summary>The G7 Cyber Expert Group has successfully concluded its 2026 Cross-border-coordination exercise.</summary>
+  </entry>
+  </feed>
