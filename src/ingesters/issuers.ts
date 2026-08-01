@@ -178,15 +178,16 @@ export async function referenceHealth(env: Env): Promise<ReferenceHealth> {
 /**
  * Should a filing from this issuer be allowed to interrupt the owner?
  *
- * FAILS OPEN ON UNKNOWNS, and that is the whole design. An issuer absent from
- * the reference table has not been shown to be small, it has only not been
- * looked up -- the table refreshes weekly and a fresh listing appears late.
- * An absent float is the same: Donaldson and Estee Lauder both have June/July
- * fiscal years, so their float instant falls outside the frames we union, and
- * a rule that read missing-as-zero would silence two large caps.
+ * An absent FLOAT always fails open: Donaldson and Estee Lauder both have
+ * June/July fiscal years, so their float instant falls outside the frames we
+ * union, and a rule that read missing-as-zero would silence two large caps.
  *
- * Only a POSITIVE finding suppresses: listed somewhere minor, or a float the
- * issuer itself reported below the floor.
+ * An absent ISSUER depends on whether the reference covers the market. SEC's
+ * ticker file lists every exchange-listed filer, so a name missing from a
+ * complete and fresh copy of it is a non-traded vehicle -- but a table that
+ * is small or stale cannot tell "not listed" from "not refreshed", and
+ * reading a failed refresh as "nothing is listed" would silence every filing
+ * source at once. See referenceIsAuthoritative.
  */
 export function keepIssuer(
   issuer: Issuer | null,
