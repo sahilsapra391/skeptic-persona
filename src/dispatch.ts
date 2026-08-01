@@ -142,6 +142,7 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
 
   let ran = 0;
   let deferred = 0;
+  const durations: Array<{ job: string; ms: number }> = [];
   await fetchPool(
     due.results,
     async (row: JobRow) => {
@@ -172,6 +173,7 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
         return;
       }
       ran += 1;
+      const jobStartedAt = performance.now();
       try {
         await handler(env, now, budget);
         // .catch: a D1 hiccup on BOOKKEEPING must not be logged as the job
@@ -180,7 +182,14 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
           .bind(iso(now), row.name)
           .run()
           .catch(() => {});
+        // Per-job duration. Without it the only capacity evidence this
+        // project has is one line from one log ("4 jobs, 68.6s"), which is an
+        // average over an unnamed mix — edgar_8k fans out to ten enqueues
+        // while halts_nasdaq is one small fetch. The discovery mesh has to be
+        // sized against a real distribution, so record one.
+        durations.push({ job: row.name, ms: Math.round(elapsedMs(jobStartedAt)) });
       } catch (e) {
+        durations.push({ job: row.name, ms: Math.round(elapsedMs(jobStartedAt)) });
         log("error", "job failed", { job: row.name, error: String(e) });
         // Job-level health: source_state tracks whether a SOURCE answers;
         // this tracks whether the JOB itself completes, so a handler that
@@ -202,6 +211,20 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
       deferred,
       elapsedMs: Math.round(elapsedMs(startedAt)),
       concurrency,
+    });
+  }
+  if (ran > 0) {
+    // One line per tick carrying the whole distribution: wall time, how many
+    // ran, and the slowest jobs by name. Sorted so the tail is visible, which
+    // is the number that decides how much a tier can afford.
+    durations.sort((a, b) => b.ms - a.ms);
+    log("info", "tick complete", {
+      ran,
+      deferred,
+      concurrency,
+      wallMs: Math.round(elapsedMs(startedAt)),
+      serialMs: durations.reduce((n, d) => n + d.ms, 0),
+      slowest: durations.slice(0, 5),
     });
   }
 }
