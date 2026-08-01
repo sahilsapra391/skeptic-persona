@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
+  beatShapeCheck,
   cadenceCheck,
   checkGroundingProvenance,
   looksLikeProse,
@@ -358,6 +359,29 @@ describe("motive — the defamation surface, directly (finding #15)", () => {
     ]) {
       expect(motiveCheck(ok), ok).toEqual([]);
     }
+  });
+});
+
+describe("beatShapeCheck — a beat is a sentence (found in the first live generation)", () => {
+  it("rejects the lowercase fragment the model actually shipped", () => {
+    const real = "CFTC orders George Santos to pay $35,000 for manipulative trading, per CFTC.\n\npay $35,000.";
+    expect(beatShapeCheck(real).map((i) => i.rule)).toEqual(["beat_shape"]);
+  });
+
+  it("FALSE-POSITIVE CORPUS: the owner's own beats all pass, including his echoes", () => {
+    for (const ok of [
+      "Senate PTR: sale, filed nine days later, per Senate eFD.\n\nNine days.", // his echo
+      "Form 4: director bought 25,000 shares, per SEC.\n\nPosition up 31%.",
+      "Four Form 4s, same issuer, per SEC.\n\nFour signatures, not one.",
+      "8-K, Item 4.02, per SEC.\n\nTheir words, about their own numbers.",
+      "CFTC orders a payment, per CFTC.\n\n$35,000, in the order's own figure.", // non-alpha opener
+    ]) {
+      expect(beatShapeCheck(ok), ok.slice(-30)).toEqual([]);
+    }
+  });
+
+  it("checks every segment, not just the first take", () => {
+    expect(beatShapeCheck("Fact, per SEC.\n\nGood sentence.\n\nand a bad fragment.").length).toBe(1);
   });
 });
 
