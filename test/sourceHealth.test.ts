@@ -110,6 +110,36 @@ describe("runSourceHealth", () => {
 });
 
 describe("the review findings, pinned", () => {
+  it("quarantines on the streak alone when the source has NEVER succeeded", () => {
+    // The two real targets. An endpoint that has failed this many times and
+    // never once answered is not having a bad week, and disabling it forfeits
+    // nothing because there is no working behaviour to lose.
+    expect(shouldQuarantine({ name: "treasury_auction", fails: 16, lastOkAt: null }, NOW)).toBe(true);
+    expect(shouldQuarantine({ name: "press_cftc", fails: 12, lastOkAt: null }, NOW)).toBe(true);
+    // The streak floor still applies.
+    expect(shouldQuarantine({ name: "x", fails: 11, lastOkAt: null }, NOW)).toBe(false);
+  });
+
+  it("survives every legitimate silence a working source can have", () => {
+    // Each of these would have tripped an earlier version of the rule. 12h
+    // was satisfied by any weekend; 72h by a weekly cadence or a holiday
+    // closure with a weekend attached. Tuning one constant against the worst
+    // cadence was the wrong shape.
+    const cases: [string, string, string][] = [
+      ["closed weekend", "2026-07-31T20:00:00.000Z", "2026-08-03T13:00:00.000Z"],
+      ["weekly cftc_cot", "2026-07-25T15:30:00.000Z", "2026-08-01T20:00:00.000Z"],
+      ["Thanksgiving + weekend", "2026-11-25T20:00:00.000Z", "2026-11-30T14:00:00.000Z"],
+      ["Christmas closure", "2026-12-24T18:00:00.000Z", "2026-12-29T14:00:00.000Z"],
+    ];
+    for (const [label, lastOk, when] of cases) {
+      expect(shouldQuarantine({ name: label, fails: 99, lastOkAt: lastOk }, new Date(when)), label).toBe(false);
+    }
+    // Two weeks dead, having previously worked: now it goes.
+    expect(
+      shouldQuarantine({ name: "long dead", fails: 99, lastOkAt: "2026-07-10T00:00:00.000Z" }, new Date("2026-08-01T00:00:00.000Z")),
+    ).toBe(true);
+  });
+
   it("does not quarantine a market-hours source over a closed weekend", async () => {
     // halts_nasdaq is priority 50, so the CRITICAL_PRIORITY exemption does
     // NOT cover it. Carrying a failure streak into a closed weekend leaves it
