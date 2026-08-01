@@ -77,7 +77,7 @@ describe("fetchSourceText (p4-01)", () => {
 
     const first = await fetchSourceText(
       env,
-      { id, source_url: "https://www.sec.gov/enf/x", raw_text: null, raw_meta: null },
+      { id, source: "press_ftc_competition", source_url: "https://www.sec.gov/enf/x", raw_text: null, raw_meta: null },
       NOW,
     );
     expect(first).not.toBeNull();
@@ -99,7 +99,7 @@ describe("fetchSourceText (p4-01)", () => {
     // Cached round: no interceptor registered, so a real fetch would throw.
     const second = await fetchSourceText(
       env,
-      { id, source_url: "https://www.sec.gov/enf/x", raw_text: row!.raw_text, raw_meta: row!.raw_meta },
+      { id, source: "press_ftc_competition", source_url: "https://www.sec.gov/enf/x", raw_text: row!.raw_text, raw_meta: row!.raw_meta },
       NOW,
     );
     expect(second?.cached).toBe(true);
@@ -112,7 +112,7 @@ describe("fetchSourceText (p4-01)", () => {
     try {
       const got = await fetchSourceText(
         env,
-        { id, source_url: "https://www.cftc.gov/PressRoom/x", raw_text: null, raw_meta: null },
+        { id, source: "press_ftc_competition", source_url: "https://www.cftc.gov/PressRoom/x", raw_text: null, raw_meta: null },
         NOW,
       );
       expect(got).toBeNull();
@@ -132,7 +132,7 @@ describe("fetchSourceText (p4-01)", () => {
       .reply(200, `<p>${"word ".repeat(600)}</p>`);
     const got = await fetchSourceText(
       env,
-      { id, source_url: "https://news.example.com/a", raw_text: null, raw_meta: null },
+      { id, source: "press_ftc_competition", source_url: "https://news.example.com/a", raw_text: null, raw_meta: null },
       NOW,
     );
     expect(got!.mode).toBe("excerpt");
@@ -142,7 +142,7 @@ describe("fetchSourceText (p4-01)", () => {
   it("a failed fetch degrades to null and caches nothing", async () => {
     const id = await seedPress("9403-26", "Fail soft", "2026-07-31T00:00:00.000Z");
     fetchMock.get("https://www.fda.gov").intercept({ path: "/x" }).reply(404, "not here");
-    const got = await fetchSourceText(env, { id, source_url: "https://www.fda.gov/x", raw_text: null, raw_meta: null }, NOW);
+    const got = await fetchSourceText(env, { id, source: "fda_drug_recall", source_url: "https://www.fda.gov/x", raw_text: null, raw_meta: null }, NOW);
     expect(got).toBeNull();
     const row = await env.DB.prepare(`SELECT raw_text FROM items WHERE id = ?1`).bind(id).first<{ raw_text: string | null }>();
     expect(row?.raw_text).toBeNull();

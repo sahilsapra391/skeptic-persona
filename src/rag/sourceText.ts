@@ -18,6 +18,26 @@ import { log } from "../lib/log";
 // excerpting. The default is the conservative mode.
 
 /** Hosts the Worker cannot reach (verified egress blocks; see docs/verification). */
+/**
+ * Sources with a DEDICATED capture job, which the generation fallback must
+ * not race.
+ *
+ * For edgar_8k, source_url is the EDGAR index page: 2,077 characters of
+ * navigation chrome that licenses 78 numbers through groundingFacts -- CIK,
+ * accession fragments, item codes -- and passes both the prose and anchor
+ * gates, because it IS prose and it DOES name the company. It is not the
+ * wrong document; it is the right record's wrong representation, which no
+ * content test can detect.
+ *
+ * The race is real and tight: an 8-K approved minutes after ingest reaches
+ * generation before edgar_8k_body has run, the fallback caches the chrome,
+ * and the capture job then skips that row forever because raw_text is no
+ * longer NULL. Skipping the fallback for this source means the item grounds
+ * on payload alone until the capture lands, which is strictly better than
+ * grounding on chrome and permanently so.
+ */
+const DEDICATED_CAPTURE_SOURCES = ["edgar_8k"];
+
 const EGRESS_BLOCKED_HOSTS = [
   "www.cftc.gov",
   "efdsearch.senate.gov",
@@ -92,6 +112,7 @@ async function sha256Hex(text: string): Promise<string> {
 
 interface ItemRow {
   id: number;
+  source: string;
   source_url: string;
   raw_text: string | null;
   raw_meta: string | null;
@@ -117,6 +138,15 @@ export async function fetchSourceText(env: Env, item: ItemRow, now: Date = new D
       fetchedAt: typeof meta["fetchedAt"] === "string" ? (meta["fetchedAt"] as string) : "unknown",
       cached: true,
     };
+  }
+
+  // A source with its own capture job must not be raced by this fallback.
+  // Cached text above is still served; only the FETCH is skipped, so the
+  // item grounds on payload alone until the capture lands rather than
+  // permanently caching whatever source_url happens to return.
+  if (DEDICATED_CAPTURE_SOURCES.includes(item.source)) {
+    log("info", "source text deferred to dedicated capture", { itemId: item.id, source: item.source });
+    return null;
   }
 
   const host = hostOf(item.source_url);

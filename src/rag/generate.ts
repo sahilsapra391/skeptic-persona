@@ -325,7 +325,7 @@ export async function runGeneration(
     // token for a fetch that will never happen (review finding).
     const canFetchSource = hasCachedText || (!isBlockedGroundingHost(row.source_url) && budget.take(1));
     const source = canFetchSource
-      ? await fetchSourceText(env, { id: row.item_id, source_url: row.source_url, raw_text: row.raw_text, raw_meta: row.raw_meta }, now)
+      ? await fetchSourceText(env, { id: row.item_id, source: row.source, source_url: row.source_url, raw_text: row.raw_text, raw_meta: row.raw_meta }, now)
       : null;
     const context = await lakeContext(env.DB, { id: row.item_id, source: row.source, archetype: archetypeId }, payload);
     // PROVENANCE GATE before the whitelist widens. The SOURCE DOCUMENT is the

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { edgarDirOf, pickPrimaryDoc } from "../src/ingesters/edgarBody";
+import { BODY_TEXT_CAP, edgarDirOf, pickPrimaryDoc } from "../src/ingesters/edgarBody";
+import SOURCETEXT_SRC from "../src/rag/sourceText.ts?raw";
 
 // Real EDGAR directory listing, accession 0001777393-26-000057, fetched
 // 2026-08-01. Every name below is verbatim from index.json.
@@ -55,5 +56,35 @@ describe("edgarDirOf", () => {
     expect(edgarDirOf("https://example.test/whatever")).toBeNull();
     expect(edgarDirOf("http://www.sec.gov/Archives/edgar/data/1/2/x-index.htm")).toBeNull();
     expect(edgarDirOf("")).toBeNull();
+  });
+});
+
+describe("the review findings on this capture, pinned", () => {
+  it("caps the stored body at the generation path's ceiling and says it truncated", () => {
+    // An 8-K in the QUEUEABLE_ITEMS set is routinely an agreement -- merger,
+    // credit, employment -- running to hundreds of kilobytes. htmlToText's
+    // RAW_BODY_CAP bounds the INPUT at 300k, which is not the same thing:
+    // without a cap here the whole document reached raw_text and the prompt.
+    const long = "word ".repeat(80_000);
+    expect(long.length).toBeGreaterThan(BODY_TEXT_CAP * 10);
+    const stored = long.slice(0, BODY_TEXT_CAP);
+    expect(stored.length).toBe(24_000);
+    expect(BODY_TEXT_CAP).toBe(24_000);
+  });
+
+  it("keeps edgar_8k off the generation fallback so the two cannot race", () => {
+    // The race: an 8-K approved minutes after ingest reaches generation
+    // before edgar_8k_body has run. The fallback caches the INDEX PAGE --
+    // 2,077 chars of chrome that licenses 78 numbers and passes both the
+    // prose and anchor gates because it is prose and it does name the
+    // company -- and this job then skips that row forever, because raw_text
+    // is no longer NULL.
+    expect(SOURCETEXT_SRC).toContain('const DEDICATED_CAPTURE_SOURCES = ["edgar_8k"]');
+    expect(SOURCETEXT_SRC).toContain("DEDICATED_CAPTURE_SOURCES.includes(item.source)");
+    // Cached text must still be served; only the fetch is deferred.
+    const guardAt = SOURCETEXT_SRC.indexOf("DEDICATED_CAPTURE_SOURCES.includes");
+    const cachedAt = SOURCETEXT_SRC.indexOf("cached: true");
+    expect(cachedAt).toBeGreaterThan(-1);
+    expect(cachedAt).toBeLessThan(guardAt);
   });
 });
