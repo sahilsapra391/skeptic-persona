@@ -254,6 +254,40 @@ describe("grounding provenance — wrong document is a fabrication license", () 
     expect(looksLikeProse("/Size 312 /Prev 223302")).toBe(true);
   });
 
+  it("KNOWN RESIDUAL: an index page for the SAME record passes both gates (live SEC text)", () => {
+    // Verified against the live URL the p4 session flagged in review:
+    // https://www.sec.gov/Archives/edgar/data/1777393/000177739326000057/0001777393-26-000057-index.htm
+    //
+    // My earlier tests only proved the gates reject SYNTHETIC wrong-document
+    // text. Against real production content they both PASS, and 43 numbers
+    // stay licensed. Pinned as a failing-by-design fact so the gap is visible
+    // in the suite rather than only in a review thread.
+    //
+    // WHY NO CONTENT TEST CAN CLOSE IT: this is not the wrong document, it is
+    // the RIGHT RECORD's wrong representation. The index page is legitimately
+    // about accession 0001777393-26-000057, so every identifier the payload
+    // carries is honestly present. Note which anchor matches below — the CIK,
+    // because the accession number CONTAINS the CIK. That also rules out
+    // "require a payload-specific discriminator like the accession number":
+    // the index page is TITLED with the accession number.
+    //
+    // The durable fix is upstream (#75's shape): pre-populate raw_text from
+    // the primary document so the source_url fallback never fires. When that
+    // covers a source, this text stops being reachable for it.
+    const liveIndexText = `EDGAR Filing Documents for 0001777393-26-000057 This page uses Javascript. Your browser either doesn't support Javascript or you have it turned off. To see this page as it is meant to appear please use a Javascript enabled browser. SEC.gov EDGAR Latest Filings Filings search tools Filing Detail SEC Home &#187; Company Search &#187; Current Page Form 8-K - Current report: SEC Accession No. 0001777393-26-000057 Filing Date 2026-07-31 Accepted 2026-07-31 17:28:25 Documents 11 Period of Report 2026-07-28 Items Item 2.05: Cost Associated with Exit or Disposal Activities Item 5.02: Departure of Directors or Certain Officers; Election of D`;
+    const payload = { cik: "0001777393", company: "ChargePoint Holdings, Inc." };
+
+    expect(looksLikeProse(liveIndexText)).toBe(true); // navigation chrome IS prose
+    const v = checkGroundingProvenance(liveIndexText, payload);
+    expect(v.ok).toBe(true);
+    expect(v.matched).toBe("0001777393"); // the CIK, matched inside the accession
+
+    // The consequence, stated so it cannot be lost: junk enters the whitelist.
+    const licensed = groundingFacts(liveIndexText).numbers;
+    expect(licensed.has("57")).toBe(true); // accession fragment
+    expect(licensed.has("26")).toBe(true); // accession fragment
+  });
+
   it("ABSENCE is not wrongness — no grounding and no anchors both pass", () => {
     expect(checkGroundingProvenance("", filing).ok).toBe(true);
     expect(checkGroundingProvenance("some text", { publishedIso: "2026-07-31" }).ok).toBe(true);
