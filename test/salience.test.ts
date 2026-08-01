@@ -203,6 +203,19 @@ describe("the digest accounts for every held row (review rounds 2-3)", () => {
     expect(unsent?.n).toBe(0);
   });
 
+  it("a promotion that THROWS restores the item so the button still works", async () => {
+    // The regression round three introduced: the claim flips 'digested' ->
+    // 'new' first, and renderForQueue can throw, so an unguarded failure
+    // stranded the item outside every drain with its digest row already sent.
+    // A payload with no renderable skeleton is the reachable trigger.
+    const id = await held("ACC-throws", { items: [{ code: "5.02" }] }, 40); // no title -> firstClause raises
+    const out = await promoteHeldItem(CURATED as never, id, NOW);
+    expect(out).toBeNull();
+    const row = await env.DB.prepare(`SELECT status FROM items WHERE id = ?1`).bind(id).first<{ status: string }>();
+    // Back to 'digested', not stranded in 'new' or parked as 'logged'.
+    expect(row?.status).toBe("digested");
+  });
+
   it("promotion is idempotent — a second tap never builds a second card", async () => {
     const id = await held("ACC-promote", { items: [{ code: "5.02", title: "Departure of Directors or Certain Officers" }], cik: "1", company: "A Co" }, 40);
 
