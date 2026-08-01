@@ -67,6 +67,59 @@ The same rule can go from strict to lenient with nobody editing it — the
 measurement moved under this document while it was being written, which is the
 concrete version of that warning rather than a hypothetical one.
 
+## The mechanism: the commentary floor is a forcing function
+
+Added after the p4 session pushed back on the framing above. They argued a
+depth gate does not mean silence, because `dry` and `sharp` are the honest
+output for a thin item and commentary is the escalation tier, not the
+baseline. That is right, but their stated reason — that dry and sharp are
+"fact-only by construction" — is not what the code does. Checked:
+`validateVariant` runs an **identical** Group 1 floor for every variant.
+Exactly two things differ by variant:
+
+| | dry / sharp | commentary |
+| --- | --- | --- |
+| `structuralCheck` max segments | 2 | 3 |
+| `lengthCheck` minimum | none | **200 weighted** |
+
+Nothing stops a `dry` variant containing world-knowledge. What stops it is
+that it is under no pressure to keep talking.
+
+**The 200-character minimum is the forcing function.** Measured against the
+fact block each thin source can actually produce:
+
+| source | fact block | floor | must come from elsewhere |
+| --- | ---: | ---: | ---: |
+| press_cftc_enforcement (5 fields) | 115 | 200 | **85** |
+| sec_form144 (20 fields) | 98 | 200 | **102** |
+| edgar_form4 (4 fields) | 66 | 200 | **134** |
+| edgar_8k (5 fields) | 57 | 200 | **143** |
+| sec_schedule13 (5 fields) | 46 | 200 | **154** |
+
+The model is handed a record that runs out at ~110 characters and a contract
+demanding 200. The remaining 85–154 characters have to come from somewhere, and
+the only remaining source is the model's own knowledge of the world.
+
+This is not a model quirk to be validated away. **It is a contract we wrote**,
+and the drafts are complying with it. `dry` produced "Order entered." from the
+same payload and stopped, because nothing was pushing it to continue.
+
+That makes the gate measurable per item and BEFORE generation: compare the
+available record (fact block + grounding) against the floor, and offer
+commentary only where the record can actually fund it. The failure mode
+becomes "a thin item gets a wire post" — the archetype's own default — rather
+than "an unsourceable claim about a named person is published".
+
+## Re-check trigger, not a date
+
+Every threshold here is calibrated against a distribution the rest of the
+project is actively changing, so it has an expiry nobody sets. Stating the
+trigger in data instead of a calendar:
+
+> **Re-measure when `items.raw_text` is non-NULL for more than 25% of items
+> queued in the trailing 7 days.** At that point the fact-block table above is
+> stale, because grounding rather than payload becomes the binding input.
+
 ## Caveat on scope
 
 This counts TOP-LEVEL keys only. A payload with one deeply nested object scores
