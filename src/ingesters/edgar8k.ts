@@ -175,7 +175,7 @@ export const MAX_ENQUEUES_PER_RUN = 10;
 
 export { isFreshAtIngest, STALE_AT_INGEST_HOURS } from "./shared";
 import { isFreshAtIngest } from "./shared";
-import { keepIssuer, lookupIssuer, minFloatUsd } from "./issuers";
+import { keepIssuer, lookupIssuer, minFloatUsd, referenceHealth, referenceIsAuthoritative } from "./issuers";
 
 /** Test seam: drive the real ingest path with hand-built entries. */
 export function ingestForTest(env: Env, entries: Edgar8kEntry[], now: Date = new Date()): Promise<number> {
@@ -185,6 +185,8 @@ export function ingestForTest(env: Env, entries: Edgar8kEntry[], now: Date = new
 async function ingestEntries(env: Env, entries: Edgar8kEntry[], now: Date): Promise<number> {
   let inserted = 0;
   const floor = minFloatUsd(env);
+  // Read the reference health ONCE per batch, not per filing.
+  const authoritative = referenceIsAuthoritative(await referenceHealth(env), now);
   for (const entry of entries) {
     let score = scoreEntry(entry);
 
@@ -194,7 +196,7 @@ async function ingestEntries(env: Env, entries: Edgar8kEntry[], now: Date): Prom
     // Those filings still land in the lake, they just stop interrupting.
     //
     // Fails OPEN: an issuer we cannot find has not been shown to be small.
-    const gate = keepIssuer(await lookupIssuer(env, entry.cik), floor);
+    const gate = keepIssuer(await lookupIssuer(env, entry.cik), floor, authoritative);
     if (!gate.keep) {
       score = Math.min(score, SCORE_LOG_ONLY);
       log("debug", "8-K suppressed by issuer gate", { cik: entry.cik, company: entry.company, reason: gate.reason });
