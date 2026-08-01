@@ -37,18 +37,25 @@ export const QUARANTINE_AFTER = 12;
  * most mornings from overnight UK maintenance and answers again by midday.
  * Quarantining that would silence a working source.
  *
- * SEVENTY-TWO HOURS, NOT TWELVE, and the reason is market hours. A
- * market-windowed source like halts_nasdaq (priority 50, so NOT covered by
- * the CRITICAL_PRIORITY exemption) can carry a failure streak into a closed
- * weekend and be legitimately silent for ~64 hours without anything being
- * wrong. At twelve hours the silence test was satisfied by every weekend,
- * which collapsed the rule to the streak-only version this comment says is
- * unsafe. Seventy-two spans a weekend plus a public holiday; a genuinely
- * dead endpoint is still caught, three days later instead of half a day,
- * and that is the right trade for a check whose false positive is silencing
- * a working source.
+ * FOURTEEN DAYS, and it applies only to a source that has succeeded before.
+ *
+ * The first version used twelve hours, which every weekend satisfied. Raising
+ * it to seventy-two only moved the problem: cftc_cot is weekly, the
+ * daily_1330_utc probes fire once a day, and a Thanksgiving or Christmas
+ * closure with a weekend attached runs past three days. Each of those would
+ * have re-collapsed the rule to streak-only, one notch up.
+ *
+ * Tuning one constant against the worst legitimate cadence is the wrong
+ * shape. What production actually says is that the two sources this chunk
+ * exists to catch have NEVER succeeded --
+ *
+ *   treasury_auction        16 failures, last success never
+ *   press_cftc_enforcement   6 failures, last success never
+ *
+ * -- while every source with a real success history had succeeded that same
+ * day. So the split is on evidence, not duration. See shouldQuarantine.
  */
-export const QUARANTINE_MIN_SILENCE_HOURS = 72;
+export const QUARANTINE_MIN_SILENCE_HOURS = 14 * 24;
 
 /** A quarantined source gets one real attempt again after this long. */
 export const PROBE_AFTER_HOURS = 6;
@@ -85,7 +92,17 @@ function hoursSince(iso8601: string | null, now: Date): number {
 
 export function shouldQuarantine(c: Candidate, now: Date): boolean {
   if (c.fails < QUARANTINE_AFTER) return false;
-  // Never silenced a source that is currently answering.
+
+  // NEVER SUCCEEDED: the streak alone is enough. An endpoint that has failed
+  // this many times and never once answered is not having a bad week, and
+  // disabling it forfeits nothing, because there is no working behaviour to
+  // lose. Both real targets are in this case.
+  if (c.lastOkAt === null) return true;
+
+  // HAS SUCCEEDED BEFORE: something that worked and stopped gets a long
+  // benefit of the doubt. Every legitimate silence -- a closed weekend, a
+  // holiday, a weekly release cadence -- is bounded well under two weeks, and
+  // the cost of being wrong here is silencing a live source.
   return hoursSince(c.lastOkAt, now) >= QUARANTINE_MIN_SILENCE_HOURS;
 }
 
