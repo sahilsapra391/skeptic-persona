@@ -66,6 +66,21 @@ export const QUARANTINE_MIN_SILENCE_HOURS = 14 * 24;
 /** A quarantined source gets one real attempt again after this long. */
 export const PROBE_AFTER_HOURS = 6;
 
+/**
+ * How long a never-succeeded source must have been failing before its streak
+ * counts as evidence of death.
+ *
+ * Without this, "never succeeded" cannot tell a dead endpoint from a young
+ * one: source_state's row is created on the FIRST failure, so a source
+ * deployed into a transient 503 on an every_1m cadence hits twelve failures
+ * twelve minutes later and is quarantined before anyone has looked at it.
+ *
+ * A row with first_failure_at NULL predates the column, so absence means OLD,
+ * not new -- treasury_auction has been failing since long before this shipped
+ * and must stay catchable.
+ */
+export const MIN_DEAD_AGE_HOURS = 24;
+
 export const SOURCE = "source_health";
 
 // A NOTE ON jobs.last_ok_at, WHICH LIES.
@@ -87,6 +102,8 @@ interface Candidate {
   name: string;
   fails: number;
   lastOkAt: string | null;
+  /** Null on a legacy row, which hoursSince reads as infinitely old. */
+  firstFailureAt?: string | null;
 }
 
 function hoursSince(iso8601: string | null, now: Date): number {
@@ -99,11 +116,14 @@ function hoursSince(iso8601: string | null, now: Date): number {
 export function shouldQuarantine(c: Candidate, now: Date): boolean {
   if (c.fails < QUARANTINE_AFTER) return false;
 
-  // NEVER SUCCEEDED: the streak alone is enough. An endpoint that has failed
-  // this many times and never once answered is not having a bad week, and
-  // disabling it forfeits nothing, because there is no working behaviour to
-  // lose. Both real targets are in this case.
-  if (c.lastOkAt === null) return true;
+  // NEVER SUCCEEDED: an endpoint that has failed this many times and never
+  // once answered is not having a bad week, and disabling it forfeits
+  // nothing. But the streak alone cannot tell dead from YOUNG -- the row is
+  // created on the first failure -- so it must also have been failing long
+  // enough for the streak to mean something.
+  if (c.lastOkAt === null) {
+    return hoursSince(c.firstFailureAt ?? null, now) >= MIN_DEAD_AGE_HOURS;
+  }
 
   // HAS SUCCEEDED BEFORE: something that worked and stopped gets a long
   // benefit of the doubt. Every legitimate silence -- a closed weekend, a
@@ -122,7 +142,8 @@ export async function runSourceHealth(
   // from the starvation guard: the poster and the release watchers are the
   // pipeline, and silencing them automatically is never the right call.
   const candidates = await env.DB.prepare(
-    `SELECT j.name AS name, s.consecutive_failures AS fails, s.last_ok_at AS lastOkAt
+    `SELECT j.name AS name, s.consecutive_failures AS fails, s.last_ok_at AS lastOkAt,
+            s.first_failure_at AS firstFailureAt
        FROM jobs j JOIN source_state s ON s.source = j.name
       WHERE j.enabled = 1
         AND j.priority > ?1
