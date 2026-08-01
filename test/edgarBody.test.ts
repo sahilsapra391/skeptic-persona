@@ -123,6 +123,32 @@ describe("the review findings on this capture, pinned", () => {
     expect(JSON.parse(row!.m!).document).toBeTruthy();
   });
 
+  it("re-captures a row the generation fallback poisoned", async () => {
+    // No cleanup migration: a one-off UPDATE fixes the rows that exist when
+    // it runs, this fixes them whenever they appear. raw_meta.document is
+    // written ONLY by this job -- the fallback never opened the directory
+    // listing, so it cannot know which file it fetched -- which makes its
+    // absence a reliable marker of index chrome.
+    const id = await seedPendingEightK("0009999999-26-000003");
+    await env.DB.prepare(`UPDATE items SET raw_text = ?1, raw_meta = ?2 WHERE id = ?3`)
+      .bind(
+        "EDGAR Filing Documents for 0001777393-26-000057",
+        JSON.stringify({ mode: "full", host: "www.sec.gov", bytes: 2077 }),
+        id,
+      )
+      .run();
+    serveFiling("<html><body><p>UNITED STATES SECURITIES AND EXCHANGE COMMISSION FORM 8-K</p></body></html>");
+
+    await captureEdgarBodies(env as never, new Date(), newTickBudget(20));
+
+    const row = await env.DB.prepare(`SELECT raw_text AS t, raw_meta AS m FROM items WHERE id = ?1`)
+      .bind(id)
+      .first<{ t: string; m: string }>();
+    expect(row.t).toContain("FORM 8-K");
+    expect(row.t).not.toContain("EDGAR Filing Documents");
+    expect(JSON.parse(row.m).document).toBeTruthy();
+  });
+
   it("scrubs URLs out of the stored body, THROUGH the real capture path", async () => {
     // 8-K bodies carry URLs constantly. A scheme-less .gov echoed into a post
     // is linkified by X while our weighted-length counter scores it at 7
