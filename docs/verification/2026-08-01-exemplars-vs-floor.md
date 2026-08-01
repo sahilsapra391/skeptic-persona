@@ -89,6 +89,45 @@ Two changes, neither of which belongs inside a feature chunk:
    fix, because it makes the two specifications answer to each other from now
    on.
 
+## A SECOND, DEEPER CONFLICT the parity test surfaced — not a regex bug
+
+Once the test enumerated the whole floor rather than `entityCheck` alone, a
+different class appeared, and it is a doctrine conflict rather than a defect
+in any function.
+
+**The owner's exemplars do arithmetic the floor bans.**
+
+```
+E1  "Legal, disclosed, and six weeks stale."   <- 6, from lagDays 45
+E2  "Sixty-one days from trade to public."     <- 61, from two dates
+E5  "eighty-seven days"        E6  "thirty-nine days"
+```
+
+`numberCheck` rejects each with `spelled-out "six" (6) does not appear in the
+payload`, and it is **right to**. The arithmetic ban is a stated
+non-negotiable — "the model never does arithmetic" — and it exists because a
+model that computes is a model that can compute wrongly and confidently.
+
+So this is not a case where either side is broken. The voice needs a figure the
+payload does not carry, and the prompt already names the correct resolution:
+
+> derived figures are already computed as fields — never do arithmetic
+
+**The payloads do not carry those fields.** `lagDays` is present; `lagWeeks` is
+not. The exemplar teaches "six weeks stale" and no payload in the system can
+license it, so a draft imitating the flagship exemplar is rejected however well
+it is written.
+
+**This is an enrichment gap, not a validator gap**, and the fix belongs in the
+ingestion lane: compute and persist the derived figures the voice actually
+uses (`lagWeeks`, `daysToPublic`), so the floor can license them. Flagging it
+rather than fixing it here, because widening `numberCheck` to permit
+computation would delete the guarantee the whole gauntlet exists to provide.
+
+The parity test licenses these figures explicitly so that it measures LANGUAGE
+CONSTRUCTIONS rather than re-reporting this gap on every run. That exemption is
+named in the test, not silent.
+
 ## A second, unrelated hole in the same function
 
 `entityCheck` only matches **multi-token** proper nouns, so single-token
