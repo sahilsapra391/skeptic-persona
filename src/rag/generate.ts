@@ -13,7 +13,7 @@ import { checkRegister } from "../templates/validate";
 import { chatComplete, OpenRouterError, parseVariants } from "./openrouter";
 import { OWNER_EXEMPLARS, stylePackFor } from "./stylepack";
 import { ownerFinals } from "./learn";
-import { fetchSourceText, isBlockedGroundingHost, type SourceText } from "./sourceText";
+import { fetchSourceText, hasDedicatedCapture, isBlockedGroundingHost, type SourceText } from "./sourceText";
 import { lakeContext } from "./context";
 import { openerHash, skeletonHash } from "./echo";
 import { checkGroundingProvenance, corpusHasData, validateVariant, type ValidationIssue, type Variant } from "./validate";
@@ -389,9 +389,14 @@ export async function runGeneration(
     const hasCachedText = row.raw_text !== null && row.raw_text !== "";
     // Cached text costs no subrequest; a blocked host must not cost a budget
     // token for a fetch that will never happen (review finding).
-    const canFetchSource = hasCachedText || (!isBlockedGroundingHost(row.source_url) && budget.take(1));
+    // A dedicated-capture source can never fetch here, so it must not spend a
+    // token on a fetch that will not happen -- same reasoning as the
+    // egress-blocked host check beside it.
+    const canFetchSource =
+      hasCachedText ||
+      (!hasDedicatedCapture(row.source) && !isBlockedGroundingHost(row.source_url) && budget.take(1));
     const source = canFetchSource
-      ? await fetchSourceText(env, { id: row.item_id, source_url: row.source_url, raw_text: row.raw_text, raw_meta: row.raw_meta }, now)
+      ? await fetchSourceText(env, { id: row.item_id, source: row.source, source_url: row.source_url, raw_text: row.raw_text, raw_meta: row.raw_meta }, now)
       : null;
     const context = await lakeContext(env.DB, { id: row.item_id, source: row.source, archetype: archetypeId }, payload);
     // PROVENANCE GATE before the whitelist widens. The SOURCE DOCUMENT is the
@@ -399,6 +404,19 @@ export async function runGeneration(
     // exhibit instead of the filing); lake context is built from our own rows
     // keyed to this item, so it is trusted separately.
     const sourceProvenance = checkGroundingProvenance(source?.text ?? "", payload);
+    if (source?.text && sourceProvenance.ok && sourceProvenance.reason === "no_usable_anchor") {
+      // Fail-open is correct here (we cannot prove the text wrong with no
+      // anchor to test), but it must not be SILENT: this is the shape the FDA
+      // recall class hit, where the payload offers no anchor field AND the
+      // source_url is always a landing page — i.e. the class whose document is
+      // reliably wrong is the class the gate cannot see.
+      log("warn", "grounding licensed WITHOUT provenance: payload offers no anchor field", {
+        queueId: row.queue_id,
+        source: row.source,
+        archetype: archetypeId,
+        chars: source.text.length,
+      });
+    }
     if (source?.text && !sourceProvenance.ok) {
       // The text still reaches the prompt — the model may make what it can of
       // it — but it does NOT license facts. Fail closed on the widening only.

@@ -220,6 +220,48 @@ export async function zeroEditStats(db: D1Database, since: Date): Promise<ZeroEd
   };
 }
 
+/**
+ * Why the draft looked the way it did, captured alongside the pair.
+ *
+ * AN EDIT IS NOT ALWAYS A VOICE SIGNAL. If the owner rewrote a draft because
+ * the payload was thin — five fields and no source text — that pair does not
+ * teach the model to write better, it teaches it to compensate for missing
+ * facts, which is a fabrication pressure wearing a style lesson's clothes.
+ * Telling those apart later needs the context now: a pair captured without it
+ * is a question that can never be asked about the days already past.
+ *
+ * Nothing consumes these yet, deliberately. They are cheap at capture and
+ * impossible to backfill.
+ */
+export interface PairContext {
+  readonly payloadFieldCount: number | null;
+  readonly groundingChars: number | null;
+}
+
+/** Top-level payload keys with a non-empty value, plus captured body length. */
+export async function pairContext(db: D1Database, queueId: number): Promise<PairContext> {
+  const row = await db
+    .prepare(
+      `SELECT i.payload, LENGTH(COALESCE(i.raw_text, '')) AS body
+       FROM queue q JOIN items i ON i.id = q.item_id WHERE q.id = ?1`,
+    )
+    .bind(queueId)
+    .first<{ payload: string; body: number }>();
+  if (!row) return { payloadFieldCount: null, groundingChars: null };
+  let fields: number | null = null;
+  try {
+    const parsed: unknown = JSON.parse(row.payload);
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      fields = Object.values(parsed as Record<string, unknown>).filter(
+        (v) => v !== null && v !== undefined && v !== "",
+      ).length;
+    }
+  } catch {
+    fields = null; // an unparseable payload is unknown depth, not zero depth
+  }
+  return { payloadFieldCount: fields, groundingChars: row.body };
+}
+
 /** The captured pairs themselves, for the digest's "what changed" section. */
 export async function recentEditedPairs(db: D1Database, since: Date, limit: number): Promise<EditPair[]> {
   const rows = await db
