@@ -88,6 +88,71 @@ export const PRESS_SOURCES: readonly PressSource[] = [
     // weekday. It is a digest, not an event, and would crowd the queue daily.
     skipTitle: /^Daily News\b/i,
   },
+  // --- GLOBAL WIRE FANOUT, batch 1 (p4-11). Every URL below was live-probed
+  // 2026-08-01T22:4xZ with a declared UA and kept only if it returned 200
+  // AND parsed to three or more items. Eleven other candidates failed and
+  // are recorded in the verification doc rather than left as folklore.
+  {
+    id: "press_doj",
+    authority: "DOJ",
+    url: "https://www.justice.gov/news/rss?type=press_release",
+    categories: [],
+    // DOJ publishes the whole department. Nominations, grants, community
+    // programmes and appointments are not market intelligence.
+    // \w* on the stems, not a bare \b: "nominat\b" cannot match "Nominates",
+    // because the boundary it demands falls in the middle of the word.
+    skipTitle: /\b(nominat\w*|grant award|communit\w*|appoint\w*|swearing|memorial|award ceremony)\b/i,
+  },
+  {
+    id: "press_fed_speeches",
+    authority: "Federal Reserve",
+    // Speeches, distinct from press_all: this is where policy is signalled
+    // between meetings, and the FOMC statement itself already arrives via
+    // fed_press.
+    url: "https://www.federalreserve.gov/feeds/speeches.xml",
+    categories: [],
+  },
+  {
+    id: "press_ecb",
+    authority: "European Central Bank",
+    url: "https://www.ecb.europa.eu/rss/press.html",
+    categories: [],
+  },
+  {
+    id: "press_boc",
+    authority: "Bank of Canada",
+    url: "https://www.bankofcanada.ca/content_type/press-releases/feed/",
+    categories: [],
+  },
+  {
+    id: "press_ons",
+    authority: "UK ONS",
+    url: "https://www.ons.gov.uk/releasecalendar?rss",
+    categories: [],
+  },
+  {
+    id: "press_ofsi",
+    authority: "UK OFSI",
+    // Sanctions. The one lane where "who was designated today" is the whole
+    // story and there is no filing behind it to fetch.
+    url: "https://ofsi.blog.gov.uk/feed/",
+    categories: [],
+  },
+  {
+    id: "press_rbi",
+    authority: "Reserve Bank of India",
+    url: "https://www.rbi.org.in/pressreleases_rss.xml",
+    categories: [],
+  },
+  {
+    id: "press_sebi",
+    authority: "SEBI",
+    // India's securities regulator: the enforcement lane for a market the
+    // desk currently has zero coverage of. NSE and BSE stay parked (the
+    // hosts reset our declared UA, verified 2026-07-27).
+    url: "https://www.sebi.gov.in/sebirss.xml",
+    categories: [],
+  },
 ];
 
 export interface PressItem {
@@ -106,8 +171,40 @@ function parseDate(v: string): string {
   // Feeds here use RFC-822 ("Mon, 27 Jul 2026 09:20:41 GMT") and a
   // human format ("Monday, July 27, 2026 - 15:30"). Date handles both;
   // anything it cannot read is dropped rather than guessed.
-  const d = new Date(v.replace(/\s+-\s+/, " "));
+  const cleaned = stripCdata(v).replace(/\s+-\s+/, " ").trim();
+  let d = new Date(cleaned);
+  if (Number.isNaN(d.getTime())) {
+    // SEBI prints "31 Jul, 2026 +0530" -- a comma after the month and NO
+    // time at all, which Date rejects outright. Drop the comma and supply
+    // midnight so a date-only stamp still dates the item, rather than
+    // discarding a real filing over punctuation.
+    const dateOnly = /^(\d{1,2})\s+([A-Za-z]{3,})[,]?\s+(\d{4})\s*([+-]\d{4})?$/.exec(cleaned);
+    if (dateOnly) {
+      d = new Date(`${dateOnly[1]} ${dateOnly[2]} ${dateOnly[3]} 00:00:00 ${dateOnly[4] ?? "+0000"}`);
+    }
+  }
   return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
+/** Feeds wrap values in CDATA inconsistently, even within one document. */
+function stripCdata(v: string): string {
+  return v.replace(/^\s*<!\[CDATA\[/, "").replace(/\]\]>\s*$/, "").trim();
+}
+
+/**
+ * First non-empty value among several tag names.
+ *
+ * The fanout mixes three feed dialects and they disagree about which tag
+ * carries which fact: RSS 2.0 uses pubDate, RSS 1.0/RDF uses dc:date, Atom
+ * uses published or updated. Reading only the first is how a feed returns
+ * 200, contains items, and still parses to nothing.
+ */
+function firstOf(block: string, tags: readonly string[]): string {
+  for (const t of tags) {
+    const v = stripCdata(extractFirst(block, t) ?? "");
+    if (v) return v;
+  }
+  return "";
 }
 
 /** Descriptions this short restate the title or the feed's boilerplate;
@@ -128,11 +225,24 @@ function parseDescription(item: string, title: string): string | null {
 
 export function parsePressFeed(xml: string): PressItem[] {
   const out: PressItem[] = [];
-  for (const item of extractAll(stripBom(xml), "item")) {
-    const rawTitle = extractFirst(item, "title") ?? "";
-    const title = decodeEntities(rawTitle.replace(/^\s*<!\[CDATA\[/, "").replace(/\]\]>\s*$/, "").trim());
-    const link = (extractFirst(item, "link") ?? "").trim();
-    const published = parseDate((extractFirst(item, "pubDate") ?? "").trim());
+  const doc = stripBom(xml);
+  // RSS and RDF call an item <item>; Atom calls it <entry>. Take whichever
+  // this document actually uses rather than assuming RSS -- OFSI and ONS
+  // both serve Atom and parsed to zero under the item-only reader.
+  const blocks = extractAll(doc, "item");
+  const items = blocks.length > 0 ? blocks : extractAll(doc, "entry");
+  for (const item of items) {
+    const title = decodeEntities(firstOf(item, ["title"]));
+    // Atom puts the URL in an attribute, not a text node, and lists several
+    // rel types -- self and replies among them. Only the alternate link is
+    // the article.
+    const linkTag = firstOf(item, ["link"]);
+    const atomHref =
+      /<link\b[^>]*rel=["']alternate["'][^>]*href=["']([^"']+)["']/i.exec(item)?.[1] ??
+      /<link\b[^>]*href=["']([^"']+)["']/i.exec(item)?.[1] ??
+      "";
+    const link = (linkTag || atomHref || "").trim();
+    const published = parseDate(firstOf(item, ["pubDate", "dc:date", "published", "updated"]));
     if (!title || !link || !published) continue;
     out.push({
       title,

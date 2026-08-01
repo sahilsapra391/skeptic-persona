@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>ONS Release Calendar RSS Feed.</title>
+    <link>https://www.ons.gov.uk/releasecalendar</link>
+    <description>Latest ONS releases</description>
+    <item>
+      <title>Population estimates by marital status and living arrangements, England and Wales: 2025</title>
+      <link>https://www.ons.gov.uk/releases/populationestimatesbymaritalstatusandlivingarrangementsenglandandwales2025</link>
+      <description>Annual estimates of population by legal marital status and cohabitation status by age and sex for England and Wales.</description>
+      <guid>https://www.ons.gov.uk/releases/populationestimatesbymaritalstatusandlivingarrangementsenglandandwales2025</guid>
+      <pubDate>Fri, 31 Jul 2026 08:30:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Indicators of house building, UK: permanent dwellings started and completed by country, July 2026</title>
+      <link>https://www.ons.gov.uk/releases/indicatorsofhousebuildingukpermanentdwellingsstartedandcompletedbycountryjuly2026</link>
+      <description>Starts and completions of new build dwellings in the UK, on a quarterly and annual basis, time series data.</description>
+      <guid>https://www.ons.gov.uk/releases/indicatorsofhousebuildingukpermanentdwellingsstartedandcompletedbycountryjuly2026</guid>
+      <pubDate>Fri, 31 Jul 2026 08:30:00 +0000</pubDate>
+    </item>
+    <item>
+      <title>Update on reinstating quarterly regional GDP estimates for England and Wales: July 2026</title>
+      <link>https://www.ons.gov.uk/releases/reinstatingquarterlyregionalgdpestimates</link>
+      <description>First update on reinstating quarterly regional gross domestic product (GDP) estimates for England and Wales, including recent data and methods changes to produce seasonally adjusted current price estimates and a new indicative regional dataset and data catalogue. These are official statistics in development.</description>
+      <guid>https://www.ons.gov.uk/releases/reinstatingquarterlyregionalgdpestimates</guid>
+      <pubDate>Fri, 31 Jul 2026 08:30:00 +0000</pubDate>
+    </item>
+    </channel></rss>
