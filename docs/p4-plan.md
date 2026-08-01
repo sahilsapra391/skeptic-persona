@@ -41,6 +41,26 @@ exemplar coverage; the owner un-deferred it 2026-08-01 after reviewing the
 first valid generation (cycle 30 read machine-made and context-free), and it
 landed as p4-01. Exemplar depth remains the open owner task it always was.
 
+## Migration + job-row discipline (agreed across sessions 2026-08-01)
+
+- Claim a chunk number by cross-session message BEFORE cutting the branch.
+- Migration ranges: RAG holds 0029-0030; p4 holds 0044-0045; ingestion 0046+.
+  A gap is verified-harmless; a duplicate is not.
+- A migration may be applied to prod ahead of its merge (they are additive).
+  A **job row** may ship `enabled=1` ahead of its handler only when BOTH:
+  (a) its cadence profile is already known to the DEPLOYED build, so an early
+  pick parks normally instead of falling through the unknown-profile path,
+  and (b) the handler lands in the same PR as the migration. `0044_salience`
+  violated both and burned a slot per hour until corrected; `0046_source_health`
+  violates neither and correctly ships enabled — seeding it disabled would
+  trade a bounded logged cost for an unbounded silent one (a source that never
+  runs because nobody did the follow-up UPDATE).
+- **Nobody runs `npm run deploy`.** Workers Builds auto-deploys on merge in
+  28-70s. With three sessions on worktrees, a manual deploy from a feature
+  branch silently overwrites main-merged code with unmerged work.
+- A cross-branch verification states the SET it covered. A nine-of-eleven
+  merge check reads as exhaustive and is not.
+
 ## Queue-volume rules (owner amendment 2026-08-01, plan of record)
 
 - `DAILY_QUEUE_TARGET` 25 is a **soft** target, never a hard cap.
