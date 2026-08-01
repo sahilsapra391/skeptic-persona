@@ -97,11 +97,44 @@ was billing-dead when those merges landed, which is why nothing caught it.
   (`lane=senate`) awaiting an honest network path (candidate: owner-run
   residential courier POSTing the same bundle to `/ingest`).
 
-## 5. Live end-to-end (appended when run)
+## 5. Live end-to-end
 
-PENDING. Target per owner instruction: a real congress PTR through
-approve → OpenRouter → validator gauntlet → copy card → Posted? capture.
-Earliest congress supply: Monday's House index rebuild (~13:00 UTC) + the
-14:20 UTC house lane; fresh weekend/Monday e-filings queue then. Interim
-candidate offered to the owner: queue #918 (covered archetype, relay-born,
-fresh today) to exercise the OpenRouter path ahead of the congress item.
+### 5a. First live generation — queue #918 (2026-08-01, interim record)
+
+Owner approved #918 (REGULATORY_NEWS, the relay-born CFTC enforcement item)
+at ~18:0xZ; the generation job picked it up on its 5-minute tick. **First
+OpenRouter call in the project's history.**
+
+- **Mechanics all passed**: `qwen/qwen3.7-flash` returned clean structured
+  JSON on both attempts (`2026-07-28-openrouter.md`'s owed authenticated
+  round-trip is hereby recorded); grounding held — every token of all six
+  drafts exists in the payload, zero fabricated numbers, zero motive
+  language; the retry-with-feedback loop ran; the fail-closed chain ended in
+  the register-checked template card (cycle 26) with the cycle token
+  behaving.
+- **All six variants rejected** — five `rejected:attribution`, one
+  commentary `rejected:length` (the 280 contract working as designed).
+- **Root cause (systematic)**: exemplar–validator contradiction. The owner's
+  REGULATORY_NEWS exemplars cite the named body ("per SEC"/"per CFTC"/"per
+  FTC"); the validator's allow-list derives from archetype attribution
+  strings, and REGULATORY_NEWS declared only the generic "per the issuing
+  authority" (archetypes.ts:857 at the time). The model wrote "per CFTC" —
+  correct by exemplar, payload, and doctrine — and the gauntlet killed it.
+  Every press-item generation was structurally doomed to template fallback.
+- **Fix (p4-00b, this record's PR)**: `PRESS_ATTRIBUTION` closed map keyed
+  on `payload.authority` (the p3-30 RATE_ATTRIBUTION pattern), wired as the
+  archetype's map-form attribution — render cites the named body, unknown
+  authority refuses to render, checkRegister with payload accepts ONLY this
+  item's citation ("per SEC" on a CFTC order dies). Prompt now states the
+  resolved citation verbatim and leads with commentary as THE deliverable.
+- Also observed, evidence for the deferred full-source-context work: press
+  payloads are title-only, so the model has three facts to write from — take
+  quality is bounded by payload depth, not by the model.
+
+Cycle-27 regeneration under the fixed code: recorded below when run.
+
+### 5b. Congress-PTR e2e (the owner-specified target)
+
+PENDING Monday: House index rebuild (~13:00 UTC) + the 14:20 UTC house lane
+queue fresh weekend/Monday e-filings (senate lane parked, §4). Record lands
+here as a docs follow-up on main per owner decision 2026-08-01.

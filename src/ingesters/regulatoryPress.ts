@@ -22,7 +22,6 @@ import { log } from "../lib/log";
 export interface PressSource {
   id: string;
   authority: string;
-  attribution: string;
   url: string;
   /** RSS <category> values worth the owner's attention. Empty = accept all. */
   categories: readonly string[];
@@ -37,7 +36,6 @@ export const PRESS_SOURCES: readonly PressSource[] = [
   {
     id: "press_sec_enforcement",
     authority: "SEC",
-    attribution: "per SEC",
     // Administrative proceedings. NOTE: the litigation-releases feed at
     // /rss/litigation/litreleases.xml is DEAD (404, serves an HTML page).
     url: "https://www.sec.gov/rss/litigation/admin.xml",
@@ -46,7 +44,6 @@ export const PRESS_SOURCES: readonly PressSource[] = [
   {
     id: "press_cftc_enforcement",
     authority: "CFTC",
-    attribution: "per CFTC",
     // PARKED 2026-07-28: this host 403s Cloudflare Worker egress while
     // returning 200 to the same declared UA from a residential connection.
     // SEC and FTC were polled in the same tick and both succeeded, so the
@@ -59,14 +56,12 @@ export const PRESS_SOURCES: readonly PressSource[] = [
   {
     id: "press_ftc_competition",
     authority: "FTC",
-    attribution: "per FTC",
     url: "https://www.ftc.gov/feeds/press-release-competition.xml",
     categories: [],
   },
   {
     id: "press_boj",
     authority: "Bank of Japan",
-    attribution: "per Bank of Japan",
     // English "What's New". Verified 2026-07-28: 39 items, JST offsets
     // (+0900) — a FIFTH timestamp convention in this pipeline.
     url: "https://www.boj.or.jp/en/rss/whatsnew.xml",
@@ -78,7 +73,6 @@ export const PRESS_SOURCES: readonly PressSource[] = [
   {
     id: "press_fca",
     authority: "UK FCA",
-    attribution: "per UK FCA",
     url: "https://www.fca.org.uk/news/rss.xml",
     // The feed mixes enforcement with blogs and speeches. Verified live
     // taxonomy: Press Releases, News stories, Blogs, Statements, Speeches.
@@ -87,7 +81,6 @@ export const PRESS_SOURCES: readonly PressSource[] = [
   {
     id: "press_eu_commission",
     authority: "European Commission",
-    attribution: "per European Commission",
     url: "https://ec.europa.eu/commission/presscorner/api/rss?language=en&pagesize=20",
     categories: [],
     // "Daily News 27 / 07 / 2026" is a roundup of everything, published every
