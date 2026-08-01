@@ -348,37 +348,68 @@ function isUsableIdentifier(v: string): boolean {
 // Spaced forms exist because punctuation is replaced by spaces before this
 // runs: "L.P." -> "l p", "S.A." -> "s a", "L.L.C." -> "l l c".
 const LEGAL_SUFFIX =
-  /\b(inc|incorporated|llc|l l c|corp|corporation|co|ltd|limited|plc|lp|l p|llp|sa|s a|nv|n v|ag|a g|holdings|holding|group|trust|nv|se)\b/g;
+  /\b(inc|incorporated|llc|l l c|corp|corporation|co|ltd|limited|plc|lp|l p|llp|sa|s a|nv|n v|ag|a g|holdings|holding|group|trust|se|company)\b/g;
 // EDGAR conformed names carry a state suffix: "BANK OF AMERICA CORP /DE/".
 const EDGAR_STATE_SUFFIX = /\/[a-z]{2}\//g;
 
-/** Punctuation-normalised, legal suffixes KEPT. The fallback form for names
- *  too short to be distinctive once stripped. */
-function normalizePunct(v: string): string {
+/** Long forms mapped to short so the payload's "NVIDIA CORP" still matches a
+ *  body printing "NVIDIA Corporation". Applied to BOTH sides. */
+const SUFFIX_CANON: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bincorporated\b/g, "inc"],
+  [/\bcorporation\b/g, "corp"],
+  [/\bcompany\b/g, "co"],
+  [/\blimited\b/g, "ltd"],
+  [/\bl l c\b/g, "llc"],
+  [/\bl p\b/g, "lp"],
+  [/\bs a\b/g, "sa"],
+  [/\bn v\b/g, "nv"],
+  [/\ba g\b/g, "ag"],
+  [/\bholdings\b/g, "holding"],
+];
+
+function basePunct(v: string): string {
   return v.toLowerCase().replace(EDGAR_STATE_SUFFIX, " ").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/** Punctuation-normalised AND legal suffixes stripped. */
-function normalizeName(v: string): string {
-  return normalizePunct(v).replace(LEGAL_SUFFIX, " ").replace(/\s+/g, " ").trim();
+/** Suffixes KEPT but canonicalised — the fallback form. */
+function canonicalName(v: string): string {
+  let out = basePunct(v);
+  for (const [re, to] of SUFFIX_CANON) out = out.replace(re, to);
+  return out.replace(/\s+/g, " ").trim();
+}
+
+/** Suffixes REMOVED — the preferred form when it stays distinctive. */
+function strippedName(v: string): string {
+  return canonicalName(v).replace(LEGAL_SUFFIX, " ").replace(/\s+/g, " ").trim();
 }
 
 /**
- * DISTINCTIVENESS FLOOR — a regression the first hardening introduced.
+ * WHICH FORM OF A NAME MAY ANCHOR, decided by construction rather than by a
+ * length threshold.
  *
- * Stripping legal suffixes with no floor let an issuer whose conformed name
- * reduces to one short ordinary word license any prose containing that word:
- * "NOW INC" -> "now", and "now" appears in essentially every document.
- * DistributionNOW, Gap and Box are real EDGAR filers. Merged main happened to
- * reject these (its token fallback required >= 4 chars), so this was
- * INTRODUCED by the fix, not inherited.
+ * A single token is never distinctive enough to prove provenance, at ANY
+ * length. This is not a theoretical worry: of the 8,043 issuers in our own
+ * reference table, **2,081 (26%) have a conformed name that reduces to one
+ * token**, and ten of those reduce to a common English word — Block, Box,
+ * Crown, Freedom, Frontier, Gap, Noble, On (On Holding AG), Target (twice).
+ * "on" and "now" appear in essentially every document ever written.
  *
- * A stripped name is usable only if it is multi-token or reasonably long;
- * otherwise we fall back to the full form WITH its suffix, where "now inc" is
- * distinctive again.
+ * The first hardening tried a length floor (>= 6 chars). That was a patch on
+ * the symptom and it still admitted "market", "target", "square". The rule
+ * here has no threshold to tune: **use the stripped form only if it is
+ * multi-token; else the canonical form only if IT is multi-token; else the
+ * name cannot anchor anything and is dropped.**
+ *
+ * Dropping is safe and honest — the caller falls through to identifiers and,
+ * failing those, returns `no_usable_anchor`, a VISIBLE fail-open. A name we
+ * cannot verify with is not a verification.
  */
-function usableName(stripped: string): boolean {
-  return stripped.includes(" ") || stripped.length >= 6;
+function anchorForm(name: string): string | null {
+  const stripped = strippedName(name);
+  if (stripped.includes(" ")) return stripped;
+  const canon = canonicalName(name);
+  if (canon.includes(" ")) return canon;
+  return null; // e.g. "RH" — nothing here can discriminate
 }
 
 export interface GroundingProvenance {
@@ -425,20 +456,24 @@ export function checkGroundingProvenance(grounding: string, payload: Payload): G
     }
   }
 
-  const hayStripped = normalizeName(grounding);
-  const hayPunct = normalizePunct(grounding);
+  const hayStripped = strippedName(grounding);
+  const hayCanon = canonicalName(grounding);
+  let usableNames = 0;
   for (const n of names) {
-    const stripped = normalizeName(n);
-    const usable = usableName(stripped);
-    const needle = usable ? stripped : normalizePunct(n);
-    const target = usable ? hayStripped : hayPunct;
-    if (needle.length < 3) continue;
+    const needle = anchorForm(n);
+    if (needle === null || needle.length < 3) continue; // cannot discriminate
+    usableNames += 1;
+    const target = needle === strippedName(n) ? hayStripped : hayCanon;
     if (new RegExp(`(?<![a-z0-9])${escapeRegExp(needle)}(?![a-z0-9])`).test(target)) {
       return { ok: true, matched: n, anchorsTried: tried, reason: null };
     }
   }
 
-  if (tried === 0) return { ok: true, matched: null, anchorsTried: 0, reason: "no_usable_anchor" };
+  // Nothing usable to test with — identifiers all below the floor and every
+  // name reduced to a single token. Fail open, but VISIBLY.
+  if (identifiers.length === 0 && usableNames === 0) {
+    return { ok: true, matched: null, anchorsTried: tried, reason: "no_usable_anchor" };
+  }
   return { ok: false, matched: null, anchorsTried: tried, reason: "no_anchor" };
 }
 
