@@ -17,6 +17,15 @@ the point.
 > review, is the cheapest available demonstration of its own thesis. The
 > instructive part is not that it happened but *where* — in the PR whose
 > framing ("doc-only, zero-risk") is precisely the one that skips scrutiny.
+>
+> **This document required three passes.** The first shipped five wrong
+> assertions; the second corrected them and introduced a sixth (a timeline
+> claim in the very correction that removed an unsupported test count); the
+> third is this one. Each error was found by a reader with no stake in the
+> text, never by its author rereading it. That is the document's own thesis
+> applied to the document, and the count is left visible on purpose — a
+> retrospective claiming to be clean would be the least credible artifact in
+> the repository.
 
 ## The finding
 
@@ -26,7 +35,7 @@ one reported success while meaning something else.
 
 | # | What reported success | What was actually true |
 |---|---|---|
-| 1 | The corpus-echo check contributed no issues to any draft | It was **never called**: `validateVariant` gates it on `corpusPopulated`, and `echo_ngrams` held **0 rows** since 07-28. A check that silently declined to run |
+| 1 | The corpus-echo check contributed no issues to any draft | *(Correction 1 of 5.)* It was **never called**: `validateVariant` gates it on `corpusPopulated`, and `echo_ngrams` held **0 rows** since 07-28. A check that silently declined to run |
 | 2 | The issuer gate suppressed a filing with reason `not_in_reference` | `issuerCik` had failed to **parse**. "Absent from the reference" and `not_listed` (present, empty exchange) are different outcomes; a failed lookup was read as a fact about the market |
 | 3 | `jobs.consecutive_failures` read **0 across all 39 enabled jobs** | `treasury_auction` had **16** source failures and `src_last_ok = never` — and its job row stamped `last_ok_at = today` |
 | 4 | An 8-K grounding fetch returned HTTP 200, non-empty | 2,077 chars of EDGAR **navigation chrome and a GTM snippet**, not the filing |
@@ -41,7 +50,7 @@ and every polling ingester catches its own fetch error and returns normally, so
 the dispatcher then records a successful run. A source that has never once
 succeeded reports zero failures and a success timestamp from today.
 
-Its companion, found **2026-07-28** (PR #63) rather than the same evening:
+*(Correction 4 of 5.)* Its companion, found **2026-07-28** (PR #63), not the same evening:
 `issuer_refresh` and `fda_food_recall` had **never executed at all**, because the tick's time budget broke the loop at the same
 place every time. `enabled = 1`, zero failures, no errors, never ran. **A job
 that never runs looks identical to a job with nothing to do.**
@@ -53,7 +62,9 @@ cleanly in half, and a reader who applies the wrong fix gets nowhere.
 
 **Shape A — absence read as a finding.** (#1 empty table, #2 unparsed CIK,
 #3 no exception.) The data wasn't there, and its absence was taken as
-information about the world.
+information about the world. *(Correction 2 of 5 applies here too: the
+conclusion drawn was `not_in_reference`, not `not_listed` — the latter means
+the issuer is present with an empty exchange.)*
 
 *Fix: a coverage precondition.* Draw a negative inference only when the
 reference is complete enough to support one. The issuer gate is the model — it
@@ -125,8 +136,8 @@ the real system, after the change, phrased as the claim you actually care about.
 Three worked examples from the evening:
 
 - Loading 726,579 hashes was not verified by "146 commands succeeded". It was
-  verified by querying production for a corpus 8-gram (**hit 3 of 3**) and an
-  owner-exemplar 8-gram (**hit 0 of 3**).
+  verified by querying production with **three 8-grams from a real corpus post
+  (3 of 3 present)** and **three from an owner exemplar (0 of 3 present)**.
 - The binary-gate fix was not verified by a passing test. It was verified by
   re-running the *original failing probe* against the shipped code: 10 tokens,
   exemption would have said prose, guard now returns false, terse context line
@@ -137,12 +148,16 @@ Three worked examples from the evening:
   worktree and running the combined suite (reported: typecheck clean, migrations
   sequential, suite green).
 
-  **With a boundary worth stating, because it is the lesson:** that check
+  **With a boundary worth stating, because it is the lesson.** *(Correction 3
+  of 5, twice: the original quoted a test count the check could not support,
+  and the first correction replaced it with a timeline claim that is also
+  wrong — the result was already recorded at 20:36:39Z, before the main-branch
+  state the text attributed it to.)* What is actually supportable: the check
   covered **nine of the eleven** PRs open at the time, and its result is not
-  reproducible from `main@4d40e41` with today's heads — branches moved under it.
-  A verification is only as wide as the set it was pointed at, and only as
-  current as the moment it ran. Quoting its number later, as this document
-  originally did, extends a real check past its evidence.
+  reproducible today because branches moved under it. A verification is only as
+  wide as the set it was pointed at, and only as current as the moment it ran.
+  Quoting its number afterwards extends a real check past its evidence — which
+  is this document committing a variant of its own subject, twice.
 
 ## How they were found
 
@@ -194,12 +209,14 @@ precondition, or it is an unexamined edge waiting for the right input.
 
 ## A measurement discipline that held twice
 
-Link density looked like a signal for separating index pages from articles
-(0.60 vs 0.43 on two samples). It was **declined at n=2** for insufficient
-margin, then **killed outright at n=17**: the values run continuous from 0.41 to
+Link density looked like a signal for separating index pages from articles on
+an initial two-sample look. It was **declined at n=2** for insufficient margin,
+then **killed outright at n=17** *(the n=17 figures below are the recorded
+ones; the two-sample pair is not in any verification record and is omitted
+rather than restated)*: the values run continuous from 0.41 to
 0.71 with no gap, and the high end is genuine releases (Tankan, Monetary Base)
 scoring high precisely because they link to their data rather than inlining it.
-A 0.55 cut rejects the IMES listing at 0.63 — and rejects Tankan and Monetary
+*(Correction 5 of 5.)* A 0.55 cut rejects the IMES listing at 0.63 — and rejects Tankan and Monetary
 Base too, because at 0.70 and 0.71 the genuine releases score **higher** than
 the listing does. That inversion, not the margin, is the point: no monotonic
 threshold can separate them, because the metric ranks some real documents above
