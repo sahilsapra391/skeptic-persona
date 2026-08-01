@@ -325,28 +325,64 @@ const IDENTIFIER_FIELDS = [
 const NAME_FIELDS = [
   "company", "companyName", "issuer", "issuerName", "member", "filer",
   "filerName", "name", "firm", "product", "respondent", "counterparty",
+  // Added after an audit found these live payload shapes had NO anchor at all:
+  "display", "who", "lastName",   // senatePtr
+  "title",                        // regulatoryPress / fedPress — a release page
+                                  // carries its own headline, so this converts
+                                  // those sources from fail-open to verified.
 ] as const;
 
 /** Never sufficient alone: these are site-wide tokens, not record identity. */
 const SITE_WIDE_FIELDS = ["authority", "exchange", "regulator"] as const;
 
-const LEGAL_SUFFIX = /\b(inc|llc|l\.l\.c|corp|corporation|co|ltd|limited|plc|lp|llp|sa|nv|ag|holdings|holding|group)\b/g;
+/**
+ * An identifier is only conclusive if it cannot also be an ordinary word.
+ * `ALL` (Allstate) and `NOW` (ServiceNow) are live ticker values, and under
+ * identifiers-first ordering a 3-letter word match would be FIRST and final.
+ * So: four or more characters, or containing a digit.
+ */
+function isUsableIdentifier(v: string): boolean {
+  return v.length >= 4 || /\d/.test(v);
+}
 
-/** Lowercase, strip punctuation and legal suffixes, collapse whitespace.
- *  Applied to BOTH sides so "Blink Charging Co" matches "BLINK CHARGING CO."
- *  without a token fallback ever being needed. */
+// Spaced forms exist because punctuation is replaced by spaces before this
+// runs: "L.P." -> "l p", "S.A." -> "s a", "L.L.C." -> "l l c".
+const LEGAL_SUFFIX =
+  /\b(inc|incorporated|llc|l l c|corp|corporation|co|ltd|limited|plc|lp|l p|llp|sa|s a|nv|n v|ag|a g|holdings|holding|group|trust|nv|se)\b/g;
+// EDGAR conformed names carry a state suffix: "BANK OF AMERICA CORP /DE/".
+const EDGAR_STATE_SUFFIX = /\/[a-z]{2}\//g;
+
+/** Punctuation-normalised, legal suffixes KEPT. The fallback form for names
+ *  too short to be distinctive once stripped. */
+function normalizePunct(v: string): string {
+  return v.toLowerCase().replace(EDGAR_STATE_SUFFIX, " ").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Punctuation-normalised AND legal suffixes stripped. */
 function normalizeName(v: string): string {
-  return v
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(LEGAL_SUFFIX, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return normalizePunct(v).replace(LEGAL_SUFFIX, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * DISTINCTIVENESS FLOOR — a regression the first hardening introduced.
+ *
+ * Stripping legal suffixes with no floor let an issuer whose conformed name
+ * reduces to one short ordinary word license any prose containing that word:
+ * "NOW INC" -> "now", and "now" appears in essentially every document.
+ * DistributionNOW, Gap and Box are real EDGAR filers. Merged main happened to
+ * reject these (its token fallback required >= 4 chars), so this was
+ * INTRODUCED by the fix, not inherited.
+ *
+ * A stripped name is usable only if it is multi-token or reasonably long;
+ * otherwise we fall back to the full form WITH its suffix, where "now inc" is
+ * distinctive again.
+ */
+function usableName(stripped: string): boolean {
+  return stripped.includes(" ") || stripped.length >= 6;
 }
 
 export interface GroundingProvenance {
   readonly ok: boolean;
-  /** Which payload anchor matched — logged so a rejection is diagnosable. */
   readonly matched: string | null;
   readonly anchorsTried: number;
   /** "not_prose" | "no_anchor" | "no_usable_anchor" when it fails. */
@@ -366,66 +402,49 @@ function collect(payload: Payload, fields: readonly string[]): string[] {
 /**
  * Does this grounding text actually belong to this item?
  *
- * THE THREAT. `mergeFacts` widens the validator whitelist to payload ∪ source
- * ∪ context, so a WRONG source document licenses ITS numbers and entities in
- * our posts. A mis-fetch is a fabrication license, and the no-fabrication
- * floor must never widen on unverified input.
+ * `mergeFacts` widens the validator whitelist to payload ∪ source ∪ context,
+ * so a WRONG source document licenses ITS numbers in our posts. Failure
+ * withholds LICENSING, not visibility — the text still reaches the prompt.
  *
- * Failure withholds LICENSING, not visibility: the text still reaches the
- * prompt, it just cannot authorise facts. A bad fetch degrades to "the model
- * saw something unhelpful" rather than "the model may state anything that
- * document contained".
- *
- * ABSENCE IS NOT WRONGNESS. Empty grounding returns ok — nothing to verify and
- * nothing to widen. But a payload with NO usable anchor now returns ok with
- * reason `no_usable_anchor` and is logged, because that is the shape the FDA
- * recall class hit: `{firm, product}` matched no anchor field, `anchorsTried`
- * was 0, and the gate fail-opened on exactly the source whose `source_url` is
- * always a landing page. Fail-open is still correct (we cannot prove it wrong)
- * but it must be VISIBLE, not silent.
+ * ABSENCE IS NOT WRONGNESS: empty grounding, or a payload with no usable
+ * anchor, returns ok — but the latter returns reason `no_usable_anchor` and is
+ * logged, because a silent fail-open is the shape this whole exercise is about.
  */
 export function checkGroundingProvenance(grounding: string, payload: Payload): GroundingProvenance {
   if (grounding.trim() === "") return { ok: true, matched: null, anchorsTried: 0, reason: null };
-  // Prose FIRST: a document's internals can carry the anchor in metadata, so
-  // the anchor test must not get to vouch for bytes that are not text.
   if (!looksLikeProse(grounding)) return { ok: false, matched: null, anchorsTried: 0, reason: "not_prose" };
 
   const hay = grounding.toLowerCase();
-  const identifiers = collect(payload, IDENTIFIER_FIELDS);
+  const identifiers = collect(payload, IDENTIFIER_FIELDS).filter(isUsableIdentifier);
   const names = collect(payload, NAME_FIELDS);
   const tried = identifiers.length + names.length;
 
-  // IDENTIFIERS first: unique by construction, so a match is conclusive and
-  // the weak path never gets to decide (previously `company` was consulted
-  // before `cik` and its token fallback settled it).
   for (const id of identifiers) {
-    const a = id.toLowerCase();
-    if (new RegExp(`(?<![a-z0-9])${escapeRegExp(a)}(?![a-z0-9])`).test(hay)) {
+    if (new RegExp(`(?<![a-z0-9])${escapeRegExp(id.toLowerCase())}(?![a-z0-9])`).test(hay)) {
       return { ok: true, matched: id, anchorsTried: tried, reason: null };
     }
   }
 
-  // NAMES matched WHOLE after normalisation — never by shared token.
-  const hayNorm = normalizeName(grounding);
+  const hayStripped = normalizeName(grounding);
+  const hayPunct = normalizePunct(grounding);
   for (const n of names) {
-    const norm = normalizeName(n);
-    if (norm.length < 3) continue;
-    if (new RegExp(`(?<![a-z0-9])${escapeRegExp(norm)}(?![a-z0-9])`).test(hayNorm)) {
+    const stripped = normalizeName(n);
+    const usable = usableName(stripped);
+    const needle = usable ? stripped : normalizePunct(n);
+    const target = usable ? hayStripped : hayPunct;
+    if (needle.length < 3) continue;
+    if (new RegExp(`(?<![a-z0-9])${escapeRegExp(needle)}(?![a-z0-9])`).test(target)) {
       return { ok: true, matched: n, anchorsTried: tried, reason: null };
     }
   }
 
-  // Nothing usable to test with: we cannot prove it wrong, so we do not claim
-  // to — but we say so, rather than returning a silent ok. SITE_WIDE values
-  // are deliberately not consulted; 'SEC' matches every page on sec.gov.
-  if (tried === 0) {
-    return { ok: true, matched: null, anchorsTried: 0, reason: "no_usable_anchor" };
-  }
+  if (tried === 0) return { ok: true, matched: null, anchorsTried: 0, reason: "no_usable_anchor" };
   return { ok: false, matched: null, anchorsTried: tried, reason: "no_anchor" };
 }
 
-/** Exported for the audit test: every live archetype payload must offer at
- *  least one anchor field, or the gate silently fail-opens for that source. */
+/** Consumed by the ANCHOR COVERAGE AUDIT in test/ragValidate.test.ts, which
+ *  asserts every live archetype payload shape offers at least one anchor —
+ *  the test this comment previously only promised. */
 export const ALL_ANCHOR_FIELDS: readonly string[] = [...IDENTIFIER_FIELDS, ...NAME_FIELDS];
 export const NON_ANCHOR_FIELDS: readonly string[] = [...SITE_WIDE_FIELDS];
 

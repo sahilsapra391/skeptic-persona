@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   beatShapeCheck,
   cadenceCheck,
+  ALL_ANCHOR_FIELDS,
+  NON_ANCHOR_FIELDS,
   checkGroundingProvenance,
   looksLikeProse,
   groundingFacts,
@@ -173,6 +175,68 @@ describe("entityCheck", () => {
 
 describe("grounding provenance — wrong document is a fabrication license", () => {
   const filing = { company: "Blink Charging Co", ticker: "BLNK", issuerCik: "1429764", itemCode: "3.01" };
+
+  it("ANCHOR COVERAGE AUDIT: every live payload shape offers an anchor (the test the comment promised)", () => {
+    // validate.ts exported ALL_ANCHOR_FIELDS "for the audit test" and the
+    // audit was never written — a promise in a comment, which is its own
+    // instance of the pattern this work is about. Here it is. Shapes taken
+    // from the live ingesters; a source absent from an anchor field is a
+    // source the gate silently fail-opens for.
+    const LIVE_PAYLOAD_SHAPES: Record<string, string[]> = {
+      FILING_8K: ["company", "cik", "itemCodes"],
+      FILING_FORM4: ["issuer", "issuerCik", "ticker", "insiderName"],
+      CONGRESS_PTR: ["member", "chamber", "ticker"],
+      SENATE_PTR_RAW: ["display", "who", "lastName"],
+      PRODUCT_RECALL: ["firm", "product", "classification"],
+      REGULATORY_NEWS: ["authority", "title", "publishedIso"],
+      FED_PRESS: ["title", "publishedIso"],
+      HALT: ["symbol", "reasonCode", "haltTimeEtShort"],
+      OWNERSHIP_STAKE: ["issuer", "cik", "pct"],
+      MACRO_PRINT: ["headlineYoY", "coreYoY", "releaseDate"],
+      RATE_DECISION: ["country", "rate", "effectiveDate"],
+    };
+    const uncovered: string[] = [];
+    for (const [archetype, fields] of Object.entries(LIVE_PAYLOAD_SHAPES)) {
+      if (!fields.some((f) => ALL_ANCHOR_FIELDS.includes(f))) uncovered.push(archetype);
+    }
+    // MACRO_PRINT and RATE_DECISION legitimately have no entity — a CPI print
+    // is about no company — so they fail-open by nature and are exempted
+    // EXPLICITLY rather than by omission.
+    expect(uncovered.sort()).toEqual(["MACRO_PRINT", "RATE_DECISION"]);
+    // And the site-wide fields must never be counted as anchors.
+    for (const f of NON_ANCHOR_FIELDS) expect(ALL_ANCHOR_FIELDS).not.toContain(f);
+  });
+
+  it("REGRESSION: a one-word name after suffix stripping must not license unrelated prose", () => {
+    // "NOW INC" -> "now", and "now" is in nearly every document. Real EDGAR
+    // filers: DistributionNOW, Gap, Box. Merged main rejected these; the first
+    // hardening INTRODUCED the hole, so this pins the floor.
+    const unrelated = "Acme Industries said the deal should close now that regulators signed off, and the gap in the box was noted.";
+    for (const company of ["NOW INC", "GAP INC", "BOX INC"]) {
+      expect(checkGroundingProvenance(unrelated, { company }).ok, company).toBe(false);
+    }
+    // The full form with its suffix is distinctive again, so a real match holds.
+    expect(checkGroundingProvenance("NOW Inc. reported quarterly results today.", { company: "NOW INC" }).ok).toBe(true);
+  });
+
+  it("dotted and EDGAR-state name forms still match (punctuation runs before suffix stripping)", () => {
+    const cases: Array<[string, string]> = [
+      ["ENTERPRISE PRODUCTS PARTNERS L.P.", "Enterprise Products Partners LP reported quarterly distributable cash flow today."],
+      ["Nestle S.A.", "Nestle SA announced the divestiture of its water brands portfolio today."],
+      ["BANK OF AMERICA CORP /DE/", "Bank of America Corporation filed a current report with the Commission today."],
+    ];
+    for (const [company, body] of cases) {
+      expect(checkGroundingProvenance(body, { company }).ok, company).toBe(true);
+    }
+  });
+
+  it("three-letter word tickers are not conclusive identifiers", () => {
+    // ALL (Allstate) and NOW (ServiceNow) are live ticker values, and under
+    // identifiers-first ordering a word match would be FIRST and final.
+    expect(checkGroundingProvenance("The company said all outstanding shares would be exchanged.", { ticker: "ALL" }).reason)
+      .toBe("no_usable_anchor");
+    expect(checkGroundingProvenance("BLNK common stock will be suspended from listing.", { ticker: "BLNK" }).matched).toBe("BLNK");
+  });
 
   it("HIGH: another company's document is REJECTED — no single shared token licenses it", () => {
     // Review finding: the longest-token fallback matched "pharmaceuticals",
