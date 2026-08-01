@@ -174,6 +174,47 @@ describe("entityCheck", () => {
 describe("grounding provenance — wrong document is a fabrication license", () => {
   const filing = { company: "Blink Charging Co", ticker: "BLNK", issuerCik: "1429764", itemCode: "3.01" };
 
+  it("HIGH: another company's document is REJECTED — no single shared token licenses it", () => {
+    // Review finding: the longest-token fallback matched "pharmaceuticals",
+    // so a Sorrento filing licensed itself against an Acme payload. Any two
+    // issuers sharing Holdings/Technologies/Capital/Partners had the same hole.
+    const sorrento = "Sorrento Pharmaceuticals, Inc. today announced that its board approved a restructuring. Sorrento Pharmaceuticals will file the related agreements as exhibits to a current report.";
+    const v = checkGroundingProvenance(sorrento, { company: "Acme Pharmaceuticals, Inc.", cik: "0001234567" });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe("no_anchor");
+  });
+
+  it("IDENTIFIERS are consulted BEFORE names, so a weak path cannot decide first", () => {
+    // Previously `company` sat at index 0 and `cik` at index 6, so the token
+    // fallback settled it before the conclusive anchor was ever tried.
+    const doc = "Central Index Key 1429764 filed this report today with the Commission.";
+    expect(checkGroundingProvenance(doc, { cik: "1429764", company: "Blink Charging Co" }).matched).toBe("1429764");
+  });
+
+  it("names match WHOLE after normalisation — legal suffixes and punctuation do not break it", () => {
+    const filing = "On July 28, 2026, BLINK CHARGING CO. received a letter from the Listing Qualifications Department.";
+    expect(checkGroundingProvenance(filing, { company: "Blink Charging Co" }).matched).toBe("Blink Charging Co");
+  });
+
+  it("MEDIUM: recall payloads have anchors now, and the FDA landing page is rejected", () => {
+    // PRODUCT_RECALL carries {firm, product} — absent from the old field list,
+    // so anchorsTried was 0 and the gate fail-opened on precisely the source
+    // whose source_url is always a landing page.
+    const landing = "Recalls, Market Withdrawals, & Safety Alerts. FDA posts press releases and other notices of recalls and market withdrawals from the firms involved as a service to consumers.";
+    const v = checkGroundingProvenance(landing, { firm: "Acme Labs LLC", product: "Lot 44 tablets" });
+    expect(v.anchorsTried).toBe(2);
+    expect(v.ok).toBe(false);
+  });
+
+  it("LOW: 'authority' alone never licenses — it matches every page on the regulator's site", () => {
+    const footer = "This page is part of an archive maintained for reference. Content on SEC.gov is provided for informational purposes and does not constitute legal advice to any person or entity.";
+    const v = checkGroundingProvenance(footer, { authority: "SEC" });
+    // No usable anchor at all, so it fail-opens — but VISIBLY, with a reason
+    // the caller logs, rather than silently claiming verification.
+    expect(v.reason).toBe("no_usable_anchor");
+    expect(v.anchorsTried).toBe(0);
+  });
+
   it("REJECTS the EDGAR index chrome that started this (no payload anchor in it)", () => {
     // Shape of the real 2,077-char mis-fetch: navigation + a GTM snippet,
     // non-empty and healthy-looking, mentioning neither company nor ticker.

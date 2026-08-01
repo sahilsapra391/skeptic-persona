@@ -241,20 +241,6 @@ export function groundingFacts(grounding: string): PayloadFacts {
  * nothing to widen. Absence and wrongness are different, and this returns
  * `ok` for the first and `false` for the second.
  */
-const ANCHOR_FIELDS = [
-  "company", "companyName", "issuer", "issuerName", "ticker", "symbol",
-  "cik", "issuerCik", "member", "filer", "filerName", "name", "authority",
-] as const;
-
-export interface GroundingProvenance {
-  readonly ok: boolean;
-  /** Which payload anchor matched — logged so a rejection is diagnosable. */
-  readonly matched: string | null;
-  readonly anchorsTried: number;
-  /** Why it failed, for the log line: "not_prose" | "no_anchor". */
-  readonly reason: string | null;
-}
-
 /**
  * Is this text PROSE, or is it a document's internals?
  *
@@ -319,36 +305,129 @@ export function looksLikeProse(text: string): boolean {
   return words.length / tokens.length >= PROSE_MIN_WORD_RATIO;
 }
 
+/**
+ * Anchor classes, in strength order. The first version treated every field as
+ * equally probative and fell back to a single shared token, which a review
+ * showed licenses another company's document outright.
+ *
+ * IDENTIFIERS are unique by construction — a CIK or ticker in a document is
+ * conclusive. NAMES are matched WHOLE (after normalisation), never by token:
+ * "Acme Pharmaceuticals, Inc." and "Sorrento Pharmaceuticals, Inc." share
+ * "Pharmaceuticals", and so do Holdings, Technologies, Capital and Partners.
+ * SITE_WIDE values ('SEC', 'CFTC') appear in the footer of every page on the
+ * regulator's own site, so they can never license anything alone.
+ */
+const IDENTIFIER_FIELDS = [
+  "cik", "issuerCik", "ticker", "symbol", "accession", "accessionNumber",
+  "recallNumber", "eventId", "docketNumber", "fileNumber",
+] as const;
+
+const NAME_FIELDS = [
+  "company", "companyName", "issuer", "issuerName", "member", "filer",
+  "filerName", "name", "firm", "product", "respondent", "counterparty",
+] as const;
+
+/** Never sufficient alone: these are site-wide tokens, not record identity. */
+const SITE_WIDE_FIELDS = ["authority", "exchange", "regulator"] as const;
+
+const LEGAL_SUFFIX = /\b(inc|llc|l\.l\.c|corp|corporation|co|ltd|limited|plc|lp|llp|sa|nv|ag|holdings|holding|group)\b/g;
+
+/** Lowercase, strip punctuation and legal suffixes, collapse whitespace.
+ *  Applied to BOTH sides so "Blink Charging Co" matches "BLINK CHARGING CO."
+ *  without a token fallback ever being needed. */
+function normalizeName(v: string): string {
+  return v
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(LEGAL_SUFFIX, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export interface GroundingProvenance {
+  readonly ok: boolean;
+  /** Which payload anchor matched — logged so a rejection is diagnosable. */
+  readonly matched: string | null;
+  readonly anchorsTried: number;
+  /** "not_prose" | "no_anchor" | "no_usable_anchor" when it fails. */
+  readonly reason: string | null;
+}
+
+function collect(payload: Payload, fields: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const f of fields) {
+    const v = (payload as Record<string, unknown>)[f];
+    if (typeof v === "string" && v.trim().length >= 3) out.push(v.trim());
+    else if (typeof v === "number" && String(v).length >= 3) out.push(String(v));
+  }
+  return out;
+}
+
+/**
+ * Does this grounding text actually belong to this item?
+ *
+ * THE THREAT. `mergeFacts` widens the validator whitelist to payload ∪ source
+ * ∪ context, so a WRONG source document licenses ITS numbers and entities in
+ * our posts. A mis-fetch is a fabrication license, and the no-fabrication
+ * floor must never widen on unverified input.
+ *
+ * Failure withholds LICENSING, not visibility: the text still reaches the
+ * prompt, it just cannot authorise facts. A bad fetch degrades to "the model
+ * saw something unhelpful" rather than "the model may state anything that
+ * document contained".
+ *
+ * ABSENCE IS NOT WRONGNESS. Empty grounding returns ok — nothing to verify and
+ * nothing to widen. But a payload with NO usable anchor now returns ok with
+ * reason `no_usable_anchor` and is logged, because that is the shape the FDA
+ * recall class hit: `{firm, product}` matched no anchor field, `anchorsTried`
+ * was 0, and the gate fail-opened on exactly the source whose `source_url` is
+ * always a landing page. Fail-open is still correct (we cannot prove it wrong)
+ * but it must be VISIBLE, not silent.
+ */
 export function checkGroundingProvenance(grounding: string, payload: Payload): GroundingProvenance {
   if (grounding.trim() === "") return { ok: true, matched: null, anchorsTried: 0, reason: null };
   // Prose FIRST: a document's internals can carry the anchor in metadata, so
   // the anchor test must not get to vouch for bytes that are not text.
   if (!looksLikeProse(grounding)) return { ok: false, matched: null, anchorsTried: 0, reason: "not_prose" };
+
   const hay = grounding.toLowerCase();
-  const anchors: string[] = [];
-  for (const f of ANCHOR_FIELDS) {
-    const v = (payload as Record<string, unknown>)[f];
-    if (typeof v === "string" && v.trim().length >= 3) anchors.push(v.trim());
-    else if (typeof v === "number" && String(v).length >= 3) anchors.push(String(v));
-  }
-  // No anchor to test with: we cannot prove it wrong, so we do not claim to.
-  if (anchors.length === 0) return { ok: true, matched: null, anchorsTried: 0, reason: null };
-  for (const raw of anchors) {
-    const a = raw.toLowerCase();
-    // Token-bounded so "ABC" does not match inside "ABCDEF"; the same
-    // boundary rule entityCheck uses.
-    if (new RegExp(`(?<![a-z0-9])${a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z0-9])`).test(hay)) {
-      return { ok: true, matched: raw, anchorsTried: anchors.length, reason: null };
-    }
-    // Multi-word names: a filing may print "Blink Charging Co." where the
-    // payload says "Blink Charging Co". Longest token is the discriminator.
-    const longest = a.split(/[^a-z0-9]+/).filter((w) => w.length >= 4).sort((x, y) => y.length - x.length)[0];
-    if (longest && new RegExp(`(?<![a-z0-9])${longest}(?![a-z0-9])`).test(hay)) {
-      return { ok: true, matched: raw, anchorsTried: anchors.length, reason: null };
+  const identifiers = collect(payload, IDENTIFIER_FIELDS);
+  const names = collect(payload, NAME_FIELDS);
+  const tried = identifiers.length + names.length;
+
+  // IDENTIFIERS first: unique by construction, so a match is conclusive and
+  // the weak path never gets to decide (previously `company` was consulted
+  // before `cik` and its token fallback settled it).
+  for (const id of identifiers) {
+    const a = id.toLowerCase();
+    if (new RegExp(`(?<![a-z0-9])${escapeRegExp(a)}(?![a-z0-9])`).test(hay)) {
+      return { ok: true, matched: id, anchorsTried: tried, reason: null };
     }
   }
-  return { ok: false, matched: null, anchorsTried: anchors.length, reason: "no_anchor" };
+
+  // NAMES matched WHOLE after normalisation — never by shared token.
+  const hayNorm = normalizeName(grounding);
+  for (const n of names) {
+    const norm = normalizeName(n);
+    if (norm.length < 3) continue;
+    if (new RegExp(`(?<![a-z0-9])${escapeRegExp(norm)}(?![a-z0-9])`).test(hayNorm)) {
+      return { ok: true, matched: n, anchorsTried: tried, reason: null };
+    }
+  }
+
+  // Nothing usable to test with: we cannot prove it wrong, so we do not claim
+  // to — but we say so, rather than returning a silent ok. SITE_WIDE values
+  // are deliberately not consulted; 'SEC' matches every page on sec.gov.
+  if (tried === 0) {
+    return { ok: true, matched: null, anchorsTried: 0, reason: "no_usable_anchor" };
+  }
+  return { ok: false, matched: null, anchorsTried: tried, reason: "no_anchor" };
 }
+
+/** Exported for the audit test: every live archetype payload must offer at
+ *  least one anchor field, or the gate silently fail-opens for that source. */
+export const ALL_ANCHOR_FIELDS: readonly string[] = [...IDENTIFIER_FIELDS, ...NAME_FIELDS];
+export const NON_ANCHOR_FIELDS: readonly string[] = [...SITE_WIDE_FIELDS];
 
 export function mergeFacts(a: PayloadFacts, b: PayloadFacts): PayloadFacts {
   return {
