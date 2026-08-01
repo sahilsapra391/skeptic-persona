@@ -48,8 +48,23 @@ export interface HouseTxn {
 // The type token is NOT always a bare letter: partial sales file as
 // "S (partial)". VERIFIED on live filing 20034736 (2026-07-28), where the
 // bare-letter pattern parsed 0 of 1 transactions.
+//
+// The code is also not reliably preceded by whitespace. The extractor glues
+// it to whatever ends the asset cell, and BOTH shapes occur on live filings
+// (found 2026-08-01 by the completeness gate refusing five real filings):
+//   "Procter & Gamble Company (PG) [ST]S 01/29/202601/30/2026$1,001 - $15,000"
+//   "JP Morgan Chase & Co. CommonP 01/16/202601/30/2026$1,001 - $15,000"
+// so a bracket or a lowercase letter is a valid boundary too. These are
+// LOOKBEHINDS, not consumed characters: the asset name is everything before
+// m.index, and eating the "]" would strip the [ST] the tail parser needs.
+//
+// An UPPERCASE letter is deliberately NOT a boundary. "…(XOM)P" would be
+// indistinguishable from a ticker losing its last character.
+//
+// Whitespace between the dates and the amount is optional for the same
+// reason: "P 12/18/202512/19/2025 $100,001 - $250,000" (filing 20033718).
 const TXN_LINE_RE =
-  /(?:^|\s)([A-Z](?:\s*\([A-Za-z]+\))?)\s+(\d{2}\/\d{2}\/\d{4})(\d{2}\/\d{2}\/\d{4})(\$[\d,]+\s*-\s*\$[\d,]+)\s*$/;
+  /(?:^|(?<=[\s\]a-z]))([A-Z](?:\s*\([A-Za-z]+\))?)\s+(\d{2}\/\d{2}\/\d{4})\s*(\d{2}\/\d{2}\/\d{4})\s*(\$[\d,]+\s*-\s*\$[\d,]+)\s*$/;
 /**
  * Asset lines end with "(TICKER) [TYPE]". Both parts are genuinely optional:
  * non-traded assets (funds, notes) carry a bracket type and NO ticker, e.g.
