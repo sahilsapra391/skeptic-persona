@@ -137,6 +137,81 @@ export function payloadFacts(payload: Payload): PayloadFacts {
   return { numbers, percents, dates, json: JSON.stringify(payload) };
 }
 
+/**
+ * Facts from GROUNDING TEXT (source document + lake context) — the p4-01
+ * widening. Same primitives and the same bypass guards as payloadFacts:
+ * dates parse structurally (phrase and ISO), numbers enter at their PARSED
+ * value (a "45,000" in the source never licenses "$45 billion" — the draft
+ * side's scale multiplication runs against the parsed set), percents only
+ * from tokens the source itself marks as % / bps, spelled-out numbers at
+ * their word value. The raw text becomes part of the entity/verbatim
+ * haystack via mergeFacts.
+ */
+export function groundingFacts(grounding: string): PayloadFacts {
+  const numbers = new Set<string>();
+  const percents = new Set<string>();
+  const dates = new Set<string>();
+
+  const addNumber = (n: number): void => {
+    if (!Number.isFinite(n)) return;
+    numbers.add(canon(n));
+    numbers.add(canon(Math.abs(n)));
+    // Same scale-DOWN-only licensing as payloadFacts; nothing scales up.
+    if (Math.abs(n) >= 1000) for (const [, f] of SCALE_WORDS) numbers.add(canon(n / f));
+  };
+
+  // Dates first, consumed, exactly like dateCheck — their components must
+  // not leak into the numeric set as free integers.
+  const afterDates = grounding.replace(
+    DATE_PHRASE_RE,
+    (_, mn1, d1, y1, d2, mn2, y2, yIso, mIso, dIso, mSlash, dSlash, ySlash) => {
+      let m: number | undefined, d: number | undefined, y: number | undefined;
+      if (mn1) [m, d, y] = [MONTHS[String(mn1).toLowerCase()], Number(d1), y1 ? Number(y1) : undefined];
+      else if (mn2) [m, d, y] = [MONTHS[String(mn2).toLowerCase()], Number(d2), y2 ? Number(y2) : undefined];
+      else if (yIso) [y, m, d] = [Number(yIso), Number(mIso), Number(dIso)];
+      else {
+        const yy = ySlash ? Number(ySlash) : undefined;
+        [m, d, y] = [Number(mSlash), Number(dSlash), yy !== undefined && yy < 100 ? yy + 2000 : yy];
+      }
+      dates.add(`${m}-${d}`);
+      if (y !== undefined) {
+        dates.add(`${y}-${m}-${d}`);
+        addNumber(y);
+      }
+      return " ";
+    },
+  );
+
+  for (const { value, unit } of draftNumbers(afterDates)) {
+    addNumber(value);
+    if (unit === "percent") {
+      percents.add(canon(value));
+      percents.add(canon(Math.abs(value)));
+    }
+  }
+  // Spelled-out numbers in the source license spelled-out claims.
+  const words = afterDates.toLowerCase().split(/[^a-z0-9-]+/);
+  for (let i = 0; i < words.length; i++) {
+    const base = WORD_UNITS[words[i]!];
+    if (base === undefined) continue;
+    const scale = WORD_SCALES[words[i + 1] ?? ""];
+    addNumber(scale !== undefined ? base * scale : base);
+  }
+
+  return { numbers, percents, dates, json: grounding };
+}
+
+/** Union of two fact universes; the haystacks concatenate so entity and
+ *  verbatim checks see both. */
+export function mergeFacts(a: PayloadFacts, b: PayloadFacts): PayloadFacts {
+  return {
+    numbers: new Set([...a.numbers, ...b.numbers]),
+    percents: new Set([...a.percents, ...b.percents]),
+    dates: new Set([...a.dates, ...b.dates]),
+    json: `${a.json}\n${b.json}`,
+  };
+}
+
 const MONTHS: Record<string, number> = {
   january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
   july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
@@ -549,6 +624,9 @@ export interface ValidateOptions {
   readonly variant: Variant;
   readonly archetype: ArchetypeId;
   readonly payload: Payload;
+  /** Grounding text shown to the model (source document + lake context);
+   *  widens the number/entity whitelist to exactly what the prompt showed. */
+  readonly grounding?: string;
   readonly templateDraft: string;
   readonly skeletonHash: string;
   readonly openerHash: string;
@@ -563,7 +641,9 @@ export interface ValidateOptions {
  * draft also fabricated a number would bury the finding that matters.
  */
 export async function validateVariant(db: D1Database, text: string, opts: ValidateOptions): Promise<ValidationIssue[]> {
-  const facts = payloadFacts(opts.payload);
+  const facts = opts.grounding
+    ? mergeFacts(payloadFacts(opts.payload), groundingFacts(opts.grounding))
+    : payloadFacts(opts.payload);
   const issues: ValidationIssue[] = [
     // Group 1 — the floor.
     ...numberCheck(text, opts.payload, facts),
