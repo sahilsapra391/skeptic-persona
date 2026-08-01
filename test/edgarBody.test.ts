@@ -1,6 +1,50 @@
-import { describe, expect, it } from "vitest";
-import { BODY_TEXT_CAP, edgarDirOf, pickPrimaryDoc } from "../src/ingesters/edgarBody";
+import { env, fetchMock } from "cloudflare:test";
+import { beforeAll, describe, expect, it } from "vitest";
+import { BODY_TEXT_CAP, captureEdgarBodies, edgarDirOf, pickPrimaryDoc } from "../src/ingesters/edgarBody";
+import { insertItem, SCORE_POSTABLE } from "../src/lib/db";
+import { newTickBudget } from "../src/lib/budget";
 import SOURCETEXT_SRC from "../src/rag/sourceText.ts?raw";
+
+beforeAll(() => {
+  fetchMock.activate();
+  fetchMock.disableNetConnect();
+});
+
+const DIR_BASE = "https://www.sec.gov";
+let seq = 0;
+
+/** Seed an 8-K item shaped exactly as the ingester leaves it. */
+async function seedPendingEightK(accession: string): Promise<number> {
+  seq += 1;
+  const dir = `/Archives/edgar/data/999${seq}/00099${seq}`;
+  const res = await insertItem(
+    env.DB,
+    {
+      source: "edgar_8k",
+      externalId: accession,
+      category: "filing",
+      eventAt: null,
+      sourceUrl: `${DIR_BASE}${dir}/${accession}-index.htm`,
+      payload: { company: "ACME CORP", cik: "9990001", formType: "8-K", itemCodes: ["4.02"] },
+      score: SCORE_POSTABLE,
+      status: "logged",
+    },
+    new Date(),
+  );
+  lastDir = dir;
+  return res.id!;
+}
+
+let lastDir = "";
+
+/** Serve a directory listing plus the primary document for the last seed. */
+function serveFiling(body: string) {
+  fetchMock
+    .get(DIR_BASE)
+    .intercept({ path: `${lastDir}/index.json` })
+    .reply(200, JSON.stringify({ directory: { item: [{ name: "acme-8k.htm" }] } }));
+  fetchMock.get(DIR_BASE).intercept({ path: `${lastDir}/acme-8k.htm` }).reply(200, body);
+}
 
 // Real EDGAR directory listing, accession 0001777393-26-000057, fetched
 // 2026-08-01. Every name below is verbatim from index.json.
@@ -60,16 +104,39 @@ describe("edgarDirOf", () => {
 });
 
 describe("the review findings on this capture, pinned", () => {
-  it("caps the stored body at the generation path's ceiling and says it truncated", () => {
-    // An 8-K in the QUEUEABLE_ITEMS set is routinely an agreement -- merger,
-    // credit, employment -- running to hundreds of kilobytes. htmlToText's
-    // RAW_BODY_CAP bounds the INPUT at 300k, which is not the same thing:
-    // without a cap here the whole document reached raw_text and the prompt.
-    const long = "word ".repeat(80_000);
-    expect(long.length).toBeGreaterThan(BODY_TEXT_CAP * 10);
-    const stored = long.slice(0, BODY_TEXT_CAP);
-    expect(stored.length).toBe(24_000);
-    expect(BODY_TEXT_CAP).toBe(24_000);
+  it("caps the stored body and flags it, THROUGH the real capture path", async () => {
+    // The first version of this test sliced a string itself and asserted the
+    // result, which is asserting AROUND the fix: all three substantive
+    // changes reverted with the suite green. This drives captureEdgarBodies
+    // and reads what actually landed in the row.
+    const long = `<html><body><p>${"word ".repeat(80_000)}</p></body></html>`;
+    const id = await seedPendingEightK("0009999999-26-000001");
+    serveFiling(long);
+
+    await captureEdgarBodies(env as never, new Date(), newTickBudget(20));
+
+    const row = await env.DB.prepare(`SELECT raw_text AS t, raw_meta AS m FROM items WHERE id = ?1`)
+      .bind(id)
+      .first<{ t: string | null; m: string | null }>();
+    expect(row!.t!.length).toBe(BODY_TEXT_CAP);
+    expect(JSON.parse(row!.m!).truncated).toBe(true);
+    expect(JSON.parse(row!.m!).document).toBeTruthy();
+  });
+
+  it("scrubs URLs out of the stored body, THROUGH the real capture path", async () => {
+    // 8-K bodies carry URLs constantly. A scheme-less .gov echoed into a post
+    // is linkified by X while our weighted-length counter scores it at 7
+    // instead of 23.
+    const withUrl = "<html><body><p>See www.sec.gov/x and https://ir.acme.com/q2 for detail.</p></body></html>";
+    const id = await seedPendingEightK("0009999999-26-000002");
+    serveFiling(withUrl);
+
+    await captureEdgarBodies(env as never, new Date(), newTickBudget(20));
+
+    const t = (await env.DB.prepare(`SELECT raw_text AS t FROM items WHERE id = ?1`).bind(id).first<{ t: string }>())!.t;
+    expect(t).not.toContain("www.sec.gov");
+    expect(t).not.toContain("ir.acme.com");
+    expect(t).toContain("for detail");
   });
 
   it("keeps edgar_8k off the generation fallback so the two cannot race", () => {
@@ -82,7 +149,10 @@ describe("the review findings on this capture, pinned", () => {
     expect(SOURCETEXT_SRC).toContain('const DEDICATED_CAPTURE_SOURCES = ["edgar_8k"]');
     expect(SOURCETEXT_SRC).toContain("DEDICATED_CAPTURE_SOURCES.includes(item.source)");
     // Cached text must still be served; only the fetch is deferred.
-    const guardAt = SOURCETEXT_SRC.indexOf("DEDICATED_CAPTURE_SOURCES.includes");
+    // Anchor on the guard INSIDE fetchSourceText, not the exported helper
+    // near the top of the file -- the helper mentions the same constant and
+    // would make this ordering check meaningless.
+    const guardAt = SOURCETEXT_SRC.indexOf("DEDICATED_CAPTURE_SOURCES.includes(item.source)");
     const cachedAt = SOURCETEXT_SRC.indexOf("cached: true");
     expect(cachedAt).toBeGreaterThan(-1);
     expect(cachedAt).toBeLessThan(guardAt);
