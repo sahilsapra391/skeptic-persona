@@ -355,6 +355,19 @@ export async function runGeneration(
     // exhibit instead of the filing); lake context is built from our own rows
     // keyed to this item, so it is trusted separately.
     const sourceProvenance = checkGroundingProvenance(source?.text ?? "", payload);
+    if (source?.text && sourceProvenance.ok && sourceProvenance.reason === "no_usable_anchor") {
+      // Fail-open is correct here (we cannot prove the text wrong with no
+      // anchor to test), but it must not be SILENT: this is the shape the FDA
+      // recall class hit, where the payload offers no anchor field AND the
+      // source_url is always a landing page — i.e. the class whose document is
+      // reliably wrong is the class the gate cannot see.
+      log("warn", "grounding licensed WITHOUT provenance: payload offers no anchor field", {
+        queueId: row.queue_id,
+        source: row.source,
+        archetype: archetypeId,
+        chars: source.text.length,
+      });
+    }
     if (source?.text && !sourceProvenance.ok) {
       // The text still reaches the prompt — the model may make what it can of
       // it — but it does NOT license facts. Fail closed on the widening only.
