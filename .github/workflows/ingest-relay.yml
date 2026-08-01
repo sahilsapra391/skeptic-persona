@@ -108,8 +108,9 @@ jobs:
     # block page, invariant to session handling — eFD blocks this IP class at
     # the data endpoint. We do not disguise clients (doctrine #4), so the lane
     # waits for an honest network path (e.g. an owner-run residential courier
-    # POSTing the same bundle to /ingest). `lane=senate` keeps it testable.
-    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","senate"]'), inputs.lane)
+    # POSTing the same bundle to /ingest). EXPLICIT `lane=senate` only — a
+    # parked lane must not red a routine `all` dispatch of the working lanes.
+    if: github.event_name == 'workflow_dispatch' && inputs.lane == 'senate'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -124,8 +125,10 @@ jobs:
           # csrfmiddlewaretoken whose value DIFFERS from the cookie.
           HOME_CODE=$(curl -sS -L --max-time 60 -A "$UA" -c "$JAR" \
             "$BASE/search/home/" -o home.html -w "%{http_code}")
+          # `|| true`: under pipefail a block page with no token would kill
+          # this assignment and skip the diagnostic below (review finding).
           HIDDEN=$(grep -o 'name="csrfmiddlewaretoken" value="[^"]*"' home.html \
-            | head -1 | sed 's/.*value="//;s/"//')
+            | head -1 | sed 's/.*value="//;s/"//' || true)
           if [ -z "$HIDDEN" ]; then
             echo "::error::no csrfmiddlewaretoken (home=$HOME_CODE, $(wc -c < home.html) bytes); first bytes: $(head -c 200 home.html | tr -cd '[:print:]')"
             exit 1
