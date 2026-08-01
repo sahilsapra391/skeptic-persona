@@ -35,11 +35,14 @@ import { checkRegister } from "../src/templates/validate";
 import type { ArchetypeId, Payload } from "../src/templates/types";
 
 /** Candidates. Kept small and current; the point is a judgement, not a survey. */
+// Verified against the LIVE OpenRouter catalog 2026-08-01 — never a remembered
+// id. A wrong id returns "not a valid model ID" and scores zero, which reads
+// like a model failing when it is the harness failing.
 const MODELS = [
-  "qwen/qwen3.7-flash", // incumbent
+  "openai/gpt-5.6-terra", // incumbent from 2026-08-01 (see the A/B record)
   "anthropic/claude-sonnet-5",
-  "deepseek/deepseek-v3.2",
-  "openai/gpt-5.1-mini",
+  "deepseek/deepseek-v4-flash",
+  "qwen/qwen3.7-flash", // prior incumbent, kept as the baseline
 ];
 
 const ITEM_COUNT = Number(process.argv[2] ?? 6);
@@ -101,7 +104,11 @@ async function callModel(key: string, model: string, system: string, user: strin
         { role: "user", content: user },
       ],
       temperature: 0.7,
-      max_tokens: 900,
+      // 4000, not 900: reasoning models spend the budget on thinking tokens
+      // before emitting anything. At 900, Sonnet 5 returned finish_reason
+      // "length" with EMPTY content, which this harness scored as "0 valid
+      // drafts" — a harness failure reported as a model failure.
+      max_tokens: 4000,
     }),
   });
   const json = (await res.json()) as {
@@ -165,6 +172,13 @@ async function main() {
       }
       const variants = parseVariants(r.content);
       report.push(`### Model ${label(m)}`, "");
+      if (!variants.commentary && !variants.sharp && !variants.dry) {
+        // Distinguish "the model wrote badly" from "we could not read it".
+        report.push(
+          `_no parseable variants (finish: ${r.finish}). Raw reply, first 400 chars:_`,
+          "", "```", r.content.slice(0, 400), "```", "",
+        );
+      }
       for (const v of ["commentary", "sharp", "dry"] as const) {
         const text = variants[v];
         if (!text) {

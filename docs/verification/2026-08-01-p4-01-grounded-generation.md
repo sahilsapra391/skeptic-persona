@@ -73,6 +73,43 @@ fast. Retail absorbs the shock.").
 - First live grounded generation: recorded below after the next real
   approval/regenerate on the deployed build.
 
-## Live run (appended when observed)
+## Live run — queue #918 regenerated under p4-01 (2026-08-01 ~19:4xZ, cycle 32)
 
-PENDING — next approved or regenerated item on the post-merge deploy.
+Merged 19:35:07Z, deployed 19:35:51Z, owner regenerated after. The item is
+press_cftc_enforcement (cftc.gov is egress-blocked and the row predates
+ingest capture, so `raw_text` is NULL): **lake context only**, 9 prior CFTC
+enforcement items in the lake.
+
+**Grounding reached the model and changed the output.** Commentary attempt 1:
+
+> CFTC orders George Santos to pay $35,000 for manipulative trading of a
+> State-of-the-Union event contract, per CFTC.
+>
+> 9 enforcement actions since 2026-04-23. Santos joins a Service Member
+> charged over Nicolás Maduro-Related Event Contracts. Regulators treat
+> official outcomes as closed markets.
+
+That take is built from our own parsed record — the count, the window, and a
+real prior case — instead of the unparsed market-reaction filler the owner
+rejected on cycle 30. dry and sharp: VALID on attempt 1.
+
+**Commentary still failed, twice, and both failures are informative:**
+
+1. attempt 1 `rejected:length` — 293 weighted vs 280 (fact block 115 + take
+   176). Grounding gave the model more to say than the budget allows.
+2. attempt 2 `rejected:entity` — compressing to fit produced "Follows **April
+   Maduro** charge", merging the date 2026-04-23 with a name from a prior
+   title into a compound that reads as a person who does not exist.
+   `entityCheck` refused it. **The gauntlet worked**: the one draft that
+   would have embarrassed us is the one it killed.
+
+Card delivered (cycle 32) with dry + sharp copyable and no commentary.
+
+**Fix (p4-01b, same PR series):** the prompt gave a total budget only, so the
+model wrote a long fact block and crushed the take. It now states SEGMENT
+budgets — fact block ≤ 120 weighted including attribution, take ≤ 155 —
+which sum inside 280 with the blank line, so an obedient draft is in budget
+by construction. The LAKE CONTEXT block now also states how to cite a prior
+item honestly (count, date, or a phrase copied exactly from the title; never
+merge a date with a name). A regression test pins that the "April Maduro"
+shape stays refused regardless — the prompt guides, the validator decides.
