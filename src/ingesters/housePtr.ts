@@ -160,6 +160,26 @@ export function parseHousePtrText(raw: string): HouseTxn[] {
     // walk backward for a wrapped name.
     const inlineName = current.slice(0, m.index).trim();
     if (inlineName !== "") {
+      // A LOWERCASE boundary means the asset cell was cut by a page break,
+      // not glued. Every intact House cell ends in "[TYPE]" or a ")", so a
+      // code sitting directly after a lowercase letter can only happen when
+      // the rest of the cell is on the next page:
+      //
+      //   JP Morgan Chase & Co. CommonP 01/16/202601/30/2026$1,001 - $15,000
+      //                        ^ "Stock (JPM) [ST]" is overleaf
+      //
+      // Accepting it parses the row with a TRUNCATED name and a null ticker,
+      // which tradeClause then prints as the asset. Worse, it makes
+      // countTxnMarkers agree with the parser, so the completeness gate
+      // reports COMPLETE and the filing is promoted. That destroys the only
+      // detector we have for page-break truncation -- the count is satisfied
+      // while the CONTENT is short, which is the one shape a marker count
+      // cannot see.
+      //
+      // So: skip the row and let the gate refuse the filing, exactly as it
+      // did before the lowercase boundary was added.
+      const cell = inlineName.replace(/\s+$/, "");
+      if (/[a-z]$/.test(cell)) continue;
       nameParts.push(inlineName);
     } else {
       // Walk BACKWARD: a wrapped asset name spans one or two lines above.

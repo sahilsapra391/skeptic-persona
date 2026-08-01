@@ -151,3 +151,39 @@ splice **`$15,001 - $200`** into a member of Congress's trade record. The
 completeness gate holds the filing instead, which is the correct outcome and
 strictly better than a plausible wrong number. Pinned by a test that asserts
 the parser reads 15 of 16 and that no amount contains `$200`.
+
+## Review correction: the lowercase boundary was hiding truncation
+
+The p4 session's adversarial review caught this, and it is in the
+completeness gate rather than beside it.
+
+Widening the transaction-code boundary to accept a lowercase letter looked
+like another glue rescue. It is not. **Every intact House asset cell ends in
+`[TYPE]` or `)`**, so a code sitting directly after a lowercase letter can
+only happen when the rest of the cell is on the next page:
+
+```
+JP Morgan Chase & Co. CommonP 01/16/202601/30/2026$1,001 - $15,000
+                     ^ "Stock (JPM) [ST]" is overleaf
+```
+
+Accepting it parsed the row with a truncated name and a null ticker, so
+`tradeClause` printed the fragment as the asset. Worse, it made
+`countTxnMarkers` agree with the parser, so the gate reported COMPLETE and
+promoted the filing.
+
+**That destroyed the only detector for page-break truncation.** The count is
+satisfied while the content is short, which is the one shape a marker count
+cannot see — the same blind spot the Home Depot regression exposed from the
+other direction.
+
+Reproduced on the page-break fixture with the XOM band un-wrapped:
+
+| | markers | parsed | gate |
+|---|---|---|---|
+| with the lowercase branch | 16 | 16 | **passes** |
+| after the fix | 16 | 15 | refuses |
+
+A lowercase boundary now requires the cell to have terminated properly;
+otherwise the row is skipped and the gate refuses the filing exactly as
+before. The bracket boundary is untouched, so the five real recoveries stand.
