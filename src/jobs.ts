@@ -9,6 +9,7 @@ import { makeRateHandler, RATE_SOURCES } from "./ingesters/rates";
 import { pollTreasury } from "./ingesters/treasury";
 import { FDA_SOURCES, makeFdaHandler } from "./ingesters/fdaRecalls";
 import { refreshIssuers } from "./ingesters/issuers";
+import { captureEdgarBodies } from "./ingesters/edgarBody";
 import { runSourceHealth } from "./sourceHealth";
 import { pollFederalRegister } from "./ingesters/federalRegister";
 import { pollCftc } from "./ingesters/cftc";
@@ -136,6 +137,7 @@ export function registerJobs(): void {
   registry["treasury_auction"] = pollTreasury;
   for (const src of FDA_SOURCES) registry[src.id] = makeFdaHandler(src);
   registry["issuer_refresh"] = refreshIssuers;
+  registry["edgar_8k_body"] = captureEdgarBodies;
   registry["source_health"] = runSourceHealth;
   registry["federal_register"] = pollFederalRegister;
   registry["cftc_cot"] = pollCftc;

@@ -1,0 +1,21 @@
+-- Capture the 8-K's actual text into items.raw_text.
+--
+-- edgar_8k is the highest-volume postable source (293 items measured
+-- 2026-08-01) and the thinnest that has more to give: 5.7 payload fields,
+-- which is a company name and a list of item codes.
+--
+-- p4-01 falls back to fetching source_url when raw_text is absent, but for
+-- this source source_url is the EDGAR INDEX page. Verified live 2026-08-01:
+-- it returns 2,077 characters of navigation chrome and a Google Tag Manager
+-- snippet, not the filing. The fallback was therefore grounding every 8-K
+-- commentary in boilerplate.
+--
+-- The primary document beside it holds 6,422 characters of real filing text
+-- (the full-submission .txt holds 42,472, but most of that is SGML headers
+-- and XBRL).
+--
+-- Own job, not the ingest path: two fetches per filing at ingest would land
+-- on a tick already running over its time budget, and only postable items
+-- are worth the bytes.
+INSERT OR IGNORE INTO jobs (name, due_at, cadence_profile, enabled, priority) VALUES
+  ('edgar_8k_body', '2026-08-01T00:00:00.000Z', 'every_30m', 1, 70);

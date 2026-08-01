@@ -12,7 +12,7 @@ import { fitsInPost } from "../templates/length";
 import { checkRegister } from "../templates/validate";
 import { chatComplete, OpenRouterError, parseVariants } from "./openrouter";
 import { OWNER_EXEMPLARS, stylePackFor } from "./stylepack";
-import { fetchSourceText, isBlockedGroundingHost, type SourceText } from "./sourceText";
+import { fetchSourceText, hasDedicatedCapture, isBlockedGroundingHost, type SourceText } from "./sourceText";
 import { lakeContext } from "./context";
 import { openerHash, skeletonHash } from "./echo";
 import { checkGroundingProvenance, corpusHasData, validateVariant, type ValidationIssue, type Variant } from "./validate";
@@ -359,9 +359,14 @@ export async function runGeneration(
     const hasCachedText = row.raw_text !== null && row.raw_text !== "";
     // Cached text costs no subrequest; a blocked host must not cost a budget
     // token for a fetch that will never happen (review finding).
-    const canFetchSource = hasCachedText || (!isBlockedGroundingHost(row.source_url) && budget.take(1));
+    // A dedicated-capture source can never fetch here, so it must not spend a
+    // token on a fetch that will not happen -- same reasoning as the
+    // egress-blocked host check beside it.
+    const canFetchSource =
+      hasCachedText ||
+      (!hasDedicatedCapture(row.source) && !isBlockedGroundingHost(row.source_url) && budget.take(1));
     const source = canFetchSource
-      ? await fetchSourceText(env, { id: row.item_id, source_url: row.source_url, raw_text: row.raw_text, raw_meta: row.raw_meta }, now)
+      ? await fetchSourceText(env, { id: row.item_id, source: row.source, source_url: row.source_url, raw_text: row.raw_text, raw_meta: row.raw_meta }, now)
       : null;
     const context = await lakeContext(env.DB, { id: row.item_id, source: row.source, archetype: archetypeId }, payload);
     // PROVENANCE GATE before the whitelist widens. The SOURCE DOCUMENT is the
