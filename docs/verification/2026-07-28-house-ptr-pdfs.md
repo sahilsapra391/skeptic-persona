@@ -116,7 +116,7 @@ recovered five filings:
 | Filing | Shape | Outcome |
 |---|---|---|
 | 20033718 | space between the date pair and the amount | fixed |
-| 20033916 | `CommonP` and `[ST]S` glue (2 rows) | fixed |
+| 20033916 | `CommonP` (page-break truncation) | **refused (truncated cell)** |
 | 20034036 | `[ST]P` glue | fixed |
 | 20034138 | `[ST]S` glue | fixed |
 | 20034489 | `[ST]P` glue (2 rows) | fixed |
@@ -186,4 +186,13 @@ Reproduced on the page-break fixture with the XOM band un-wrapped:
 
 A lowercase boundary now requires the cell to have terminated properly;
 otherwise the row is skipped and the gate refuses the filing exactly as
-before. The bracket boundary is untouched, so the five real recoveries stand.
+before. The bracket boundary is untouched, so **four** real recoveries stand.
+
+**20033916 is no longer one of them, and the table above is corrected to say
+so.** Both its rows are the `CommonP` shape, so it now reads markers 2 /
+parsed 1 and the gate refuses it. That is the correct outcome -- its asset
+cells genuinely are split across a page break -- but the earlier version of
+this document called it fixed. An operator seeing it refused against a doc
+promising a fix would reasonably "re-fix" the lowercase boundary and
+reintroduce the truncation. Recoveries are 20033718, 20034036, 20034138 and
+20034489; 20033916 and 20034660 are both correctly refused.
