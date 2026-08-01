@@ -341,6 +341,7 @@ export async function runGeneration(
         source: row.source,
         anchorsTried: sourceProvenance.anchorsTried,
         chars: source.text.length,
+        reason: sourceProvenance.reason,
         host: source.host,
       });
     }

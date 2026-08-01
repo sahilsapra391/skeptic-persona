@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   cadenceCheck,
   checkGroundingProvenance,
+  looksLikeProse,
   groundingFacts,
   mergeFacts,
   collisionCheck,
@@ -193,6 +194,40 @@ describe("grounding provenance — wrong document is a fabrication license", () 
 
   it("token-bounded: a substring of a longer word is NOT a match", () => {
     expect(checkGroundingProvenance("The BLNKX fund reported inflows.", { ticker: "BLNK" }).ok).toBe(false);
+  });
+
+  it("REJECTS a PDF whose METADATA carries the company name — the anchor check alone is not enough", () => {
+    // Verified, not assumed: SEC litigation PDFs carry
+    // /Title (In the Matter of <RESPONDENT>), so a tag-stripped PDF contains
+    // the payload's company AND 106k chars of object tables. The anchor test
+    // passes on this; only the prose test refuses it.
+    const pdfish = `%PDF-1.6 /Type /Catalog /Pages 2 0 R
+      /Title (In the Matter of ACME CAPITAL ADVISERS LLC) /Producer (Acrobat)
+      1 0 obj << /Length 93 /Filter /FlateDecode >> stream
+      xref 0 312 /Size 312 /Prev 223302 /Root 1 0 R
+      0000000000 65535 f 0000000015 00000 n 0000223302 00000 n
+      /Length 41728 /Type /Font /BaseFont /Times-Roman trailer << /Size 312 >> startxref 224891 %%EOF`;
+    const acme = { company: "ACME CAPITAL ADVISERS LLC", authority: "SEC" };
+    // The anchor IS present — proving the two checks are not redundant.
+    expect(pdfish.toLowerCase()).toContain("acme capital advisers llc");
+    const v = checkGroundingProvenance(pdfish, acme);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe("not_prose");
+    // And the consequence it prevents:
+    expect(groundingFacts(pdfish).numbers.has("223302")).toBe(true);
+  });
+
+  it("looksLikeProse separates document internals from every real sample", () => {
+    expect(looksLikeProse("%PDF-1.6 /Type /Catalog /Length 93 /Prev 223302 xref 0 312 f n /BaseFont /Times-Roman trailer /Size 312 startxref 224891 %%EOF /Filter /FlateDecode stream endstream obj endobj")).toBe(false);
+    for (const real of [
+      "On July 28, 2026, Blink Charging Co. received a letter from the Listing Qualifications Department of The Nasdaq Stock Market LLC notifying the Company that the closing bid price was below the minimum requirement for continued listing.",
+      "The Federal Trade Commission today sued to block the proposed acquisition, alleging that the deal would eliminate head-to-head competition between two of the largest suppliers and would likely lead to higher prices.",
+      "Senate PTR: $1,000,001 - $5,000,000 purchase in a defense prime, trade date June 3, per Senate eFD. Filed July 18. Legal, disclosed, and six weeks stale. Working as intended, apparently.",
+    ]) {
+      expect(looksLikeProse(real), real.slice(0, 40)).toBe(true);
+    }
+    // Short text is exempt: a ratio over a few tokens is noise.
+    expect(looksLikeProse("/Size 312 /Prev 223302")).toBe(true);
   });
 
   it("ABSENCE is not wrongness — no grounding and no anchors both pass", () => {
