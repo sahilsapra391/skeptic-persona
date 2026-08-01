@@ -147,3 +147,45 @@ just the three payload facts.
 PENDING Monday: House index rebuild (~13:00 UTC) + the 14:20 UTC house lane
 queue fresh weekend/Monday e-filings (senate lane parked, §4). Record lands
 here as a docs follow-up on main per owner decision 2026-08-01.
+
+
+---
+
+## Operational traps found the hard way, 2026-08-01
+
+Four green signals that answered a different question than the one being
+asked. Each cost real time or nearly shipped a defect; all four are cheap to
+avoid once named.
+
+**1. A local `.dev.vars` makes the suite disagree with CI, in EITHER direction.**
+It supplies `OPENROUTER_API_KEY`, so any test asserting unconfigured behaviour
+changes verdict. Measured on the same tree the same night: the ingestion
+session gained a pass, this session LOST one (48/48 clean versus 47/48 with
+the file present). So the safe statement is not "local is more permissive" —
+it is that **a local full-suite result is not evidence about CI in either
+direction.** Check on a clean worktree first, not last.
+
+**2. `npm test` says nothing about compilation.** `npm run typecheck` is a
+separate CI step (ci.yml). PR #75 shipped 704 green tests and three
+`TS18047` errors; the sequence that produced it was typecheck, then edit,
+then suite. The rule is **typecheck AFTER the last edit, not before it.**
+
+**3. A mergeability flag read right after a push is a stale computation.**
+GitHub reported `CONFLICTING` for ~20 seconds on a branch whose local merge
+was already clean. Both sessions hit it. Re-read it, or merge locally to
+check.
+
+**4. A quiet Saturday looks exactly like a dead pipeline from `items` alone.**
+`due_now = 0` with sensible FUTURE `due_at`s is a healthy scheduled system;
+the same zero with `due_at`s in the past is a stuck one, and those two states
+are invisible to any query over `items`. Recency of output is not evidence of
+liveness for a scheduled system — which also means an empty digest tomorrow
+morning is not proof the salience layer is broken. Queries in
+`docs/verification/2026-08-01-scheduled-liveness.md`.
+
+**5. A corrected default cannot reach an already-migrated database.** Migration
+0044 seeded `digest_push` disabled; the fix that seeds it enabled is correct
+for a fresh DB and unreachable for production, because wrangler will not
+re-run an applied migration. The repair has to be its own idempotent
+migration (0047), not a note asking someone to remember an `UPDATE`. A
+recovery path guarded by human memory is not a recovery path.
