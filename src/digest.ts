@@ -26,12 +26,12 @@ import { fitsInPost } from "./templates/length";
  *  fit 12 lines plus header inside the clamp with room to spare. */
 export const DIGEST_MAX_LINES = 12;
 
-/** One promote button per listed line — deliberately NOT a smaller cap.
- *  Capping buttons below lines showed an item once, invited promotion, then
- *  marked it sent so it could never be promoted or re-listed: the "held is
- *  not lost" guarantee held for only the first few. callback_data is 24 bytes
- *  against a 64-byte limit, so the constraint is layout, not encoding. */
-export const DIGEST_MAX_BUTTONS = DIGEST_MAX_LINES;
+// NOTE: there is deliberately no DIGEST_MAX_BUTTONS. Every listed line gets a
+// promote button, unconditionally. A button cap below the line cap showed an
+// item once, invited promotion, then marked it sent so it could never be
+// promoted or re-listed — the "held is not lost" guarantee held for only the
+// first few. callback_data is 24 bytes against a 64-byte limit, so the
+// constraint was never encoding.
 
 /** Telegram renders a single long button row unusably on mobile; four per
  *  row matches the copy-card layout. */
@@ -101,7 +101,12 @@ export async function pushedTodayByCategory(db: D1Database, archetype: string, n
 
 function summarise(archetype: string, count: number): string {
   const noun = count === 1 ? "item" : "items";
-  return `Held back today: ${count} ${archetype} ${noun} below the push bar.`;
+  // Deliberately does NOT say "below the push bar": a row held by the daily
+  // cap can score 79 against a floor of 45, and this repo insists that
+  // distinction is load-bearing ('digested' is not 'logged' precisely because
+  // "met the bar, lost the slot" must stay distinguishable). This is copy the
+  // owner may screenshot, so it states what happened, not why.
+  return `Held back today: ${count} ${archetype} ${noun} not pushed.`;
 }
 
 /**
@@ -190,13 +195,22 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
       continue;
     }
 
-    const omitted = held.results.length - lines.length - skipped.length;
+    // Every held row is accounted for in the message: listed, rolled over to
+    // the next run, or retired unrenderable. An earlier version subtracted
+    // `skipped` from the count and printed nothing for it, so a group whose
+    // top scorer failed to render showed "5 items" above 4 lines with no
+    // "+N" — a silently cut list reading as complete, which is the exact
+    // class this file's own doctrine comment forbids.
+    const rolled = held.results.length - lines.length - skipped.length;
     const body = [
       summarise(g.archetype, held.results.length),
       "",
       ...lines,
       // Truncation is ALWAYS announced: a silently cut list reads as complete.
-      ...(omitted > 0 ? [`+${omitted} more held.`] : []),
+      ...(rolled > 0 ? [`+${rolled} more held, in tomorrow's roll-up.`] : []),
+      ...(skipped.length > 0
+        ? [`${skipped.length} could not be rendered and were retired; see the log for their item ids.`]
+        : []),
       "",
       "Tap ↑ to pull one out as a full card.",
     ].join("\n");
@@ -214,7 +228,16 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
       )
         .bind(iso(now), msg.message_id, ...sentIds)
         .run();
-      log("info", "digest sent", { day: g.day, archetype: g.archetype, listed: lines.length, skipped: skipped.length, omitted });
+      log("info", "digest sent", { day: g.day, archetype: g.archetype, listed: lines.length, rolled });
+      if (skipped.length > 0) {
+        // ERROR, with ids: a retired row is out of every drain, has no card
+        // and is never re-listed, so the log line is its only handle.
+        log("error", "digest retired unrenderable rows", {
+          day: g.day,
+          archetype: g.archetype,
+          itemIds: held.results.filter((h) => skipped.includes(h.id)).map((h) => h.item_id),
+        });
+      }
       // Telegram asks for <= 1 message/s per chat; every other sender in this
       // repo paces, and a multi-category roll-up sends several in a row.
       const spacing = Number(env.QUEUE_NOTIFY_SPACING_MS ?? 1100);

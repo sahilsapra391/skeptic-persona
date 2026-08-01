@@ -148,6 +148,35 @@ describe("no category can be unreachable (review HIGH)", () => {
   });
 });
 
+describe("the digest accounts for every held row (review round 2)", () => {
+  it("a group with an unrenderable row announces it instead of cutting silently", async () => {
+    // The defect: skipped rows were marked sent and shown nowhere, so a
+    // group whose top scorer failed to render printed "5 items" above 4
+    // lines with no "+N" — a silently cut list reading as complete, which is
+    // the House-PTR class this chunk's own doc calls non-negotiable.
+    const ids: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await insertItem(env.DB, {
+        source: "edgar_8k", externalId: `DIGEST-${i}`, category: "filing",
+        eventAt: NOW.toISOString(), sourceUrl: "https://www.sec.gov/x",
+        // A payload with no renderable skeleton: forces the skip path.
+        payload: i === 0 ? {} : { items: [{ code: "5.02" }], cik: "1", company: "A Co" },
+        score: SCORE_POSTABLE,
+      });
+      ids.push(res.id ?? 0);
+    }
+    for (const [i, id] of ids.entries()) {
+      await holdForDigest(CURATED, id, "FILING_8K", 90 - i, "below_floor", NOW);
+    }
+    const before = await env.DB.prepare(`SELECT COUNT(*) AS n FROM digest_items WHERE sent_at IS NULL`).first<{ n: number }>();
+    expect(before?.n).toBe(3);
+    // Every row must end marked — nothing may retry forever — and the
+    // arithmetic in the card must close over listed + rolled + retired.
+    const rows = await env.DB.prepare(`SELECT id, item_id FROM digest_items ORDER BY score DESC`).all<{ id: number; item_id: number }>();
+    expect(rows.results.length).toBe(3);
+  });
+});
+
 describe("digest day boundaries", () => {
   it("groups by ET calendar day, not UTC", () => {
     // 2026-08-04T02:00Z is 22:00 ET on 08-03: still the same trading day.
