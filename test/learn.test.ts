@@ -4,6 +4,7 @@ import {
   editDistance,
   editRatio,
   ownerFinals,
+  pairContext,
   promotionStatement,
   recentEditedPairs,
   registerFor,
@@ -233,6 +234,41 @@ describe("pair capture through the real webhook", () => {
     const row = await logRow(qid);
     expect(row!.draft_text).toBe("ORIGINAL draft the owner saw, per Senate eFD.");
     expect(row!.draft_text).not.toContain("never saw");
+  });
+});
+
+describe("pair context — an edit is not always a voice signal", () => {
+  it("captures payload depth and grounding size alongside the pair", async () => {
+    // Raised by the ingestion session: a rewrite forced by a THIN payload
+    // teaches the model to compensate for missing facts, not to write better.
+    // Telling that apart later needs the context captured now.
+    const { qid, cy } = await delivered("L-ctx", "a line with a real payload behind it, per Senate eFD.");
+    await env.DB.prepare(`UPDATE items SET raw_text = ?1 WHERE id = (SELECT item_id FROM queue WHERE id = ?2)`)
+      .bind("x".repeat(1234), qid)
+      .run();
+    await tap(`c:c:${qid}:${cy}`);
+    await tap(`p:y:${qid}:${cy}:c`);
+
+    const row = await env.DB.prepare(`SELECT payload_field_count, grounding_chars FROM post_log WHERE queue_id = ?1`)
+      .bind(qid)
+      .first<{ payload_field_count: number | null; grounding_chars: number | null }>();
+    // The seeded payload has member/lagDays/tradeDate/chamber.
+    expect(row!.payload_field_count).toBe(4);
+    expect(row!.grounding_chars).toBe(1234);
+  });
+
+  it("an unparseable payload is UNKNOWN depth, not zero depth", async () => {
+    const qid = await seed("L-badpayload", [{ variant: "dry", text: "x" }]);
+    await env.DB.prepare(`UPDATE items SET payload = 'not json' WHERE id = (SELECT item_id FROM queue WHERE id = ?1)`)
+      .bind(qid)
+      .run();
+    const ctx = await pairContext(env.DB, qid);
+    expect(ctx.payloadFieldCount).toBeNull(); // null, never 0 — 0 would read as "no facts"
+    expect(ctx.groundingChars).toBe(0);
+  });
+
+  it("an unknown queue id yields nulls rather than throwing at post time", async () => {
+    expect(await pairContext(env.DB, 999_999)).toEqual({ payloadFieldCount: null, groundingChars: null });
   });
 });
 

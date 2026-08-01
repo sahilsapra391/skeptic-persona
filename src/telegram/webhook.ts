@@ -14,7 +14,7 @@ import {
 } from "../lib/db";
 import { checkRegister } from "../templates/validate";
 import { CODE_VARIANT, postedButtons, resolveVariantText, type CardVariant } from "../rag/deliver";
-import { editDistance, promotionStatement } from "../rag/learn";
+import { editDistance, pairContext, promotionStatement } from "../rag/learn";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -404,6 +404,9 @@ async function recordManualPost(
     return;
   }
   const now = new Date();
+  // Why the draft looked the way it did — a thin-payload rewrite is not the
+  // same signal as a voice rewrite, and only capture time can tell them apart.
+  const ctx = await pairContext(env.DB, queueId);
   // The promotion rides in the SAME batch as the claim (p4-09). A voice_finals
   // row without its post_log row, or the reverse, is a split record, and the
   // loop's only value is that the two agree.
@@ -417,9 +420,13 @@ async function recordManualPost(
   const results = await env.DB.batch([
     env.DB.prepare(
       `INSERT OR IGNORE INTO post_log (queue_id, platform_post_id, posted_at, archetype, category, posted_manually,
-                                       final_text, draft_text, draft_variant, edit_distance)
-       VALUES (?1, NULL, ?2, ?3, ?4, 1, ?5, ?6, ?7, ?8)`,
-    ).bind(queueId, iso(now), meta.archetype, meta.category, finalText, pair.draft, pair.variant, pair.distance),
+                                       final_text, draft_text, draft_variant, edit_distance,
+                                       payload_field_count, grounding_chars)
+       VALUES (?1, NULL, ?2, ?3, ?4, 1, ?5, ?6, ?7, ?8, ?9, ?10)`,
+    ).bind(
+      queueId, iso(now), meta.archetype, meta.category, finalText,
+      pair.draft, pair.variant, pair.distance, ctx.payloadFieldCount, ctx.groundingChars,
+    ),
     env.DB.prepare(`UPDATE cards SET posted_state = 'yes', updated_at = ?1 WHERE queue_id = ?2 AND (posted_state IS NULL OR posted_state = 'skipped')`)
       .bind(iso(now), queueId),
     env.DB.prepare(`UPDATE items SET status = 'posted' WHERE id = ?1`).bind(meta.item_id),
@@ -532,6 +539,7 @@ async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promis
         // uncaptured rather than as a perfect score.
         const draft = postedTarget.posted_prompt_draft;
         const now = new Date();
+        const ctx = await pairContext(env.DB, postedTarget.queue_id);
         const distance = draft === null ? null : editDistance(draft, msg.text);
         // Reaching this flow is not proof of an edit: an owner who retypes the
         // draft exactly has shipped it unedited, and saying otherwise would
@@ -554,11 +562,13 @@ async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promis
         await env.DB.batch([
           env.DB.prepare(
             `INSERT OR IGNORE INTO post_log (queue_id, platform_post_id, posted_at, archetype, category, posted_manually,
-                                             final_text, draft_text, draft_variant, edit_distance)
-             VALUES (?1, NULL, ?2, ?3, ?4, 1, ?5, ?6, ?7, ?8)`,
+                                             final_text, draft_text, draft_variant, edit_distance,
+                                             payload_field_count, grounding_chars)
+             VALUES (?1, NULL, ?2, ?3, ?4, 1, ?5, ?6, ?7, ?8, ?9, ?10)`,
           ).bind(
             postedTarget.queue_id, iso(now), meta.archetype, meta.category, msg.text,
             draft, postedTarget.posted_prompt_variant, distance,
+            ctx.payloadFieldCount, ctx.groundingChars,
           ),
           env.DB.prepare(`UPDATE cards SET posted_state = 'modified', updated_at = ?1 WHERE queue_id = ?2 AND (posted_state IS NULL OR posted_state = 'skipped')`)
             .bind(iso(now), postedTarget.queue_id),

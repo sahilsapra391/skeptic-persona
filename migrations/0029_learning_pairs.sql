@@ -22,6 +22,21 @@ ALTER TABLE post_log ADD COLUMN draft_variant TEXT;
 -- counting NULL as zero would report a perfect zero-edit rate on no data.
 ALTER TABLE post_log ADD COLUMN edit_distance INTEGER;
 
+-- AN EDIT IS NOT ALWAYS A VOICE SIGNAL (raised by the ingestion session, and
+-- it is the sharpest objection to this whole loop). If the owner rewrites a
+-- draft because the PAYLOAD was thin — the five-field press case, where
+-- generation had almost nothing to say — then that pair does not teach the
+-- model to write better. It teaches it to compensate for missing facts, which
+-- is a fabrication pressure dressed up as a style lesson.
+--
+-- Distinguishing the two needs context the pair alone cannot carry, and both
+-- of these are free at capture time. Nothing consumes them yet, on purpose:
+-- the point is that they exist for the days that have already happened by the
+-- time anyone asks the question. A loop that starts collecting late can never
+-- answer it retrospectively.
+ALTER TABLE post_log ADD COLUMN payload_field_count INTEGER;
+ALTER TABLE post_log ADD COLUMN grounding_chars INTEGER;
+
 -- The "posted, but I edited it" flow sends a force-reply prompt and stores its
 -- message id, but not WHICH variant the prompt was about. The reply handler
 -- would therefore have to read cards.chosen_variant — a mutable slot, and
