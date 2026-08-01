@@ -238,11 +238,31 @@ async function handleCallback(env: ConfiguredEnv, cb: TgCallbackQuery): Promise<
   }
 }
 
+/**
+ * NOTE the absence of `chosen_variant`, which is deliberate and load-bearing.
+ *
+ * That column is a MUTABLE SLOT: every Copy tap overwrites it, so by the time
+ * any later handler reads it, it names the last variant copied rather than the
+ * one that handler is about. Review finding #3 closed that on the tap side by
+ * putting the variant in callback_data; p4-09 found the same dependency
+ * surviving on the force-reply side and closed it by pinning the variant and
+ * draft to the prompt itself.
+ *
+ * A grep after the second fix confirmed there is no third reader. Rather than
+ * record that in a comment and leave the field selectable, it is removed from
+ * the row type entirely — a value that cannot be fetched cannot be trusted by
+ * code written next month, and the honest lesson from those two rounds is that
+ * a finding closed at one call site is not a finding closed.
+ *
+ * The column itself stays and is still written: as an audit breadcrumb it is
+ * fine. The authoritative answers live where they cannot drift — the variant
+ * in callback_data, and `cards.posted_prompt_variant` / `posted_prompt_draft`
+ * for the reply flow.
+ */
 interface CardRow {
   queue_id: number;
   telegram_message_id: number | null;
   cycle: number;
-  chosen_variant: string | null;
   posted_state: string | null;
   posted_prompt_message_id: number | null;
   edit_prompt_message_id: number | null;
@@ -251,7 +271,7 @@ interface CardRow {
 async function getCard(db: D1Database, queueId: number): Promise<CardRow | null> {
   return db
     .prepare(
-      `SELECT queue_id, telegram_message_id, cycle, chosen_variant, posted_state,
+      `SELECT queue_id, telegram_message_id, cycle, posted_state,
               posted_prompt_message_id, edit_prompt_message_id
        FROM cards WHERE queue_id = ?1`,
     )
