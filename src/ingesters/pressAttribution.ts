@@ -23,6 +23,14 @@
  */
 export const PRESS_ATTRIBUTION: Readonly<Record<string, string>> = {
   SEC: "per SEC",
+  DOJ: "per the Justice Department",
+  "Federal Reserve": "per the Federal Reserve",
+  "European Central Bank": "per the ECB",
+  "Bank of Canada": "per the Bank of Canada",
+  "UK ONS": "per the Office for National Statistics",
+  "UK OFSI": "per OFSI",
+  "Reserve Bank of India": "per the Reserve Bank of India",
+  SEBI: "per SEBI",
   CFTC: "per CFTC",
   FTC: "per FTC",
   "UK FCA": "per the FCA",
