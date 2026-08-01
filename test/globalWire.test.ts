@@ -7,6 +7,12 @@ import ONS from "./fixtures/press-ons.xml.fixture?raw";
 import OFSI from "./fixtures/press-ofsi.xml.fixture?raw";
 import RBI from "./fixtures/press-rbi.xml.fixture?raw";
 import SEBI from "./fixtures/press-sebi.xml.fixture?raw";
+import SEC_SPEECHES from "./fixtures/press-sec-speeches.xml.fixture?raw";
+import CFPB from "./fixtures/press-cfpb.xml.fixture?raw";
+import GAO from "./fixtures/press-gao.xml.fixture?raw";
+import EBA from "./fixtures/press-eba.xml.fixture?raw";
+import BOE_NEWS from "./fixtures/press-boe.xml.fixture?raw";
+import RIKSBANK from "./fixtures/press-riksbank.xml.fixture?raw";
 import { parsePressFeed, PRESS_SOURCES } from "../src/ingesters/regulatoryPress";
 import { PRESS_ATTRIBUTION } from "../src/ingesters/pressAttribution";
 
@@ -23,6 +29,12 @@ const FIXTURES: readonly [string, string][] = [
   ["press_ofsi", OFSI],
   ["press_rbi", RBI],
   ["press_sebi", SEBI],
+  ["press_sec_speeches", SEC_SPEECHES],
+  ["press_cfpb", CFPB],
+  ["press_gao", GAO],
+  ["press_eba", EBA],
+  ["press_boe_news", BOE_NEWS],
+  ["press_riksbank", RIKSBANK],
 ];
 
 describe("global wire batch 1: the parser reads every new feed", () => {
@@ -60,12 +72,31 @@ describe("every source can be cited", () => {
       expect(cite, s.id).toMatch(/^per /);
       expect(cite, s.id).not.toMatch(/issuing authority|the regulator/i);
     }
-    expect(PRESS_SOURCES.length).toBe(14);
+    expect(PRESS_SOURCES.length).toBe(20);
   });
 
   it("gives each source its own authority, so no two sources share a citation key", () => {
     const authorities = PRESS_SOURCES.map((s) => s.authority);
     expect(new Set(authorities).size).toBe(authorities.length);
+  });
+});
+
+describe("a feed with no date at all is refused, not dated by us", () => {
+  it("records why ESMA was rejected despite returning a usable-looking feed", () => {
+    // ESMA's items carry ONLY description, link and title -- no pubDate, no
+    // dc:date, no published, no updated. It returned 200 with ten items and
+    // looked adoptable right up until it went through the parser.
+    //
+    // The tempting fix is to date it by fetch time. That would make every
+    // item look fresh, so a month-old release would post as news -- claiming
+    // a date we do not have, which is the one thing this desk cannot do.
+    // Refusing the source is the cheaper error.
+    const noDate = `<rss version="2.0"><channel><item>
+      <title>ESMA publishes final report</title>
+      <link>https://www.esma.europa.eu/x</link>
+      <description>Some text.</description>
+    </item></channel></rss>`;
+    expect(parsePressFeed(noDate)).toEqual([]);
   });
 });
 

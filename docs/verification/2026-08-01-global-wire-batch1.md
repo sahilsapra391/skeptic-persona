@@ -1,4 +1,4 @@
-# Global wire fanout, batch 1 — twenty probed, eight adopted
+# Global wire fanout — 44 probed, 14 adopted
 
 **Verified 2026-08-01T22:4xZ**, declared UA (`Skeptic Wire admin@spechawk.ai`).
 
@@ -74,3 +74,56 @@ only `<item>` and only `<pubDate>` is how a feed returns 200, visibly contains
 items, and still yields nothing — with no error anywhere. Every adopted feed
 above now ships a trimmed real capture as a fixture, so a future shape change
 fails a test rather than silently emptying a source.
+
+---
+
+# Batch 2 — 24 more probed, 6 adopted
+
+Same two gates. Twenty-four candidates, eight returned a usable feed, **six
+survived our own parser**.
+
+## Adopted (6)
+
+| Source | Authority | Items |
+|---|---|---|
+| `press_sec_speeches` | SEC Commissioners | 25 |
+| `press_cfpb` | CFPB | 20 |
+| `press_gao` | GAO | 25 |
+| `press_eba` | European Banking Authority | 10 |
+| `press_boe_news` | Bank of England | 50 |
+| `press_riksbank` | Sveriges Riksbank | 10 |
+
+Press sources now total **20**.
+
+## ESMA: usable feed, refused anyway
+
+`esma.europa.eu/rss.xml` returned 200 with ten items and looked adoptable.
+Its `<item>` blocks contain **only** `description`, `link` and `title` — no
+`pubDate`, no `dc:date`, no `published`, no `updated`.
+
+The tempting fix is to date the item by fetch time. That would make every
+item look fresh, so a month-old release would post as news — claiming a date
+we do not have. **Refusing the source is the cheaper error**, and a test pins
+that a dateless feed parses to nothing.
+
+This is the third distinct way a feed has looked adoptable and not been: wrong
+content (OFAC's programme list), wrong dialect (BoC, OFSI), and now missing a
+field the doctrine requires.
+
+## GDELT: usable, deferred
+
+The 429 in batch 1 was transient — it returns 10 articles on retry. But it is
+**JSON, not RSS**, so it needs its own parser rather than a row in
+`PRESS_SOURCES`. Deferred to its own chunk rather than bolted on.
+
+## Rejected (17 across both batches)
+
+Batch 2 adds: FDIC and FINRA (404 on both alternate paths tried), NHTSA (403),
+USPTO (404), Bundesbank (404), Banque de France (403), Norges news (404),
+HKMA (404), ASIC (404), BoJ statements (404), Banxico (404), MAS Singapore
+(200, 854KB of HTML, zero items), OCC (200, HTML, zero items), Banco Central
+do Brasil (200, HTML, zero items), IMF alternate (200, 392 bytes, zero items).
+
+`rba_news` returned one item, below the three-item gate. Not rejected on
+merit — the gate is the gate — but worth a retry in a later batch, since a
+quiet week is indistinguishable from a broken feed at n=1.
