@@ -566,6 +566,34 @@ const HEDGE_PATTERNS: readonly RegExp[] = [
   /\bmake of that what you will\b/i,
 ];
 
+/**
+ * A beat/take is a SENTENCE, not a fragment.
+ *
+ * Found in the first live generation (2026-08-01): the sharp variant shipped
+ * `pay $35,000.` as its beat — doctrine-legal (the number is in the payload)
+ * but a lowercase fragment echoing the fact block, which reads as broken
+ * output rather than as a dry observation. Every beat in persona.md section 8
+ * and every beat in the owner's exemplars is a complete sentence.
+ *
+ * Deliberately a CAPITALISATION check, not an echo check: the owner's own
+ * `Nine days.` after "...filed nine days later" is a rhetorical echo and one
+ * of his best beats, so rejecting restatement would reject his voice. What
+ * separates his echo from the model's fragment is that his is a sentence.
+ * (Openings that legitimately start non-alphabetic — a $TICKER, a number, a
+ * permitted emoji — are allowed through.)
+ */
+export function beatShapeCheck(text: string): ValidationIssue[] {
+  const segments = text.split(/\n\n+/).slice(1); // everything after the fact block
+  for (const seg of segments) {
+    const first = seg.trimStart().charAt(0);
+    if (first === "") continue;
+    if (/[a-z]/.test(first)) {
+      return [{ rule: "beat_shape", detail: `beat starts lowercase ("${seg.trim().slice(0, 32)}") — a beat is a sentence, not a fragment` }];
+    }
+  }
+  return [];
+}
+
 export function hedgeCheck(text: string): ValidationIssue[] {
   const hit = HEDGE_PATTERNS.find((re) => re.test(text));
   return hit ? [{ rule: "hedge", detail: `hedge construction: ${String(hit.exec(text)?.[0])}` }] : [];
@@ -683,6 +711,7 @@ export async function validateVariant(db: D1Database, text: string, opts: Valida
     ...checkRegister(text, opts.archetype, opts.payload),
     ...lengthCheck(text, opts.variant),
     // Group 2 — the contract.
+    ...beatShapeCheck(text),
     ...hedgeCheck(text),
     ...cadenceCheck(text),
   ];
