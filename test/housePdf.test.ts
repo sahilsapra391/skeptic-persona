@@ -3,6 +3,9 @@ import SINGLE from "./fixtures/house-ptr-single.text.fixture?raw";
 import MULTI from "./fixtures/house-ptr-multi.text.fixture?raw";
 import PARTIAL from "./fixtures/house-ptr-partial-wrapped.text.fixture?raw";
 import UNTRADED from "./fixtures/house-ptr-untraded.text.fixture?raw";
+import SPACED from "./fixtures/house-ptr-spaced-amount.text.fixture?raw";
+import GLUED from "./fixtures/house-ptr-glued-code.text.fixture?raw";
+import PAGEBREAK from "./fixtures/house-ptr-page-break.text.fixture?raw";
 import { countTxnMarkers, draftHousePtr, parseHousePtrText } from "../src/ingesters/housePtr";
 
 // Text extracted from two LIVE House PTR PDFs on 2026-07-28. Both were
@@ -193,5 +196,58 @@ describe("the courier's wire format", () => {
     expect(txns[0]!.ticker).toBe("ARCC");
     expect(txns[0]!.assetName).toBe("Ares Capital Corporation");
     expect(txns[0]!.assetName).not.toContain("\u0000");
+  });
+});
+
+describe("shapes the completeness gate caught in PRODUCTION, 2026-08-01", () => {
+  // Six live filings were refused rather than posted with trades missing.
+  // These are three of them. The gate did not just prevent bad posts; it
+  // located every remaining blind spot in the parser.
+
+  it("reads a transaction whose amount is separated from the dates by a space", () => {
+    // Filing 20033718: "P 12/18/202512/19/2025 $100,001 - $250,000".
+    // The pattern required the amount glued to the second date.
+    expect(SPACED).toContain("12/19/2025 $100,001");
+    const txns = parseHousePtrText(SPACED);
+    expect(countTxnMarkers(SPACED)).toBe(txns.length);
+    expect(txns.length).toBe(4);
+    expect(txns.some((t) => t.amount === "$100,001 - $250,000")).toBe(true);
+  });
+
+  it("reads a transaction code glued to the end of the asset cell", () => {
+    // Filing 20034036: "Procter & Gamble Company (PG) [ST]P 02/09/2026...".
+    // The code needed whitespace before it, so this trade vanished. A bracket
+    // or a lowercase letter is a boundary too, but an UPPERCASE one is not:
+    // "(XOM)P" must never be read as ticker XOM plus code P.
+    expect(GLUED).toMatch(/\[ST\]P \d{2}\/\d{2}\/\d{4}/);
+    const txns = parseHousePtrText(GLUED);
+    expect(countTxnMarkers(GLUED)).toBe(txns.length);
+    expect(txns.length).toBe(8);
+    const pg = txns.find((t) => t.ticker === "PG");
+    expect(pg).toBeTruthy();
+    // The bracket is a LOOKBEHIND, not consumed: eating it would strip the
+    // [ST] the tail parser needs to read the asset type.
+    expect(pg!.assetType).toBe("ST");
+    expect(pg!.assetName).toContain("Procter");
+  });
+
+  it("still REFUSES the filing whose row is split across a page break", () => {
+    // Filing 20034660. The band opens "$15,001 -" on one page and closes on
+    // the next, after the footer and a repeated table header -- and that
+    // header contains the literal "$200?". Any rule that reached forward for
+    // the next line starting with "$" would splice "$15,001 - $200" into a
+    // member of Congress's trade record.
+    //
+    // Deliberately unparsed. The gate holds it, which is the correct outcome
+    // and strictly better than a plausible wrong number.
+    expect(PAGEBREAK).toContain("$15,001 -");
+    expect(PAGEBREAK).toContain("$200?");
+    const txns = parseHousePtrText(PAGEBREAK);
+    expect(countTxnMarkers(PAGEBREAK)).toBe(16);
+    expect(txns.length).toBe(15);
+    for (const t of txns) {
+      expect(t.amount).not.toContain("$200");
+      expect(t.amount).toMatch(/^\$[\d,]+ - \$[\d,]+$/);
+    }
   });
 });

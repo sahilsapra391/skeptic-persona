@@ -102,3 +102,52 @@ A Worker has no PDF library and the project allows zero runtime npm
 dependencies. So GitHub Actions decrypts and extracts **text**, and POSTs
 that text; parsing lives in `parseHousePtrText` with every other parser and
 stays testable in this repo. The courier does only what a Worker cannot.
+
+## Production run, 2026-08-01: the gate as a map of blind spots
+
+The courier ran for real. Of 322 indexed House filings, **41 extracted
+cleanly**, 3 were scans with no text layer, and **6 were refused by the
+completeness check** — the document's own marker count disagreed with the
+parser, so no partial trade list reached the queue.
+
+Those six were not noise. Every one was a parser blind spot, and fixing them
+recovered five filings:
+
+| Filing | Shape | Outcome |
+|---|---|---|
+| 20033718 | space between the date pair and the amount | fixed |
+| 20033916 | `CommonP` and `[ST]S` glue (2 rows) | fixed |
+| 20034036 | `[ST]P` glue | fixed |
+| 20034138 | `[ST]S` glue | fixed |
+| 20034489 | `[ST]P` glue (2 rows) | fixed |
+| 20034660 | row split across a page break | **still refused, deliberately** |
+
+### The two shapes fixed
+
+The transaction code is not reliably preceded by whitespace; the extractor
+glues it to whatever ends the asset cell:
+
+```
+Procter & Gamble Company (PG) [ST]S 01/29/202601/30/2026$1,001 - $15,000
+JP Morgan Chase & Co. CommonP 01/16/202601/30/2026$1,001 - $15,000
+```
+
+A closing bracket or a lowercase letter is therefore a valid boundary. An
+UPPERCASE one is not: `(XOM)P` would be indistinguishable from a ticker
+losing its last character. Both are LOOKBEHINDS — consuming the `]` would
+strip the `[ST]` the tail parser needs.
+
+Whitespace between the dates and the amount is optional for the same reason:
+`P 12/18/202512/19/2025 $100,001 - $250,000`.
+
+### The one left refused, on purpose
+
+Filing 20034660 opens a band `$15,001 -` at the foot of one page and closes it
+on the next, after the page footer and a **repeated table header**. That
+header contains the literal string `$200?` (the "Cap. Gains > $200?" column).
+
+Any rule that reached forward for the next line beginning with `$` would
+splice **`$15,001 - $200`** into a member of Congress's trade record. The
+completeness gate holds the filing instead, which is the correct outcome and
+strictly better than a plausible wrong number. Pinned by a test that asserts
+the parser reads 15 of 16 and that no amount contains `$200`.
