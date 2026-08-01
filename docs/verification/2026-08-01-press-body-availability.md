@@ -59,3 +59,59 @@ relay covers ingestion; it does not make the host reachable for a body fetch.
 intrinsically so. persona.md's own beat is "The code is the whole story so
 far." Symbol, reason code and time IS the halt. Widening those would invent
 substance the record does not have.
+
+## Correction: BoJ's "HTML" items include ten spreadsheets
+
+The table above classified links as PDF or HTML by "does the URL end in
+.pdf". That was wrong. Re-measuring all 43 BoJ items by fetching them:
+
+| Kind | Count |
+|---|---|
+| PDF | 16 |
+| **XLSX** | **10** |
+| real HTML | 17 |
+
+The ten `.xlsx` files are Office documents — `PK\x03\x04` zip containers.
+Fetched live, one decodes to **71.8% replacement characters**, and both halves
+of `looksBinary` catch them (magic number and density). Before that guard
+they would have been tag-stripped into `raw_text` exactly as the PDFs were.
+
+So the guard's live catch is 26 documents across this one feed, not the 16
+PDFs the original note implied.
+
+## Link density across the 17 real HTML pages
+
+Measured because the RAG session proposed it and then declined to set a
+threshold on two samples. Anchor words over total words, on raw HTML:
+
+```
+0.41  Results of the 106th Opinion Survey
+0.46  Regional Economic Report (Summary)
+0.51  Bank of Japan Accounts (June 30 / July 10 / July 20)
+0.51  Indicators for Core CPI
+0.53  Output Gap, Potential Growth Rate
+0.55  (BOJ Review) Development and Strengthening
+0.58  Developments in Real Exports and Imports
+0.62  Meeting on the Fifth Market Functioning Survey
+0.62  Consumption Activity Index
+0.63  (IMES Newsletter) 2026 BOJ-IMES Conference
+0.70  Statistics on Securities Financing Transactions
+0.70  Tankan (June): Summary and Outline
+0.71  Tankan (June): Comprehensive Data Set
+0.71  Direct Investment by Region and Industry
+0.71  Monetary Base (June)
+```
+
+The distribution is **continuous, not bimodal**. There is no gap to put a
+threshold in: 0.41 to 0.71 with values at almost every step. Several pages
+with real release titles ("Monetary Base (June)", "Tankan (June)") sit at the
+top of the range because they are landing pages that link to the data rather
+than carrying it.
+
+**So link density does not separate article from index on this host**, and a
+threshold set anywhere in that range would misclassify in both directions.
+The RAG session was right not to set one on n=2, and n=17 says the metric
+itself is the problem rather than the sample size. Per-host extraction
+selectors are the honest fix, and that is a real chunk.
+
+Recorded so nobody re-derives it.
