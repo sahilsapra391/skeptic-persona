@@ -9,6 +9,8 @@ export interface Env {
   TELEGRAM_CHAT_ID?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
   QUEUE_TTL_HOURS?: string;
+  /** Per-archetype TTL overrides, "ARCHETYPE:hours,..." — merged key-by-key over the code defaults (see jobs.ts). */
+  QUEUE_TTL_OVERRIDES?: string;
   /** Minimum issuer public float (USD) for a filing to reach the queue. */
   MIN_ISSUER_FLOAT_USD?: string;
   /** Ms between batched queue notifications (Telegram asks ≤1 msg/s per chat). Default 1100; tests use 0. */

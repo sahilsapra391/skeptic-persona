@@ -210,13 +210,28 @@ export async function getQueueEntryByEditPrompt(
  */
 export const EXPIRY_SWEEP_LIMIT = 12;
 
+/** Per-archetype expiry cutoffs; archetypes absent from the map use `default`. */
+export interface ExpiryCutoffs {
+  default: Date;
+  byArchetype: Record<string, Date>;
+}
+
 export async function expirePendingBefore(
   db: D1Database,
-  cutoff: Date,
+  cutoff: Date | ExpiryCutoffs,
   now: Date = new Date(),
 ): Promise<
   Array<{ id: number; telegramMessageId: number | null; draftText: string; editPromptMessageId: number | null }>
 > {
+  const cuts: ExpiryCutoffs = cutoff instanceof Date ? { default: cutoff, byArchetype: {} } : cutoff;
+  const overrides = Object.entries(cuts.byArchetype);
+  // One bounded sweep across ALL archetypes: the per-archetype cutoff is a
+  // CASE over bound parameters (never interpolated), so the sweep cap stays a
+  // single global LIMIT instead of multiplying per category.
+  const cutoffSql = overrides.length
+    ? `CASE archetype ${overrides.map((_, i) => `WHEN ?${3 + i * 2} THEN ?${4 + i * 2}`).join(" ")} ELSE ?2 END`
+    : `?2`;
+  const binds = [iso(now), iso(cuts.default), ...overrides.flatMap(([arch, d]) => [arch, iso(d)])];
   // Atomic batch: bounded flip + a SELF-HEALING mirror that also repairs any
   // items stranded 'queued' by a past partial failure (mirror keys on the
   // queue's expired set, not just this sweep's rows).
@@ -224,10 +239,10 @@ export async function expirePendingBefore(
     db
       .prepare(
         `UPDATE queue SET state = 'expired', decided_at = ?1
-         WHERE id IN (SELECT id FROM queue WHERE state = 'pending' AND created_at <= ?2 ORDER BY id LIMIT ${EXPIRY_SWEEP_LIMIT})
+         WHERE id IN (SELECT id FROM queue WHERE state = 'pending' AND created_at <= ${cutoffSql} ORDER BY id LIMIT ${EXPIRY_SWEEP_LIMIT})
          RETURNING id, item_id, telegram_message_id, draft_text, edit_prompt_message_id`,
       )
-      .bind(iso(now), iso(cutoff)),
+      .bind(...binds),
     db.prepare(
       `UPDATE items SET status = 'expired'
        WHERE status = 'queued' AND id IN (SELECT item_id FROM queue WHERE state = 'expired')`,

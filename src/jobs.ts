@@ -28,23 +28,61 @@ import { editMessageText } from "./lib/telegram";
 import { iso } from "./lib/time";
 import { log } from "./lib/log";
 
-export const DEFAULT_QUEUE_TTL_HOURS = 6;
+// 48h since 2026-08-01 (owner decision, p4-00): posting is manual, so a card
+// must survive a workday, not a wire cycle. The 6h default was the automated
+// Threads era and produced the "Expired unapproved" flood.
+export const DEFAULT_QUEUE_TTL_HOURS = 48;
 
 /**
- * queue_expiry (seeded in migration 0002, cadence every_30m): wire-speed
- * content is worthless late, so pending drafts older than QUEUE_TTL_HOURS
- * are expired rather than posted stale. Also purges old webhook-dedup rows.
+ * Per-archetype TTL overrides (owner decision, p4-00): macro prints and halts
+ * are stale almost immediately; congress PTRs already carry a disclosure lag
+ * of days, so two more days changes nothing about their value.
  */
-async function queueExpiry(env: Env, now: Date, budget: TickBudget = newTickBudget()): Promise<void> {
+export const DEFAULT_QUEUE_TTL_OVERRIDES: Record<string, number> = {
+  MACRO_PRINT: 12,
+  HALT: 12,
+  CONGRESS_PTR: 96,
+};
+
+/**
+ * Resolve the expiry cutoffs from env: QUEUE_TTL_HOURS is the fallback,
+ * QUEUE_TTL_OVERRIDES ("ARCHETYPE:hours,ARCHETYPE:hours") merges over the
+ * code defaults key by key. Invalid entries warn and are skipped, never
+ * silently zeroed — a typo must not expire a category instantly.
+ */
+export function ttlCutoffs(env: Env, now: Date): { default: Date; byArchetype: Record<string, Date> } {
   const raw = Number(env.QUEUE_TTL_HOURS ?? DEFAULT_QUEUE_TTL_HOURS);
   const ttlHours = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_QUEUE_TTL_HOURS;
   if (ttlHours !== raw) {
     log("warn", "invalid QUEUE_TTL_HOURS; using default", { raw: env.QUEUE_TTL_HOURS ?? null, ttlHours });
   }
-  const cutoff = new Date(now.getTime() - ttlHours * 3_600_000);
+  const hours: Record<string, number> = { ...DEFAULT_QUEUE_TTL_OVERRIDES };
+  for (const entry of (env.QUEUE_TTL_OVERRIDES ?? "").split(",")) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const m = /^([A-Z0-9_]+):(\d+(?:\.\d+)?)$/.exec(trimmed);
+    const h = m ? Number(m[2]) : NaN;
+    if (!m || !Number.isFinite(h) || h <= 0) {
+      log("warn", "invalid QUEUE_TTL_OVERRIDES entry; skipped", { entry: trimmed });
+      continue;
+    }
+    hours[m[1]!] = h;
+  }
+  const at = (h: number) => new Date(now.getTime() - h * 3_600_000);
+  const byArchetype: Record<string, Date> = {};
+  for (const [arch, h] of Object.entries(hours)) byArchetype[arch] = at(h);
+  return { default: at(ttlHours), byArchetype };
+}
+
+/**
+ * queue_expiry (seeded in migration 0002, cadence every_30m): wire-speed
+ * content is worthless late, so pending drafts older than their archetype's
+ * TTL are expired rather than posted stale. Also purges old webhook-dedup rows.
+ */
+async function queueExpiry(env: Env, now: Date, budget: TickBudget = newTickBudget()): Promise<void> {
   // Sweep is capped at EXPIRY_SWEEP_LIMIT rows (see db.ts) so one run stays
   // inside the tick's subrequest budget; a backlog drains across runs.
-  const expired = await expirePendingBefore(env.DB, cutoff, now);
+  const expired = await expirePendingBefore(env.DB, ttlCutoffs(env, now), now);
 
   for (const entry of expired) {
     log("info", "queue entry expired", { queueId: entry.id });
