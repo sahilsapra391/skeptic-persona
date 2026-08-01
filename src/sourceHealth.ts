@@ -44,6 +44,21 @@ export const PROBE_AFTER_HOURS = 6;
 
 export const SOURCE = "source_health";
 
+// A NOTE ON jobs.last_ok_at, WHICH LIES.
+//
+// The dispatcher stamps it whenever a handler returns without throwing. Every
+// polling ingester catches its own fetch error and returns normally, so the
+// stamp records "the handler ran", not "the source answered". Measured in
+// production 2026-08-01:
+//
+//   treasury_auction   jobs.last_ok_at = 2026-08-01   source_state.last_ok_at = never
+//                      jobs.consecutive_failures = 0  source_state.consecutive_failures = 16
+//
+// It does not merely fail to record the failure; it asserts a success today
+// for a source that has never once answered. Across all 39 enabled jobs the
+// job-level failure total is zero. Nothing here reads jobs.last_ok_at for
+// source health, and nothing should.
+
 interface Candidate {
   name: string;
   fails: number;
@@ -130,17 +145,34 @@ export interface HealthRow {
   quarantineReason: string | null;
 }
 
-/** Fleet health, worst first. Backs the /health bot command. */
-export async function healthReport(env: Env): Promise<HealthRow[]> {
+/**
+ * Fleet health, worst first. Backs the /health bot command.
+ *
+ * Three conditions, and the third exists because of a job the first two
+ * cannot see. Some jobs have NO source_state row at all -- internal work
+ * like queue_expiry, and watchers like bls_watch -- so a source-keyed
+ * report is blind to them however broken they are.
+ *
+ * The third condition is OVERDUE AND NEVER SUCCEEDED, not merely never
+ * succeeded: bls_watch is legitimately scheduled three days out against a
+ * BLS release window, and flagging a job that simply has not come due yet
+ * would be a false alarm in a report whose whole value is that it is quiet
+ * when things are fine.
+ */
+export async function healthReport(env: Env, now: Date = new Date()): Promise<HealthRow[]> {
   const rows = await env.DB.prepare(
     `SELECT j.name AS name, j.enabled AS enabled,
             COALESCE(s.consecutive_failures, 0) AS fails,
             s.last_ok_at AS lastOkAt,
             j.quarantine_reason AS quarantineReason
        FROM jobs j LEFT JOIN source_state s ON s.source = j.name
-      WHERE j.enabled = 0 OR COALESCE(s.consecutive_failures, 0) > 0
+      WHERE j.enabled = 0
+         OR COALESCE(s.consecutive_failures, 0) > 0
+         OR (j.last_ok_at IS NULL AND j.due_at <= ?1)
       ORDER BY j.enabled ASC, fails DESC`,
-  ).all<HealthRow>();
+  )
+    .bind(iso(now))
+    .all<HealthRow>();
   return rows.results;
 }
 

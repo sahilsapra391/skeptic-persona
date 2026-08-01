@@ -110,15 +110,44 @@ describe("runSourceHealth", () => {
 });
 
 describe("healthReport", () => {
+  it("surfaces a job that is overdue and has never succeeded, even with no source_state", async () => {
+    // The blind spot the source-keyed query could not see. queue_expiry,
+    // generation and bls_watch have NO source_state row at all, so a report
+    // joined on source is blind to them however broken they are.
+    await env.DB.prepare("DELETE FROM jobs").run();
+    await env.DB.prepare("DELETE FROM source_state").run();
+    await env.DB.prepare(
+      `INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority, last_ok_at)
+       VALUES ('never_ran', '2026-08-01T10:00:00.000Z', 'hourly', 1, 50, NULL)`,
+    ).run();
+    // Legitimately scheduled ahead: bls_watch really is due 2026-08-04
+    // against a BLS release window, and flagging it would be a false alarm
+    // in a report whose value is being quiet when things are fine.
+    await env.DB.prepare(
+      `INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority, last_ok_at)
+       VALUES ('not_due_yet', '2026-08-04T13:58:30.000Z', 'every_30m', 1, 10, NULL)`,
+    ).run();
+
+    const names = (await healthReport(env as never, NOW)).map((r) => r.name);
+    expect(names).toContain("never_ran");
+    expect(names).not.toContain("not_due_yet");
+  });
+
   it("lists only what is not clean, worst first, and says so when all is well", async () => {
     await env.DB.prepare("DELETE FROM jobs").run();
     await env.DB.prepare("DELETE FROM source_state").run();
     await seed("healthy", 50, 0, "2026-08-01T19:00:00.000Z");
-    expect(await healthReport(env as never)).toEqual([]);
+    await env.DB.prepare(`UPDATE jobs SET last_ok_at = ?1 WHERE name = 'healthy'`)
+      .bind("2026-08-01T19:00:00.000Z")
+      .run();
+    expect(await healthReport(env as never, NOW)).toEqual([]);
     expect(formatHealth([], NOW)).toContain("All sources healthy");
 
     await seed("sick", 50, 16, null);
-    const rows = await healthReport(env as never);
+    await env.DB.prepare(`UPDATE jobs SET last_ok_at = ?1 WHERE name = 'sick'`)
+      .bind("2026-08-01T19:00:00.000Z")
+      .run();
+    const rows = await healthReport(env as never, NOW);
     expect(rows.map((r) => r.name)).toEqual(["sick"]);
 
     const text = formatHealth(rows, NOW);
