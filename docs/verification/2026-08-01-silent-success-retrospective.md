@@ -5,6 +5,13 @@ p4/ops, generation). Filed in `verification/` rather than as a design doc
 because every claim below is a measurement someone took, and the numbers are
 the point.
 
+> **Corrected 2026-08-01 after review.** The first version of this document
+> contained five factual errors, which is worth recording rather than quietly
+> fixing: a retrospective about checks that appear to have run and did not is
+> exactly the document that must not assert unverified things. Each correction
+> below is marked where it lands. Found by the p4 session reviewing it properly
+> after it had already been merged as "doc-only, zero-risk".
+
 ## The finding
 
 Six independent defects were found in production behaviour on 2026-08-01.
@@ -13,8 +20,8 @@ one reported success while meaning something else.
 
 | # | What reported success | What was actually true |
 |---|---|---|
-| 1 | `corpusEchoCheck` returned "no match" on every draft | `echo_ngrams` held **0 rows**; the check had been a no-op since 07-28 |
-| 2 | The issuer gate suppressed a filing as "not listed" | `issuerCik` had failed to **parse**; a missing lookup became evidence about the market |
+| 1 | The corpus-echo check contributed no issues to any draft | It was **never called**: `validateVariant` gates it on `corpusPopulated`, and `echo_ngrams` held **0 rows** since 07-28. A check that silently declined to run |
+| 2 | The issuer gate suppressed a filing with reason `not_in_reference` | `issuerCik` had failed to **parse**. "Absent from the reference" and `not_listed` (present, empty exchange) are different outcomes; a failed lookup was read as a fact about the market |
 | 3 | `jobs.consecutive_failures` read **0 across all 39 enabled jobs** | `treasury_auction` had **16** source failures and `src_last_ok = never` — and its job row stamped `last_ok_at = today` |
 | 4 | An 8-K grounding fetch returned HTTP 200, non-empty | 2,077 chars of EDGAR **navigation chrome and a GTM snippet**, not the filing |
 | 5 | A press-release fetch returned 200, 106,641 chars | A **PDF**, tag-stripped into object tables; `/Prev 223302` entered the fact whitelist |
@@ -28,8 +35,8 @@ and every polling ingester catches its own fetch error and returns normally, so
 the dispatcher then records a successful run. A source that has never once
 succeeded reports zero failures and a success timestamp from today.
 
-Its companion, same evening: `issuer_refresh` and `fda_food_recall` had **never
-executed at all**, because the tick's time budget broke the loop at the same
+Its companion, found **2026-07-28** (PR #63) rather than the same evening:
+`issuer_refresh` and `fda_food_recall` had **never executed at all**, because the tick's time budget broke the loop at the same
 place every time. `enabled = 1`, zero failures, no errors, never ran. **A job
 that never runs looks identical to a job with nothing to do.**
 
@@ -79,11 +86,18 @@ Three worked examples from the evening:
   re-running the *original failing probe* against the shipped code: 10 tokens,
   exemption would have said prose, guard now returns false, terse context line
   still true.
-- Nine PRs merging cleanly was not verified by nine MERGEABLE flags — that flag
-  compares each branch to main *as it is now*, and says nothing about branch B
-  after branch A lands. It was verified by merging all nine into a throwaway
-  worktree and running the combined suite: **709 tests, typecheck clean,
-  migrations 0041–0045 sequential**.
+- PRs merging cleanly was not verified by MERGEABLE flags — that flag compares
+  each branch to main *as it is now*, and says nothing about branch B after
+  branch A lands. It was verified by merging the open heads into a throwaway
+  worktree and running the combined suite (reported: typecheck clean, migrations
+  sequential, suite green).
+
+  **With a boundary worth stating, because it is the lesson:** that check
+  covered **nine of the eleven** PRs open at the time, and its result is not
+  reproducible from `main@4d40e41` with today's heads — branches moved under it.
+  A verification is only as wide as the set it was pointed at, and only as
+  current as the moment it ran. Quoting its number later, as this document
+  originally did, extends a real check past its evidence.
 
 ## How they were found
 
@@ -114,7 +128,11 @@ Link density looked like a signal for separating index pages from articles
 margin, then **killed outright at n=17**: the values run continuous from 0.41 to
 0.71 with no gap, and the high end is genuine releases (Tankan, Monetary Base)
 scoring high precisely because they link to their data rather than inlining it.
-A 0.55 cut would reject those and accept the IMES listing at 0.63.
+A 0.55 cut rejects the IMES listing at 0.63 — and rejects Tankan and Monetary
+Base too, because at 0.70 and 0.71 the genuine releases score **higher** than
+the listing does. That inversion, not the margin, is the point: no monotonic
+threshold can separate them, because the metric ranks some real documents above
+the junk it is meant to catch.
 
 Not a threshold problem. The metric measures the wrong thing. Per-host
 extraction selectors are the honest fix.
