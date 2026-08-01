@@ -5,3 +5,10 @@ dist/
 coverage/
 .DS_Store
 *.log
+
+# Scratch files written by review/design subagents into the repo root.
+# They are prototypes, not tests, and `git add -A` will otherwise sweep them
+# into a commit and inflate the reported test count.
+test/zz*
+test/*.scratch.ts
+test/_scratch*
