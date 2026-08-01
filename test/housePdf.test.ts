@@ -251,3 +251,56 @@ describe("shapes the completeness gate caught in PRODUCTION, 2026-08-01", () => 
     }
   });
 });
+
+describe("a lowercase boundary means TRUNCATED, not glued", () => {
+  // Review finding from the p4 session, reproduced. Widening the boundary to
+  // accept a lowercase letter looked like it rescued a glued cell. It does
+  // not: every intact House asset cell ends in "[TYPE]" or ")", so a code
+  // sitting straight after a lowercase letter can only occur when the rest of
+  // the cell is on the next page.
+
+  it("refuses the un-wrapped page-break shape instead of parsing a fragment", () => {
+    // The p4 session's exact reproduction: take the page-break fixture and
+    // un-wrap the XOM amount band, which turns it into the 20033916 shape.
+    // Before this guard the parser read 16 of 16 and the gate PASSED, storing
+    // assetName "Exxon Mobil Corporation Common" with a null ticker.
+    const unwrapped = PAGEBREAK.replace(
+      "JT Exxon Mobil Corporation CommonP 02/07/202505/29/2026$15,001 -",
+      "JT Exxon Mobil Corporation CommonP 02/07/202505/29/2026$15,001 - $50,000",
+    );
+    expect(unwrapped).not.toBe(PAGEBREAK);
+
+    const txns = parseHousePtrText(unwrapped);
+    // The count still says 16; the parser must NOT agree, or the gate is blind.
+    expect(countTxnMarkers(unwrapped)).toBe(16);
+    expect(txns.length).toBe(15);
+    // No row may carry the truncated cell.
+    expect(txns.some((t) => t.assetName.endsWith("Common"))).toBe(false);
+  });
+
+  it("still accepts a bracket boundary, which is a real glued cell", () => {
+    // "[ST]S" is the genuine glue case and must keep working -- it is five of
+    // the six production recoveries.
+    const txns = parseHousePtrText(GLUED);
+    expect(countTxnMarkers(GLUED)).toBe(txns.length);
+    expect(txns.find((t) => t.ticker === "PG")).toBeTruthy();
+  });
+
+  it("never emits an asset whose name ends mid-cell", () => {
+    // Across every fixture: a parsed row always carries either a ticker or a
+    // name that terminated properly. A name ending in a lowercase word is the
+    // signature of the truncation this guard exists to catch.
+    for (const [label, text] of [
+      ["multi", MULTI],
+      ["single", SINGLE],
+      ["glued", GLUED],
+      ["spaced", SPACED],
+      ["untraded", UNTRADED],
+      ["pagebreak", PAGEBREAK],
+    ] as const) {
+      for (const t of parseHousePtrText(text)) {
+        expect(t.ticker !== null || !/[a-z]$/.test(t.assetName), `${label}: ${t.assetName}`).toBe(true);
+      }
+    }
+  });
+});
