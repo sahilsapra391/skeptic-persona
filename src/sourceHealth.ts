@@ -49,11 +49,17 @@ export const QUARANTINE_AFTER = 12;
  * shape. What production actually says is that the two sources this chunk
  * exists to catch have NEVER succeeded --
  *
- *   treasury_auction        16 failures, last success never
- *   press_cftc_enforcement   6 failures, last success never
+ *   treasury_auction        16 failures, never   <- over the threshold today
+ *   press_cftc_enforcement   6 failures, never   <- NOT yet: 6 is under 12
  *
  * -- while every source with a real success history had succeeded that same
  * day. So the split is on evidence, not duration. See shouldQuarantine.
+ *
+ * Only treasury_auction actually crosses the streak threshold right now;
+ * cftc reaches it in about six hours on its cadence. An earlier version of
+ * this comment claimed both were caught, which cited evidence the rule did
+ * not have -- the same overclaim habit the review keeps finding, in a
+ * comment rather than in code.
  */
 export const QUARANTINE_MIN_SILENCE_HOURS = 14 * 24;
 
@@ -140,9 +146,17 @@ export async function runSourceHealth(
 
   // --- Recovery probe -----------------------------------------------------
   // Re-enable and let it try for real. If the endpoint is still dead the
-  // streak is untouched, so the next health run quarantines it again. That
-  // costs one fetch every PROBE_AFTER_HOURS instead of one every tick, and
-  // it means an outage heals itself without anyone noticing it happened.
+  // streak is untouched, so the next health run quarantines it again, and an
+  // outage that ends heals itself without anyone noticing.
+  //
+  // NOT one fetch per probe window, for a job with a pinned daily slot.
+  // due_at freezes while the job is disabled, so a probe landing before that
+  // slot re-quarantines without ever fetching -- simulated against the real
+  // dispatcher, treasury_auction on daily_1330_utc gets roughly one real
+  // attempt per four probe cycles. Recovery is not stalled: the wall clock
+  // passes the frozen due_at and every later probe finds it overdue. Net is
+  // ~1 fetch/day, exactly what migrations 0024/0034 pinned. The cost is a few
+  // spurious "source quarantined" warns a day, which is noise, not damage.
   const probes = await env.DB.prepare(
     `SELECT name, quarantined_at FROM jobs
       WHERE enabled = 0 AND quarantined_at IS NOT NULL`,
@@ -158,7 +172,13 @@ export async function runSourceHealth(
     // resurrected them onto a faster cadence and undid those manual parks --
     // the automatic layer fighting a human decision. Re-enabling is enough:
     // the job fires at whatever slot its own schedule already says.
-    await env.DB.prepare(`UPDATE jobs SET enabled = 1, quarantined_at = NULL WHERE name = ?1`)
+    // quarantine_reason is cleared TOO. It is formatHealth's only
+    // manual-vs-automatic discriminator, so leaving it behind means a source
+    // that recovers and is later parked BY HAND still reports QUARANTINED --
+    // a stale tombstone from an outage that ended.
+    await env.DB.prepare(
+      `UPDATE jobs SET enabled = 1, quarantined_at = NULL, quarantine_reason = NULL WHERE name = ?1`,
+    )
       .bind(p.name)
       .run();
     probed += 1;

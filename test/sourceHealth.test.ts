@@ -115,7 +115,11 @@ describe("the review findings, pinned", () => {
     // never once answered is not having a bad week, and disabling it forfeits
     // nothing because there is no working behaviour to lose.
     expect(shouldQuarantine({ name: "treasury_auction", fails: 16, lastOkAt: null }, NOW)).toBe(true);
-    expect(shouldQuarantine({ name: "press_cftc", fails: 12, lastOkAt: null }, NOW)).toBe(true);
+    // press_cftc_enforcement's REAL production value is 6, which is under the
+    // threshold and correctly NOT caught. Substituting 12 here would have
+    // dressed the rule in evidence it does not have.
+    expect(shouldQuarantine({ name: "press_cftc_real", fails: 6, lastOkAt: null }, NOW)).toBe(false);
+    expect(shouldQuarantine({ name: "press_cftc_later", fails: 12, lastOkAt: null }, NOW)).toBe(true);
     // The streak floor still applies.
     expect(shouldQuarantine({ name: "x", fails: 11, lastOkAt: null }, NOW)).toBe(false);
   });
@@ -246,5 +250,34 @@ describe("healthReport", () => {
     // Telegram runs without parse_mode in this project, so the report must
     // carry no markdown that would need escaping.
     expect(text).not.toMatch(/[*_`[\]]/);
+  });
+});
+
+describe("the probe leaves no tombstone", () => {
+  it("clears quarantine_reason too, so a later manual park is not mislabelled", async () => {
+    // quarantine_reason is formatHealth's ONLY manual-vs-automatic
+    // discriminator. Leaving it behind means a source that recovers and is
+    // later parked BY HAND still reports QUARANTINED, from an outage that
+    // ended.
+    await env.DB.prepare("DELETE FROM jobs").run();
+    await env.DB.prepare("DELETE FROM source_state").run();
+    await seed("recovers_then_parked", 50, 16, null);
+
+    await runSourceHealth(env as never, NOW);
+    const later = new Date(NOW.getTime() + (PROBE_AFTER_HOURS + 1) * 3_600_000);
+    await runSourceHealth(env as never, later);
+
+    const row = await env.DB.prepare(
+      `SELECT enabled, quarantined_at, quarantine_reason FROM jobs WHERE name = 'recovers_then_parked'`,
+    ).first<{ enabled: number; quarantined_at: string | null; quarantine_reason: string | null }>();
+    expect(row?.enabled).toBe(1);
+    expect(row?.quarantined_at).toBeNull();
+    expect(row?.quarantine_reason).toBeNull();
+
+    // Now a human parks it. It must read as manual, not as an outage.
+    await env.DB.prepare(`UPDATE jobs SET enabled = 0 WHERE name = 'recovers_then_parked'`).run();
+    const text = formatHealth(await healthReport(env as never, later), later);
+    expect(text).toContain("disabled (manual)");
+    expect(text).not.toContain("recovers_then_parked: QUARANTINED");
   });
 });
