@@ -9,6 +9,7 @@ import { applyHousePtrText, SOURCE as HOUSE_SOURCE } from "./ingesters/housePtr"
 import { enqueueForApproval } from "./pipeline/enqueue";
 import { isFreshAtIngest } from "./ingesters/shared";
 import { iso } from "./lib/time";
+import { scrubUrls } from "./lib/html";
 import { log } from "./lib/log";
 
 // INGEST RELAY.
@@ -34,10 +35,40 @@ export interface RelayPayload {
 }
 
 /** Sources this relay knows how to ingest. Anything else is rejected. */
-export const RELAY_SOURCES = new Set<string>([TREASURY_SOURCE, "press_cftc_enforcement", SENATE_SOURCE, HOUSE_SOURCE]);
 
 /** GET this to learn which House PDFs still need extracting. */
 export const PENDING_PATH = "/ingest/pending/house_ptr";
+
+/** Press releases whose body is a PDF the Worker cannot read. */
+export const PRESS_PENDING_PATH = "/ingest/pending/press_pdf";
+export const PRESS_BODY_SOURCE = "press_body";
+
+/**
+ * Press feeds whose items link to PDFs rather than pages.
+ *
+ * Measured 2026-08-01 by fetching every item in all six press feeds: three
+ * ship a usable RSS description and p4-01 captures those at ingest. Of the
+ * three that ship none, two link to PDFs --
+ *
+ *   press_sec_enforcement   25 of 25 items are .pdf
+ *   press_boj               16 of 43 (the rest are HTML the fallback reads)
+ *
+ * -- and press_cftc_enforcement is unreachable from Worker egress anyway
+ * (403, verified 2026-07-27), so it is deliberately absent.
+ *
+ * A PDF cannot be grounded in the Worker: htmlToText yields object tables and
+ * byte offsets, which looksBinary now refuses precisely because those digits
+ * would otherwise license themselves into a post.
+ */
+export const PRESS_PDF_SOURCES = ["press_sec_enforcement", "press_boj"] as const;
+
+export const RELAY_SOURCES = new Set<string>([
+  TREASURY_SOURCE,
+  "press_cftc_enforcement",
+  SENATE_SOURCE,
+  HOUSE_SOURCE,
+  PRESS_BODY_SOURCE,
+]);
 
 /** Bounded so one run cannot spend an hour of Actions time on a backlog. */
 // 285 e-filed documents were waiting when this shipped, mostly historical.
@@ -174,6 +205,88 @@ export async function handleIngestPending(request: Request, env: Env): Promise<R
   return Response.json({ docs: rows.results });
 }
 
+/**
+ * Press items still needing a body: no raw_text, and a source_url that is
+ * plainly a PDF.
+ *
+ * Keyed on item id rather than a URL the courier would reconstruct, and the
+ * URL comes from the row, so there is exactly one place a press URL is built
+ * and it is the ingester that already parsed it.
+ */
+export async function handlePressPending(request: Request, env: Env): Promise<Response> {
+  const denied = authFailure(request, env);
+  if (denied) return denied;
+
+  const placeholders = PRESS_PDF_SOURCES.map((_, i) => `?${i + 1}`).join(", ");
+  const rows = await env.DB.prepare(
+    `SELECT id, source_url AS url FROM items
+      WHERE source IN (${placeholders})
+        AND raw_text IS NULL
+        AND lower(source_url) LIKE '%.pdf'
+      ORDER BY id DESC LIMIT ?${PRESS_PDF_SOURCES.length + 1}`,
+  )
+    .bind(...PRESS_PDF_SOURCES, PENDING_LIMIT)
+    .all<{ id: number; url: string }>();
+
+  return Response.json({ docs: rows.results });
+}
+
+interface PressBody {
+  id: number;
+  text: string;
+}
+
+/**
+ * Store courier-extracted press PDF text as grounding.
+ *
+ * The courier sends TEXT, never bytes, so nothing binary reaches raw_text by
+ * this path. Empty text is recorded as an attempt rather than stored: a scan
+ * with no text layer must not look like a document we read and found blank.
+ */
+async function ingestPressBodies(env: Env, body: string, now: Date): Promise<number> {
+  const parsed = JSON.parse(body) as { docs?: unknown };
+  if (!Array.isArray(parsed.docs)) throw new Error("press_body: body has no docs array");
+
+  let stored = 0;
+  for (const raw of parsed.docs) {
+    const doc = raw as Partial<PressBody>;
+    if (typeof doc?.id !== "number" || typeof doc?.text !== "string") {
+      throw new Error("press_body: doc missing id or text");
+    }
+    const text = scrubUrls(doc.text.replace(/\u0000/g, "")).trim().slice(0, PRESS_BODY_CAP);
+    if (text.length === 0) {
+      log("info", "press body extraction produced no text", { itemId: doc.id });
+      continue;
+    }
+    // Only fills a hole. A row that already has grounding text -- from an RSS
+    // description or an earlier run -- is never overwritten by a later
+    // courier pass.
+    const res = await env.DB.prepare(
+      `UPDATE items SET raw_text = ?1, raw_meta = ?2 WHERE id = ?3 AND raw_text IS NULL`,
+    )
+      .bind(
+        text,
+        JSON.stringify({
+          mode: "full",
+          fetchedAt: iso(now),
+          bytes: doc.text.length,
+          truncated: doc.text.length > PRESS_BODY_CAP,
+          // Same provenance marker the other dedicated captures write: a
+          // field the generation fallback cannot produce, because it never
+          // ran a PDF extractor.
+          document: "courier-pdf",
+        }),
+        doc.id,
+      )
+      .run();
+    if ((res.meta.changes ?? 0) > 0) stored += 1;
+  }
+  return stored;
+}
+
+/** Same ceiling every other full-mode grounding write obeys. */
+const PRESS_BODY_CAP = 24_000;
+
 interface HouseDoc {
   docId: string;
   text: string;
@@ -289,8 +402,10 @@ export async function handleIngestRelay(request: Request, env: Env, now: Date = 
         ? await ingestTreasury(env, payload.body, now)
         : payload.source === SENATE_SOURCE
           ? await ingestSenate(env, payload.body, now)
-          : payload.source === HOUSE_SOURCE
-            ? await ingestHouse(env, payload.body, now)
+          : payload.source === PRESS_BODY_SOURCE
+            ? await ingestPressBodies(env, payload.body, now)
+            : payload.source === HOUSE_SOURCE
+              ? await ingestHouse(env, payload.body, now)
             : await ingestPress(env, payload.source, payload.body, now);
     const queued = await drain(env, payload.source, now);
     log("info", "ingest relay accepted", {
