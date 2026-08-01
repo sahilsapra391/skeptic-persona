@@ -214,6 +214,142 @@ export function groundingFacts(grounding: string): PayloadFacts {
 
 /** Union of two fact universes; the haystacks concatenate so entity and
  *  verbatim checks see both. */
+/**
+ * Does this grounding text actually belong to this item?
+ *
+ * THE THREAT (found 2026-08-01 by the ingestion session, on EDGAR). p4-01's
+ * fallback fetched `source_url`, which for edgar_8k is the INDEX page — 2,077
+ * characters of navigation chrome and a Google Tag Manager snippet. Every
+ * check downstream looked healthy: the fetch succeeded, the text was
+ * non-empty, the model wrote around it.
+ *
+ * The danger is not thin prose. `mergeFacts` widens the validator whitelist to
+ * payload ∪ source ∪ context, so a WRONG source document licenses ITS numbers
+ * and entities in our posts. Chrome carries script ids and timestamps; another
+ * company's filing carries another company's figures. A mis-fetch is a
+ * fabrication license, and the no-fabrication floor is precisely the thing
+ * that must not widen on unverified input.
+ *
+ * So the widening fails CLOSED: grounding facts merge only when the text
+ * carries at least one anchor the payload also carries (company, ticker, CIK,
+ * issuer, member, symbol — matched token-bounded, case-insensitively). The
+ * text still reaches the PROMPT either way; only its licensing authority is
+ * withheld, so a bad fetch degrades to "the model saw something unhelpful"
+ * rather than "the model may now state anything that document contained".
+ *
+ * Absent grounding is not a failure: no text means nothing to verify and
+ * nothing to widen. Absence and wrongness are different, and this returns
+ * `ok` for the first and `false` for the second.
+ */
+const ANCHOR_FIELDS = [
+  "company", "companyName", "issuer", "issuerName", "ticker", "symbol",
+  "cik", "issuerCik", "member", "filer", "filerName", "name", "authority",
+] as const;
+
+export interface GroundingProvenance {
+  readonly ok: boolean;
+  /** Which payload anchor matched — logged so a rejection is diagnosable. */
+  readonly matched: string | null;
+  readonly anchorsTried: number;
+  /** Why it failed, for the log line: "not_prose" | "no_anchor". */
+  readonly reason: string | null;
+}
+
+/**
+ * Is this text PROSE, or is it a document's internals?
+ *
+ * The anchor check alone is not enough, and I verified that rather than
+ * assuming it. SEC litigation PDFs carry `/Title (In the Matter of ACME
+ * CAPITAL ADVISERS LLC)` in their metadata, so a naive tag-strip of the PDF
+ * yields 106,641 characters of object tables **that contain the respondent's
+ * name**. The anchor matches, provenance passes, and `/Prev 223302`,
+ * `/Size 312`, `/Length 41728` enter the fact whitelist as licensed numbers.
+ *
+ * The two checks catch different failures and neither subsumes the other:
+ *   anchor  — a wrong document that IS prose (EDGAR nav chrome, another
+ *             company's filing)
+ *   prose   — the right document that ISN'T prose (a PDF whose metadata
+ *             happens to name the payload's company)
+ *
+ * Measured word ratios (tokens that are plain words / all tokens):
+ *   PDF object tables      0.29
+ *   EDGAR index chrome     0.87
+ *   real 8-K filing body   0.92
+ *   real press release     1.00
+ *   owner exemplar         0.81   <- lowest legitimate: numbers and symbols
+ * 0.6 sits with roughly 2x margin either side.
+ *
+ * Short text is exempt: a ratio over a handful of tokens is noise, and lake
+ * context lines are legitimately terse.
+ */
+export const PROSE_MIN_TOKENS = 20;
+export const PROSE_MIN_WORD_RATIO = 0.6;
+
+/**
+ * Binary masquerading as text, checked INDEPENDENTLY of length.
+ *
+ * Found 2026-08-01 by testing my own gate against the XLSX class the
+ * ingestion session had just discovered (ten BoJ "HTML" items were
+ * spreadsheets). A tag-stripped .xlsx yields ~10 whitespace-separated tokens,
+ * because binary has almost no spaces — so it fell UNDER the 20-token
+ * exemption I added to protect terse lake-context lines, `looksLikeProse`
+ * returned true, and the `docProps` title ("Bank of Japan Monetary Base")
+ * then satisfied the anchor check. The zip container's numbers would have
+ * been licensed.
+ *
+ * The exemption was the hole: short text is only trustworthy if it is TEXT.
+ * Control bytes and U+FFFD are conclusive regardless of length, so this runs
+ * first and has no minimum.
+ */
+function looksBinaryText(text: string): boolean {
+  if (text === "") return false;
+  // Any C0 control byte other than tab/newline/carriage-return.
+  if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(text)) return true;
+  // Replacement characters mean a decode already failed.
+  const repl = (text.match(/\uFFFD/g) ?? []).length;
+  return repl / text.length > 0.01;
+}
+
+export function looksLikeProse(text: string): boolean {
+  // Binary first, and length-independent: a short binary blob is still binary.
+  if (looksBinaryText(text)) return false;
+  const tokens = text.split(/\s+/).filter(Boolean);
+  if (tokens.length < PROSE_MIN_TOKENS) return true;
+  const words = tokens.filter((t) => /^[A-Za-z][A-Za-z'\u2019-]*[.,;:)!?]?$/.test(t));
+  return words.length / tokens.length >= PROSE_MIN_WORD_RATIO;
+}
+
+export function checkGroundingProvenance(grounding: string, payload: Payload): GroundingProvenance {
+  if (grounding.trim() === "") return { ok: true, matched: null, anchorsTried: 0, reason: null };
+  // Prose FIRST: a document's internals can carry the anchor in metadata, so
+  // the anchor test must not get to vouch for bytes that are not text.
+  if (!looksLikeProse(grounding)) return { ok: false, matched: null, anchorsTried: 0, reason: "not_prose" };
+  const hay = grounding.toLowerCase();
+  const anchors: string[] = [];
+  for (const f of ANCHOR_FIELDS) {
+    const v = (payload as Record<string, unknown>)[f];
+    if (typeof v === "string" && v.trim().length >= 3) anchors.push(v.trim());
+    else if (typeof v === "number" && String(v).length >= 3) anchors.push(String(v));
+  }
+  // No anchor to test with: we cannot prove it wrong, so we do not claim to.
+  if (anchors.length === 0) return { ok: true, matched: null, anchorsTried: 0, reason: null };
+  for (const raw of anchors) {
+    const a = raw.toLowerCase();
+    // Token-bounded so "ABC" does not match inside "ABCDEF"; the same
+    // boundary rule entityCheck uses.
+    if (new RegExp(`(?<![a-z0-9])${a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z0-9])`).test(hay)) {
+      return { ok: true, matched: raw, anchorsTried: anchors.length, reason: null };
+    }
+    // Multi-word names: a filing may print "Blink Charging Co." where the
+    // payload says "Blink Charging Co". Longest token is the discriminator.
+    const longest = a.split(/[^a-z0-9]+/).filter((w) => w.length >= 4).sort((x, y) => y.length - x.length)[0];
+    if (longest && new RegExp(`(?<![a-z0-9])${longest}(?![a-z0-9])`).test(hay)) {
+      return { ok: true, matched: raw, anchorsTried: anchors.length, reason: null };
+    }
+  }
+  return { ok: false, matched: null, anchorsTried: anchors.length, reason: "no_anchor" };
+}
+
 export function mergeFacts(a: PayloadFacts, b: PayloadFacts): PayloadFacts {
   return {
     numbers: new Set([...a.numbers, ...b.numbers]),
