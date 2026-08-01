@@ -12,7 +12,7 @@ import { fitsInPost } from "../templates/length";
 import { checkRegister } from "../templates/validate";
 import { chatComplete, OpenRouterError, parseVariants } from "./openrouter";
 import { OWNER_EXEMPLARS, stylePackFor } from "./stylepack";
-import { fetchSourceText, type SourceText } from "./sourceText";
+import { fetchSourceText, isBlockedGroundingHost, type SourceText } from "./sourceText";
 import { lakeContext } from "./context";
 import { openerHash, skeletonHash } from "./echo";
 import { corpusHasData, validateVariant, type ValidationIssue, type Variant } from "./validate";
@@ -126,14 +126,25 @@ export function buildPrompt(
   const attribution = resolveAttribution(ARCHETYPES[archetypeId], payload);
   const hasSource = Boolean(grounding?.source?.text);
   const hasContext = Boolean(grounding?.contextLines?.length);
-  const factSources = hasSource || hasContext ? "the payload, the SOURCE DOCUMENT, or the LAKE CONTEXT below" : "the payload";
+  // Name only the universes actually present below (review cosmetic).
+  const factSources =
+    hasSource && hasContext
+      ? "the payload, the SOURCE DOCUMENT, or the LAKE CONTEXT below"
+      : hasSource
+        ? "the payload or the SOURCE DOCUMENT below"
+        : hasContext
+          ? "the payload or the LAKE CONTEXT below"
+          : "the payload";
+  const modeLabel = (m: string): string => (m === "excerpt" ? "excerpt" : m === "ingest_rss" ? "ingest-captured summary" : "full text");
   const user = [
     `PAYLOAD (every number, name, ticker, date and code in your output must appear in ${factSources}; derived figures are already computed as fields — never do arithmetic, never state relative quantities like 'double' or 'half'):`,
     JSON.stringify(payload, null, 1),
     ...(hasSource
       ? [
-          `SOURCE DOCUMENT (${grounding!.source!.host}, fetched ${grounding!.source!.fetchedAt}, ${grounding!.source!.mode === "excerpt" ? "excerpt" : "full text"}) — the primary record behind this item; its facts are usable:`,
-          `"""\n${grounding!.source!.text}\n"""`,
+          `SOURCE DOCUMENT (${grounding!.source!.host}, fetched ${grounding!.source!.fetchedAt}, ${modeLabel(grounding!.source!.mode)}) — the primary record behind this item; its facts are usable:`,
+          // The delimiter must stay ours: third-party text containing """ would
+          // end the block early and read from instruction position.
+          `"""\n${grounding!.source!.text.replace(/"{3,}/g, "'''")}\n"""`,
         ]
       : []),
     ...(hasContext
@@ -310,7 +321,9 @@ export async function runGeneration(
     // generation proceeds on what exists, and the validator whitelist widens
     // to exactly what the prompt showed, nothing more.
     const hasCachedText = row.raw_text !== null && row.raw_text !== "";
-    const canFetchSource = hasCachedText || budget.take(1); // cached costs no subrequest
+    // Cached text costs no subrequest; a blocked host must not cost a budget
+    // token for a fetch that will never happen (review finding).
+    const canFetchSource = hasCachedText || (!isBlockedGroundingHost(row.source_url) && budget.take(1));
     const source = canFetchSource
       ? await fetchSourceText(env, { id: row.item_id, source_url: row.source_url, raw_text: row.raw_text, raw_meta: row.raw_meta }, now)
       : null;

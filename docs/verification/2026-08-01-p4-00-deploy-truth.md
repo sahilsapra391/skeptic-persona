@@ -131,7 +131,16 @@ OpenRouter call in the project's history.**
   payloads are title-only, so the model has three facts to write from — take
   quality is bounded by payload depth, not by the model.
 
-Cycle-27 regeneration under the fixed code: recorded below when run.
+**Regeneration under the fixed code (observed 2026-08-01 ~18:4xZ, cycle
+token 30):** owner merged p4-00b (deploy 18:34:58Z, 28 s after merge) and
+tapped Regenerate; the wipe and re-run were watched live. Result: dry VALID
+and sharp VALID on attempt 1; commentary overflowed 280 weighted once
+(`rejected:length`) and passed on the designed retry — **all three variants
+valid, zero attribution rejections**, card delivered with all Copy buttons.
+Owner verdict on quality (drives p4-01): grounded correctly but machine-made
+— takes carried unparsed market-reaction claims ("Spreads compress fast.
+Retail absorbs the shock.") and filler; commentary needs real context, not
+just the three payload facts.
 
 ### 5b. Congress-PTR e2e (the owner-specified target)
 

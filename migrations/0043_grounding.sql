@@ -4,8 +4,9 @@
 -- writers: ingesters that already hold the bytes (press RSS descriptions),
 -- and a one-time conditional fetch at generation for items without it
 -- (cached here so a document is fetched at most once, ever).
--- raw_meta: JSON provenance — {url, fetchedAt, sha256, bytes, mode,
--- truncated}. mode is "ingest_rss" | "full" | "excerpt".
+-- raw_meta: JSON provenance. Fetch-path rows carry {host, fetchedAt, sha256,
+-- bytes, mode, truncated}; ingest-path rows carry {mode, fetchedAt}. mode is
+-- "ingest_rss" | "full" | "excerpt".
 --
 -- Additive only; existing rows read NULL and generation degrades to
 -- payload + lake context.
