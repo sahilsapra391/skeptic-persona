@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { gateContext, issuerGate, type GateContext } from "./issuers";
 import { newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
 import { decodeEntities, extractAll, extractAttr, extractFirst, stripBom } from "../lib/xml";
@@ -364,6 +365,7 @@ async function processDetail(
   row: { id: number; event_at: string | null; payload: string },
   userAgent: string,
   now: Date,
+  ctx: GateContext,
 ): Promise<void> {
   const stub = JSON.parse(row.payload) as StubPayload;
   try {
@@ -383,7 +385,14 @@ async function processDetail(
 
     const owner = doc.owners[0];
     const totals = totalsFor(doc.nonDerivative);
-    const score = scoreForm4(totals);
+    let score = scoreForm4(totals);
+    // ISSUER GATE. Same reference the 8-K lane uses, same fail-open rules.
+    // The filing still lands in the lake; it just stops interrupting.
+    const gate = await issuerGate(env, doc.issuerCik, ctx);
+    if (!gate.keep) {
+      score = Math.min(score, SCORE_LOG_ONLY);
+      log("debug", "form4 suppressed by issuer gate", { cik: doc.issuerCik, reason: gate.reason });
+    }
     const fresh = isFreshAtIngest(row.event_at ?? "", now);
     const draft = draftForm4(doc, totals);
 
@@ -466,8 +475,18 @@ async function processDetail(
     const results = await env.DB.batch(stmts);
     const won = (results[0]?.meta.changes ?? 0) > 0;
 
+    // THE CLUSTER MUST OBEY THE SAME GATE. It inserts at SCORE_AUTO_ALERT and
+    // status 'new', so it is the loudest thing this lane emits -- and it was
+    // firing for issuers whose individual Form 4s the gate had just
+    // suppressed. Three insiders buying a $20M-float microcap produced three
+    // correctly-silenced filings and one auto-alert interrupt about the same
+    // issuer, which is exactly the bucket the gate exists to hold.
     if (won && owner && doc.nonDerivative.some((t) => t.code === "P")) {
-      await checkCluster(env, { cik: doc.issuerCik, name: doc.issuerName, ticker: doc.ticker }, now);
+      if (gate.keep) {
+        await checkCluster(env, { cik: doc.issuerCik, name: doc.issuerName, ticker: doc.ticker }, now);
+      } else {
+        log("debug", "insider cluster suppressed by issuer gate", { cik: doc.issuerCik, reason: gate.reason });
+      }
     }
   } catch (e) {
     const attempts = (stub.attempts ?? 0) + 1;
@@ -638,6 +657,10 @@ export async function pollForm4(env: Env, now: Date, budget: TickBudget = newTic
       .bind(SOURCE, DETAIL_BATCH_PER_RUN)
       .all<{ id: number; event_at: string | null; payload: string }>();
 
+    // ONCE per batch: see gateContext. Per filing this is a full table scan,
+    // and this lane runs the largest batch on the fastest cadence.
+    const ctx = await gateContext(env, now);
+
     let detailed = 0;
     for (const row of stubs.results) {
       if (!budget.take(2)) {
@@ -646,7 +669,7 @@ export async function pollForm4(env: Env, now: Date, budget: TickBudget = newTic
         });
         break;
       }
-      await processDetail(env, row, userAgent, now);
+      await processDetail(env, row, userAgent, now, ctx);
       detailed += 1;
     }
 
