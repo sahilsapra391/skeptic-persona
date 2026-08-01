@@ -26,10 +26,20 @@ import { fitsInPost } from "./templates/length";
  *  fit 12 lines plus header inside the clamp with room to spare. */
 export const DIGEST_MAX_LINES = 12;
 
-/** Promote buttons per digest. callback_data is 24 bytes here against a
- *  64-byte limit, so the constraint is layout, not encoding; Telegram
- *  publishes no row/button maximum, so we stay well inside folklore. */
-export const DIGEST_MAX_BUTTONS = 5;
+/** One promote button per listed line — deliberately NOT a smaller cap.
+ *  Capping buttons below lines showed an item once, invited promotion, then
+ *  marked it sent so it could never be promoted or re-listed: the "held is
+ *  not lost" guarantee held for only the first few. callback_data is 24 bytes
+ *  against a 64-byte limit, so the constraint is layout, not encoding. */
+export const DIGEST_MAX_BUTTONS = DIGEST_MAX_LINES;
+
+/** Telegram renders a single long button row unusably on mobile; four per
+ *  row matches the copy-card layout. */
+function chunkButtons(all: TgInlineButton[]): TgInlineButton[][] {
+  const rows: TgInlineButton[][] = [];
+  for (let i = 0; i < all.length; i += 4) rows.push(all.slice(i, i + 4));
+  return rows;
+}
 
 export function etDay(now: Date): string {
   const p = zonedParts(now, ET);
@@ -128,27 +138,59 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
 
     const lines: string[] = [];
     const buttons: TgInlineButton[] = [];
+    // The ids ACTUALLY listed. Never a positional prefix of held.results: the
+    // loop skips rows that fail to parse or render, so a prefix marks rows
+    // that were never shown — losing the highest-scoring item silently while
+    // re-listing a lower one forever.
+    const listedIds: number[] = [];
+    const skipped: number[] = [];
     for (const h of held.results) {
       if (lines.length >= DIGEST_MAX_LINES) break;
       let payload: Payload;
       try {
         payload = JSON.parse(h.payload) as Payload;
       } catch {
-        continue; // an unparseable payload is not worth a digest line
+        skipped.push(h.id); // an unparseable payload is not worth a digest line
+        continue;
       }
       // The item's OWN fact line, attribution welded on by the renderer.
       const rendered = await renderForQueue(env, h.archetype as ArchetypeId, payload, `digest:${h.item_id}`);
-      if (!rendered.ok) continue;
-      const first = rendered.text.split("\n")[0] ?? "";
-      if (!first) continue;
-      lines.push(`${lines.length + 1}. ${first}`);
-      if (buttons.length < DIGEST_MAX_BUTTONS) {
-        buttons.push({ text: `↑ ${lines.length}`, callback_data: `dg:${h.item_id}` });
+      if (!rendered.ok) {
+        skipped.push(h.id);
+        continue;
       }
+      const first = rendered.text.split("\n")[0] ?? "";
+      if (!first) {
+        skipped.push(h.id);
+        continue;
+      }
+      lines.push(`${lines.length + 1}. ${first}`);
+      listedIds.push(h.id);
+      // Every listed line gets a promote button. Capping buttons below lines
+      // would show an item once and then leave it unpromotable forever, since
+      // it is marked sent and never re-listed.
+      buttons.push({ text: `↑ ${lines.length}`, callback_data: `dg:${h.item_id}` });
     }
-    if (lines.length === 0) continue;
+    if (lines.length === 0) {
+      // Every row in this group failed to render. Marking them prevents an
+      // infinite silent retry; the loud log is how it reaches a human.
+      if (skipped.length > 0) {
+        await env.DB.prepare(
+          `UPDATE digest_items SET sent_at = ?1 WHERE id IN (${skipped.map(() => "?").join(",")})`,
+        )
+          .bind(iso(now), ...skipped)
+          .run()
+          .catch(() => {});
+        log("error", "digest group unrenderable; rows retired without a card", {
+          day: g.day,
+          archetype: g.archetype,
+          rows: skipped.length,
+        });
+      }
+      continue;
+    }
 
-    const omitted = held.results.length - lines.length;
+    const omitted = held.results.length - lines.length - skipped.length;
     const body = [
       summarise(g.archetype, held.results.length),
       "",
@@ -161,9 +203,9 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
 
     try {
       const msg = await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, body, {
-        buttons: buttons.length > 0 ? [buttons] : undefined,
+        buttons: buttons.length > 0 ? chunkButtons(buttons) : undefined,
       });
-      const sentIds = held.results.slice(0, lines.length).map((h) => h.id);
+      const sentIds = [...listedIds, ...skipped];
       // Mark ONLY what this message actually listed; anything beyond the line
       // cap stays unsent and rolls into tomorrow rather than vanishing.
       await env.DB.prepare(
@@ -172,7 +214,11 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
       )
         .bind(iso(now), msg.message_id, ...sentIds)
         .run();
-      log("info", "digest sent", { day: g.day, archetype: g.archetype, listed: lines.length, omitted });
+      log("info", "digest sent", { day: g.day, archetype: g.archetype, listed: lines.length, skipped: skipped.length, omitted });
+      // Telegram asks for <= 1 message/s per chat; every other sender in this
+      // repo paces, and a multi-category roll-up sends several in a row.
+      const spacing = Number(env.QUEUE_NOTIFY_SPACING_MS ?? 1100);
+      if (Number.isFinite(spacing) && spacing > 0) await new Promise((r) => setTimeout(r, spacing));
     } catch (e) {
       // sent_at stays NULL: the next run retries this group unchanged.
       log("error", "digest send failed", { day: g.day, archetype: g.archetype, error: String(e) });

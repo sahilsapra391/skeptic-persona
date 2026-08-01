@@ -47,6 +47,7 @@ let pushed = 0;
 let heldFloor = 0;
 let heldCap = 0;
 const approvedHeld = [];
+const scoredDays = [];
 
 for (const r of rows) {
   let payload;
@@ -55,8 +56,12 @@ for (const r of rows) {
   } catch {
     continue;
   }
-  const day = r.created_at.slice(0, 10);
+  // ET day, matching src/digest.ts etDay(). Keying on the UTC prefix made the
+  // harness and the live gate disagree about which cards share a daily cap,
+  // so the acceptance number described behaviour the Worker does not have.
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(r.created_at.replace(" ", "T") + (r.created_at.endsWith("Z") ? "" : "Z")));
   const { score, exempt } = salienceFor(r.archetype, payload);
+  scoredDays.push(day);
   const key = `${day}|${r.archetype}`;
   const seen = byDay.get(key) ?? 0;
   const cap = DEFAULT_CATEGORY_CAPS[r.archetype] ?? DEFAULT_CATEGORY_CAP;
@@ -85,7 +90,7 @@ for (const r of rows) {
   stats.set(r.archetype, s);
 }
 
-const dayCount = new Set(rows.map((r) => r.created_at.slice(0, 10))).size || 1;
+const dayCount = new Set(scoredDays).size || 1;
 console.log(`\nSALIENCE REPLAY — ${rows.length} cards over ${dayCount} day(s), floor=${floor}\n`);
 console.log("archetype              cards   push   held(floor/cap)   approved   median");
 console.log("-".repeat(78));

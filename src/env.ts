@@ -11,11 +11,11 @@ export interface Env {
   QUEUE_TTL_HOURS?: string;
   /** Per-archetype TTL overrides, "ARCHETYPE:hours,..." — merged key-by-key over the code defaults (see jobs.ts). */
   QUEUE_TTL_OVERRIDES?: string;
-  /** p4-03 salience: minimum score to push a card (default 50). Below it the item goes to the day's digest. */
+  /** p4-03 salience: minimum score to push a card (default 45, range 0-100). Below it the item goes to the day's digest. */
   SALIENCE_FLOOR?: string;
   /** p4-03: per-archetype daily push caps, "ARCHETYPE:n,..." merged over the code defaults (src/salience.ts). */
   CATEGORY_DAILY_CAPS?: string;
-  /** p4-03: a score at or above this ignores the daily category cap (default 70). */
+  /** p4-03: a score at or above this ignores the daily category cap (default 80; 0 disables caps entirely). */
   CAP_BYPASS_SCORE?: string;
   /** Minimum issuer public float (USD) for a filing to reach the queue. */
   MIN_ISSUER_FLOAT_USD?: string;

@@ -41,17 +41,22 @@ CREATE INDEX idx_digest_pending ON digest_items(day, archetype, sent_at);
 -- wave, so a day's digest is complete when it sends. Priority 60 sits below
 -- the feed polls (50) and above issuer_refresh (90): a digest is never worth
 -- displacing live ingestion.
--- SEEDED DISABLED. A job row whose handler is not yet deployed is picked by
--- the dispatcher, finds no handler, and (because its cadence profile is also
--- unknown to the deployed build) parks an hour out with a warn — burning a
--- slot per hour on a tick budget already measured at 68s against a 45s
--- ceiling. Applying a migration ahead of its code is normal here, so the row
--- arrives disabled and the deploy that carries the handler enables it:
---   npx wrangler d1 execute skeptic-wire --remote \
---     --command "UPDATE jobs SET enabled=1 WHERE name='digest_push'"
+-- SEEDED ENABLED, deliberately, and this reverses an earlier decision in this
+-- same PR. The rule in docs/p4-plan.md is that a job row may ship enabled when
+-- (a) its cadence profile is known to the deployed build and (b) the handler
+-- lands in the same PR. Both hold here: pushDigests ships in this PR and
+-- daily_2100_et ships with it.
+--
+-- Shipping it disabled was a CRITICAL defect, not caution. The gate half of
+-- this PR is on from the instant of merge and marks ~80% of items
+-- 'digested', which removes them from all 15 ingester drains. The digest is
+-- the ONLY path back. Disabled, suppression is live and recovery is a
+-- hand-typed command in a SQL comment — an unbounded silent loss traded for a
+-- bounded logged one, which is the exact trade this repo's own discipline
+-- note argues against.
 --
 -- due_at MUST be verbatim Date.toISOString() format: the dispatcher compares
 -- it LEXICALLY (0001_init.sql:81-83), and datetime('now') would emit
 -- "YYYY-MM-DD HH:MM:SS", which sorts wrong against every other row forever.
 INSERT INTO jobs (name, cadence_profile, due_at, enabled, priority)
-VALUES ('digest_push', 'daily_2100_et', '2026-01-01T00:00:00.000Z', 0, 60);
+VALUES ('digest_push', 'daily_2100_et', '2026-01-01T00:00:00.000Z', 1, 60);

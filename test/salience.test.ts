@@ -10,6 +10,8 @@ import {
 } from "../src/salience";
 import { etDay, etDayStartUtc, holdForDigest, pushedTodayByCategory } from "../src/digest";
 import { insertItem, SCORE_POSTABLE } from "../src/lib/db";
+import { ARCHETYPES } from "../src/templates";
+import type { ArchetypeId, Payload } from "../src/templates/types";
 import { enqueueForApproval } from "../src/pipeline/enqueue";
 
 const NOW = new Date("2026-08-03T18:00:00.000Z"); // Monday, 14:00 ET
@@ -83,6 +85,66 @@ describe("salience scoring", () => {
     // Only genuinely malformed entries are skipped; "LOWER:2" is a valid
     // (if unused) archetype key and is accepted as written.
     expect(skipped).toEqual(["bogus", "halt:3", "HALT:x"]);
+  });
+});
+
+describe("no category can be unreachable (review HIGH)", () => {
+  it("every archetype can clear the floor with SOME payload", () => {
+    // The defect this pins: a base below the floor with NO magnitude branch
+    // means the category can never reach the queue for ANY payload. CPI, the
+    // jobs report, Fed releases and sub-50bp rate decisions were all in that
+    // state, reachable only in a 21:00 ET roll-up — while the committed TTLs
+    // give MACRO_PRINT 12h precisely because it is time-critical.
+    //
+    // "Reachable" means a REAL payload can clear the floor, not that a bare
+    // {} does. HALT sits at 40 deliberately: a halt whose reasonCode did not
+    // parse should be held, because we cannot say why it halted — and every
+    // real halt payload carries one (halts.ts). So each archetype gets its
+    // best-case probe, and an archetype with no probe must clear on {}.
+    const BEST_CASE: Partial<Record<ArchetypeId, Payload>> = {
+      HALT: { reasonCode: "T1" },
+      FILING_8K: { items: [{ code: "4.02" }] },
+      INSIDER_NOTICE: { aggregateMarketValue: 40_000_000 },
+      FILING_FORM4: { totals: { buyValue: 12_000_000 } },
+      OWNERSHIP_STAKE: { topPercent: 18 },
+      PRODUCT_RECALL: { classification: "Class I" },
+      RATE_DECISION: { changeBps: 50 },
+    };
+    const unreachable: string[] = [];
+    for (const id of Object.keys(ARCHETYPES) as ArchetypeId[]) {
+      const s = salienceFor(id, BEST_CASE[id] ?? {});
+      if (!s.exempt && s.score < DEFAULT_SALIENCE_FLOOR) unreachable.push(`${id}=${s.score}`);
+    }
+    expect(unreachable).toEqual([]);
+  });
+
+  it("a halt whose reason did not parse is held, and that is deliberate", () => {
+    // The one category intentionally below the floor on a bare payload.
+    expect(salienceFor("HALT", {}).score).toBeLessThan(DEFAULT_SALIENCE_FLOOR);
+    expect(salienceFor("HALT", { reasonCode: "T1" }).score).toBeGreaterThanOrEqual(DEFAULT_SALIENCE_FLOOR);
+  });
+
+  it("the time-critical categories specifically reach the queue", () => {
+    for (const id of ["MACRO_PRINT", "FED_PRESS", "TREASURY_AUCTION", "RATE_DECISION"] as const) {
+      expect(salienceFor(id, {}).score).toBeGreaterThanOrEqual(DEFAULT_SALIENCE_FLOOR);
+    }
+  });
+
+  it("an out-of-range SALIENCE_FLOOR falls back instead of holding everything", async () => {
+    const id = await (async () => {
+      const res = await insertItem(env.DB, {
+        source: "bls", externalId: "FLOOR-1", category: "macro_print",
+        eventAt: NOW.toISOString(), sourceUrl: "https://www.bls.gov/x",
+        payload: { factLine: "BLS: CPI rose 0.3% in July" }, score: SCORE_POSTABLE,
+      });
+      return res.id ?? 0;
+    })();
+    // "450" is a plausible fat-finger of "45" and would hold every item.
+    const res = await enqueueForApproval(
+      { ...env, SALIENCE_FLOOR: "450" } as never,
+      id, "MACRO_PRINT", { factLine: "BLS: CPI rose 0.3% in July" }, "https://www.bls.gov/x", NOW,
+    );
+    expect(res.held).toBeUndefined();
   });
 });
 

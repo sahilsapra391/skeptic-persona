@@ -57,11 +57,20 @@ const CATEGORY_BASE: Record<string, number> = {
   STORM: 45,
   SETTLEMENT_FAILURE: 46,
   HALT: 40,
-  FED_PRESS: 40,
-  TREASURY_AUCTION: 38,
-  // Measured weakest.
-  MACRO_PRINT: 35,
-  RATE_DECISION: 25,
+  // The four below sit AT OR ABOVE the floor on purpose. Review found that a
+  // base under DEFAULT_SALIENCE_FLOOR with no magnitude branch means the
+  // category can NEVER reach the queue for any payload — CPI, the jobs
+  // report, every Fed release and every sub-50bp rate decision would have
+  // been reachable only in a 21:00 ET roll-up, up to 12.5h after an 08:30 ET
+  // print, while the committed TTLs give MACRO_PRINT 12h precisely because it
+  // is time-critical. Their ingesters already gate hard (BLS posts only a
+  // real release; rates queue only on a CHANGE vs prior; Treasury only on a
+  // completed auction), so re-suppressing here double-counts a filter that
+  // has already run. `noCategoryBelowFloor` in the tests pins this.
+  FED_PRESS: 50,
+  TREASURY_AUCTION: 50,
+  MACRO_PRINT: 55,
+  RATE_DECISION: 50,
 };
 
 const DEFAULT_BASE = 40;

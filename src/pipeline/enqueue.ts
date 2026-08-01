@@ -29,8 +29,12 @@ async function salienceHold(
   now: Date,
 ): Promise<"below_floor" | "category_cap" | null> {
   try {
+    // Clamped to the score range: salienceFor caps at 100, so a fat-fingered
+    // SALIENCE_FLOOR="450" would silently hold EVERY item in every category.
     const rawFloor = Number(env.SALIENCE_FLOOR ?? DEFAULT_SALIENCE_FLOOR);
-    const floor = Number.isFinite(rawFloor) && rawFloor >= 0 ? rawFloor : DEFAULT_SALIENCE_FLOOR;
+    const floor =
+      Number.isFinite(rawFloor) && rawFloor >= 0 && rawFloor <= 100 ? rawFloor : DEFAULT_SALIENCE_FLOOR;
+    if (floor !== rawFloor) log("warn", "SALIENCE_FLOOR out of range; using default", { raw: env.SALIENCE_FLOOR ?? null, floor });
     const { score, reasons, exempt } = salienceFor(archetype, payload);
 
     if (!exempt && score < floor) {
