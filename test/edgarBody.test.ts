@@ -144,9 +144,13 @@ describe("the review findings on this capture, pinned", () => {
     const row = await env.DB.prepare(`SELECT raw_text AS t, raw_meta AS m FROM items WHERE id = ?1`)
       .bind(id)
       .first<{ t: string; m: string }>();
-    expect(row.t).toContain("FORM 8-K");
-    expect(row.t).not.toContain("EDGAR Filing Documents");
-    expect(JSON.parse(row.m).document).toBeTruthy();
+    // Assert the row exists first: a bare non-null assertion here would fail
+    // with "cannot read property of null" instead of saying the capture never
+    // wrote anything, which is the more likely regression.
+    expect(row).not.toBeNull();
+    expect(row!.t).toContain("FORM 8-K");
+    expect(row!.t).not.toContain("EDGAR Filing Documents");
+    expect(JSON.parse(row!.m).document).toBeTruthy();
   });
 
   it("scrubs URLs out of the stored body, THROUGH the real capture path", async () => {
