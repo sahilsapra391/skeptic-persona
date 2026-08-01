@@ -1,5 +1,6 @@
 import { fmtNum, fmtUsd } from "../ingesters/shared";
 import { RATE_ATTRIBUTION } from "../ingesters/rateAttribution";
+import { PRESS_ATTRIBUTION } from "../ingesters/pressAttribution";
 import type { Archetype, ArchetypeId, Payload, PendingBeat } from "./types";
 
 // Beat libraries transcribed from docs/persona.md §8 (owner-signed).
@@ -853,8 +854,11 @@ const ownershipStake: Archetype = {
 
 const regulatoryNews: Archetype = {
   id: "REGULATORY_NEWS",
-  // Per-authority attribution rides in the fact line, which names the body.
-  attribution: "per the issuing authority",
+  // The named body, resolved from payload.authority through the one authored
+  // map. The generic "per the issuing authority" contradicted the owner's
+  // exemplars ("per SEC"/"per CFTC"/"per FTC") and made the validator reject
+  // every generated variant on the first live run (queue #918, 2026-08-01).
+  attribution: { field: "authority", map: PRESS_ATTRIBUTION },
   skeletons: [
     {
       id: "reg.headline",

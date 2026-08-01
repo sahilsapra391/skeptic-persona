@@ -7,7 +7,7 @@ import { log } from "../lib/log";
 import { ARCHETYPES, renderForQueue } from "../templates";
 import type { ArchetypeId, Payload } from "../templates/types";
 import { evaluateGate } from "../templates/gate";
-import { fillSlots } from "../templates/render";
+import { fillSlots, resolveAttribution } from "../templates/render";
 import { fitsInPost } from "../templates/length";
 import { checkRegister } from "../templates/validate";
 import { chatComplete, OpenRouterError, parseVariants } from "./openrouter";
@@ -114,16 +114,22 @@ export function buildPrompt(
       : "ELIGIBLE BEATS: none. Do not invent a beat.",
   ].join("\n\n");
 
+  // The one citation valid for THIS item, stated to the model verbatim: the
+  // first live run produced correct-by-exemplar attributions the validator
+  // rejected because the prompt never said which string the gauntlet demands.
+  const attribution = resolveAttribution(ARCHETYPES[archetypeId], payload);
   const user = [
     "PAYLOAD (the ONLY source of facts; every number, name, ticker, date and code in your output must appear here; derived figures are already computed as fields — never do arithmetic, never state relative quantities like 'double' or 'half'):",
     JSON.stringify(payload, null, 1),
     `ARCHETYPE: ${archetypeId}`,
     "TASK: write THREE variants of one post about this payload, as strict JSON:",
-    `{"dry": "...", "sharp": "...", "commentary": "..."}`,
+    `{"commentary": "...", "sharp": "...", "dry": "..."}`,
+    "- commentary (THE deliverable; the other two are fallbacks): 200-280 weighted chars. Fact block with attribution FIRST (it must survive being screenshotted alone), then a blank line, then the take in one or two short segments (a punch line, then the argument): opinionated, a real point of view, no hedging, no advice, no imputed motive. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a payload fact as if it were the take. The take states what the record shows and stops.",
+    "- sharp: wire register (fact block + attribution, then at most one beat line), the escalation tier: the sharpest ELIGIBLE beat, compression at maximum.",
     "- dry: wire register, 100-140 weighted chars. Fact block + attribution, then at most one eligible beat on its own line.",
-    "- sharp: same structure, the escalation register: the sharpest ELIGIBLE beat, compression at maximum.",
-    "- commentary: 200-280 weighted chars. Fact block with attribution FIRST (it must survive being screenshotted alone), then a blank line, then the take in one or two short segments (a punch line, then the argument): opinionated, a real point of view, no hedging, no advice, no imputed motive. The take states what the record shows and stops.",
-    "Rules for all three: attribution on the fact block. No hashtags, no questions, no em-dashes, no BREAKING, no URLs or links of any kind. Numbers exactly as they appear in the payload (bands stay bands).",
+    attribution !== null
+      ? `Rules for all three: the fact block's head line ends with exactly "${attribution}" — any other citation fails validation. No hashtags, no questions, no em-dashes, no BREAKING, no URLs or links of any kind. Numbers exactly as they appear in the payload (bands stay bands).`
+      : "Rules for all three: attribution on the fact block. No hashtags, no questions, no em-dashes, no BREAKING, no URLs or links of any kind. Numbers exactly as they appear in the payload (bands stay bands).",
     ...(feedback.length > 0
       ? [`PREVIOUS ATTEMPT WAS REJECTED. Fix exactly these and change nothing else:\n${feedback.map((f) => `- ${f}`).join("\n")}`]
       : []),
