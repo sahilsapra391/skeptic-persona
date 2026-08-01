@@ -109,6 +109,66 @@ describe("runSourceHealth", () => {
   });
 });
 
+describe("the review findings, pinned", () => {
+  it("does not quarantine a market-hours source over a closed weekend", async () => {
+    // halts_nasdaq is priority 50, so the CRITICAL_PRIORITY exemption does
+    // NOT cover it. Carrying a failure streak into a closed weekend leaves it
+    // legitimately silent for ~64 hours. At the old 12-hour threshold the
+    // silence test was satisfied by every weekend, collapsing the rule to the
+    // streak-only version the PR itself calls unsafe.
+    const fridayFail = { name: "halts_nasdaq", fails: 20, lastOkAt: "2026-07-31T20:00:00.000Z" };
+    const mondayOpen = new Date("2026-08-03T13:00:00.000Z"); // ~65h later
+    expect(shouldQuarantine(fridayFail, mondayOpen)).toBe(false);
+
+    // A genuinely dead endpoint is still caught, three days later.
+    expect(shouldQuarantine({ ...fridayFail, lastOkAt: null }, mondayOpen)).toBe(true);
+  });
+
+  it("keeps a deliberately pinned schedule when it releases a probe", async () => {
+    // treasury_auction and press_cftc_enforcement were moved to
+    // daily_1330_utc with a pinned due_at by migrations 0024 and 0034, so a
+    // permanently dead endpoint costs one fetch a day. Writing the probe
+    // instant into due_at resurrected them onto a faster cadence and undid
+    // those parks -- the automatic layer overruling a human decision.
+    await env.DB.prepare("DELETE FROM jobs").run();
+    await env.DB.prepare(
+      `INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority)
+       VALUES ('treasury_auction', '2026-08-02T13:30:00.000Z', 'daily_1330_utc', 1, 50)`,
+    ).run();
+    await env.DB.prepare(
+      `INSERT INTO source_state (source, consecutive_failures, last_ok_at)
+       VALUES ('treasury_auction', 16, NULL)`,
+    ).run();
+
+    await runSourceHealth(env as never, NOW);
+    const later = new Date(NOW.getTime() + (PROBE_AFTER_HOURS + 1) * 3_600_000);
+    await runSourceHealth(env as never, later);
+
+    const row = await env.DB.prepare(`SELECT enabled, due_at FROM jobs WHERE name = 'treasury_auction'`)
+      .first<{ enabled: number; due_at: string }>();
+    expect(row?.enabled).toBe(1);
+    // Re-enabled at its OWN slot, not dragged onto the probe instant.
+    expect(row?.due_at).toBe("2026-08-02T13:30:00.000Z");
+  });
+
+  it("does not report a manual park as a quarantine", async () => {
+    // Migration 0026 disabled poster and threads_token_refresh by hand for
+    // the Threads ban. Both carry NULL quarantine_reason. Calling those
+    // QUARANTINED tells the owner a product decision he made was an outage.
+    await env.DB.prepare("DELETE FROM jobs").run();
+    await env.DB.prepare("DELETE FROM source_state").run();
+    await env.DB.prepare(
+      `INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority)
+       VALUES ('poster', '2026-08-01T00:00:00.000Z', 'every_5m', 0, 0)`,
+    ).run();
+
+    const text = formatHealth(await healthReport(env as never, NOW), NOW);
+    expect(text).toContain("poster");
+    expect(text).toContain("disabled (manual)");
+    expect(text).not.toContain("poster: QUARANTINED");
+  });
+});
+
 describe("healthReport", () => {
   it("surfaces a job that is overdue and has never succeeded, even with no source_state", async () => {
     // The blind spot the source-keyed query could not see. queue_expiry,

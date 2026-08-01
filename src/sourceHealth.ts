@@ -36,8 +36,19 @@ export const QUARANTINE_AFTER = 12;
  * streak alone is not evidence of death: rate_boe carries a failure streak
  * most mornings from overnight UK maintenance and answers again by midday.
  * Quarantining that would silence a working source.
+ *
+ * SEVENTY-TWO HOURS, NOT TWELVE, and the reason is market hours. A
+ * market-windowed source like halts_nasdaq (priority 50, so NOT covered by
+ * the CRITICAL_PRIORITY exemption) can carry a failure streak into a closed
+ * weekend and be legitimately silent for ~64 hours without anything being
+ * wrong. At twelve hours the silence test was satisfied by every weekend,
+ * which collapsed the rule to the streak-only version this comment says is
+ * unsafe. Seventy-two spans a weekend plus a public holiday; a genuinely
+ * dead endpoint is still caught, three days later instead of half a day,
+ * and that is the right trade for a check whose false positive is silencing
+ * a working source.
  */
-export const QUARANTINE_MIN_SILENCE_HOURS = 12;
+export const QUARANTINE_MIN_SILENCE_HOURS = 72;
 
 /** A quarantined source gets one real attempt again after this long. */
 export const PROBE_AFTER_HOURS = 6;
@@ -123,10 +134,15 @@ export async function runSourceHealth(
   let probed = 0;
   for (const p of probes.results) {
     if (hoursSince(p.quarantined_at, now) < PROBE_AFTER_HOURS) continue;
-    await env.DB.prepare(
-      `UPDATE jobs SET enabled = 1, due_at = ?1, quarantined_at = NULL WHERE name = ?2`,
-    )
-      .bind(iso(now), p.name)
+    // due_at is deliberately NOT touched. treasury_auction and
+    // press_cftc_enforcement were moved to daily_1330_utc with a pinned
+    // due_at by migrations 0024 and 0034, precisely so a permanently dead
+    // endpoint costs one fetch a day. Writing the probe instant here
+    // resurrected them onto a faster cadence and undid those manual parks --
+    // the automatic layer fighting a human decision. Re-enabling is enough:
+    // the job fires at whatever slot its own schedule already says.
+    await env.DB.prepare(`UPDATE jobs SET enabled = 1, quarantined_at = NULL WHERE name = ?1`)
+      .bind(p.name)
       .run();
     probed += 1;
     log("info", "quarantined source released for a probe", { source: p.name });
@@ -180,7 +196,13 @@ export async function healthReport(env: Env, now: Date = new Date()): Promise<He
 export function formatHealth(rows: readonly HealthRow[], now: Date): string {
   if (rows.length === 0) return "All sources healthy: no failures, none quarantined.";
   const lines = rows.map((r) => {
-    const state = r.enabled === 0 ? "QUARANTINED" : "failing";
+    // A disabled job is only QUARANTINED if THIS system disabled it.
+    // Migration 0026 parked `poster` and `threads_token_refresh` by hand for
+    // the Threads ban; both carry NULL quarantine_reason. Reporting those as
+    // source-health failures would tell the owner a product decision he made
+    // was an outage.
+    const state =
+      r.enabled === 0 ? (r.quarantineReason ? "QUARANTINED" : "disabled (manual)") : "failing";
     const since =
       r.lastOkAt === null
         ? "never succeeded"
