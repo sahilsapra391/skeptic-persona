@@ -9,7 +9,13 @@ export const RAW_BODY_CAP = 300_000;
  *  URL-free by contract (the model must never see or emit one — the source
  *  link rides in a Telegram reply, not the post). */
 export function scrubUrls(text: string): string {
-  return text.replace(/(?:https?:\/\/|www\.)\S+/gi, " ").replace(/[ \t]{2,}/g, " ");
+  return text
+    .replace(/(?:https?:\/\/|www\.)\S+/gi, " ")
+    // Scheme-less official domains ("SEC.gov", "CFTC.gov/PressRoom") ride in
+    // agency boilerplate constantly; echoed into a post they'd be linkified
+    // by X and mis-counted by our weighted-length counter (review finding).
+    .replace(/\b[a-z0-9][a-z0-9.-]*\.(?:gov|mil|int|europa\.eu|org\.uk|or\.jp|gov\.au|gov\.br|co\.za)\b(?:\/\S*)?/gi, " ")
+    .replace(/[ \t]{2,}/g, " ");
 }
 
 export function htmlToText(html: string): string {
@@ -17,6 +23,10 @@ export function htmlToText(html: string): string {
     .slice(0, RAW_BODY_CAP)
     .replace(/<!--[\s\S]*?-->/g, " ")
     .replace(/<(script|style|noscript|template|head|svg)\b[\s\S]*?<\/\1\s*>/gi, " ")
+    // An UNCLOSED script/style tail (typically the 300k cap slicing through
+    // an inline state blob) would otherwise survive tag-stripping as text
+    // and flood the grounding window with licensed junk numbers.
+    .replace(/<(script|style)\b[^>]*>(?:(?!<\/\1)[\s\S])*$/gi, " ")
     .replace(/<(?:br|\/p|\/div|\/li|\/h[1-6]|\/tr)\b[^>]*>/gi, "\n")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ")

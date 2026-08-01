@@ -160,37 +160,48 @@ export function groundingFacts(grounding: string): PayloadFacts {
     if (Math.abs(n) >= 1000) for (const [, f] of SCALE_WORDS) numbers.add(canon(n / f));
   };
 
-  // Dates first, consumed, exactly like dateCheck — their components must
-  // not leak into the numeric set as free integers.
-  const afterDates = grounding.replace(
-    DATE_PHRASE_RE,
-    (_, mn1, d1, y1, d2, mn2, y2, yIso, mIso, dIso, mSlash, dSlash, ySlash) => {
-      let m: number | undefined, d: number | undefined, y: number | undefined;
-      if (mn1) [m, d, y] = [MONTHS[String(mn1).toLowerCase()], Number(d1), y1 ? Number(y1) : undefined];
-      else if (mn2) [m, d, y] = [MONTHS[String(mn2).toLowerCase()], Number(d2), y2 ? Number(y2) : undefined];
-      else if (yIso) [y, m, d] = [Number(yIso), Number(mIso), Number(dIso)];
-      else {
-        const yy = ySlash ? Number(ySlash) : undefined;
-        [m, d, y] = [Number(mSlash), Number(dSlash), yy !== undefined && yy < 100 ? yy + 2000 : yy];
-      }
-      dates.add(`${m}-${d}`);
-      if (y !== undefined) {
-        dates.add(`${y}-${m}-${d}`);
-        addNumber(y);
-      }
-      return " ";
-    },
-  );
-
-  for (const { value, unit } of draftNumbers(afterDates)) {
-    addNumber(value);
-    if (unit === "percent") {
-      percents.add(canon(value));
-      percents.add(canon(Math.abs(value)));
+  // Dates first, consumed — their components must not leak into the numeric
+  // set as free integers. The grounding grammar is DELIBERATELY narrower than
+  // the draft-side DATE_PHRASE_RE: month-name and ISO forms only. Free prose
+  // is full of slash tokens that are not dates ("a 3/4 majority", "24/7"),
+  // and each would otherwise license a fabricated month-day (review finding).
+  const afterDates = grounding.replace(GROUNDING_DATE_RE, (_, mn1, d1, y1, d2, mn2, y2, yIso, mIso, dIso) => {
+    let m: number | undefined, d: number | undefined, y: number | undefined;
+    if (mn1) [m, d, y] = [MONTHS[String(mn1).toLowerCase()], Number(d1), y1 ? Number(y1) : undefined];
+    else if (mn2) [m, d, y] = [MONTHS[String(mn2).toLowerCase()], Number(d2), y2 ? Number(y2) : undefined];
+    else [y, m, d] = [Number(yIso), Number(mIso), Number(dIso)];
+    dates.add(`${m}-${d}`);
+    if (y !== undefined) {
+      dates.add(`${y}-${m}-${d}`);
+      addNumber(y);
     }
+    return " ";
+  });
+
+  // Clock times consumed next, mirroring numberCheck's own time pass: "9:30
+  // a.m." must not hand 9 and 30 to the licensed set (review finding — the
+  // draft side closed this as bypass #4; the grounding side must match).
+  const afterTimes = afterDates.replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, " ");
+
+  // Numeric tokens with a grounding-specific suffix grammar: WORD scales
+  // only, case-insensitive ("$2.3 Billion" in a headline licenses 2.3e9),
+  // and NO single-letter [MKB] suffixes — "Exhibit 8 B" in a legal document
+  // must never license 8,000,000,000 (review finding).
+  for (const m of afterTimes.matchAll(/\$?(\d[\d,]*\.?\d*)\s*(%|bps\b|billion\b|bn\b|million\b|mm\b|thousand\b)?/gi)) {
+    const base = Number(m[1]!.replace(/,/g, ""));
+    if (!Number.isFinite(base)) continue;
+    const suffix = m[2]?.toLowerCase();
+    if (suffix === "%" || suffix === "bps") {
+      addNumber(base);
+      percents.add(canon(base));
+      percents.add(canon(Math.abs(base)));
+      continue;
+    }
+    const scale = suffix ? SCALE_WORDS.find(([re]) => re.test(suffix))?.[1] : undefined;
+    addNumber(scale !== undefined ? base * scale : base);
   }
   // Spelled-out numbers in the source license spelled-out claims.
-  const words = afterDates.toLowerCase().split(/[^a-z0-9-]+/);
+  const words = afterTimes.toLowerCase().split(/[^a-z0-9-]+/);
   for (let i = 0; i < words.length; i++) {
     const base = WORD_UNITS[words[i]!];
     if (base === undefined) continue;
@@ -225,6 +236,16 @@ const DATE_PHRASE_RE = new RegExp(
     `|(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTH_NAME})\\.?(?:,?\\s+(\\d{4}))?` +
     `|(\\d{4})-(\\d{2})-(\\d{2})` +
     `|(\\d{1,2})/(\\d{1,2})(?:/(\\d{2,4}))?)\\b`,
+  "gi",
+);
+
+/** Grounding-side date grammar: month-name and ISO forms ONLY. The slash
+ *  form stays draft-side (DATE_PHRASE_RE) where it validates a claim; over
+ *  free source prose it would mint dates from fractions and dockets. */
+const GROUNDING_DATE_RE = new RegExp(
+  `\\b(?:(${MONTH_NAME})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?` +
+    `|(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTH_NAME})\\.?(?:,?\\s+(\\d{4}))?` +
+    `|(\\d{4})-(\\d{2})-(\\d{2}))\\b`,
   "gi",
 );
 
@@ -471,7 +492,12 @@ export function sourcingCheck(text: string): ValidationIssue[] {
 /** The model receives no URL and must emit none; the source link rides in a
  *  reply (p2r-05). Belt to that brace (finding #10). */
 export function urlCheck(text: string): ValidationIssue[] {
-  return /(?:https?:\/\/|\bwww\.|\bt\.co\b)/i.test(text)
+  // Scheme-less official domains too ("SEC.gov" in agency boilerplate): X
+  // links them like any URL, so they'd bill 23 weighted while our counter
+  // sees 7 — and the post contract is no links at all (review finding).
+  return /(?:https?:\/\/|\bwww\.|\bt\.co\b|\b[a-z0-9][a-z0-9.-]*\.(?:gov|mil|int)\b|\b[a-z0-9][a-z0-9.-]*\.(?:europa\.eu|org\.uk|or\.jp|gov\.au|gov\.br|co\.za)\b)/i.test(
+    text,
+  )
     ? [{ rule: "url", detail: "URLs never ride in the post body; the source goes in the reply" }]
     : [];
 }

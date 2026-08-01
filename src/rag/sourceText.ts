@@ -74,6 +74,13 @@ function hostOf(url: string): string | null {
   }
 }
 
+/** Callers gate their fetch budget on this: a blocked host must not cost a
+ *  budget token for a fetch that will never happen (review finding). */
+export function isBlockedGroundingHost(url: string): boolean {
+  const h = hostOf(url);
+  return h !== null && EGRESS_BLOCKED_HOSTS.includes(h);
+}
+
 function isFullTextHost(host: string): boolean {
   return FULL_TEXT_HOST_SUFFIXES.some((s) => (s.startsWith(".") ? host.endsWith(s) : host === s));
 }

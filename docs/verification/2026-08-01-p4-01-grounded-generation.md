@@ -22,10 +22,14 @@ salience/curation in the same session.
      the central banks) enter in full capped at 24k chars (~6k tokens);
      anything else gets a 1,200-char excerpt (conservative default).
      Egress-blocked hosts (www.cftc.gov, efdsearch.senate.gov, both treasury
-     hosts, NSE — the verified P1/P3 blocks) are refused BEFORE any fetch;
-     a fetch-spy test pins that. Failures degrade to payload+context and
-     never block generation. Provenance recorded in `items.raw_meta`
-     ({host, fetchedAt, sha256, bytes, mode, truncated}).
+     hosts, NSE — the verified P1/P3 blocks) are refused BEFORE the budget
+     token is taken and before any fetch; a fetch-spy test pins that.
+     SUCCESSFUL fetches cache write-once (a document is fetched at most once
+     on success); failed fetches retry on later ticks, bounded by the row's
+     MAX_ATTEMPTS lifetime. Failures degrade to payload+context and never
+     block generation. Provenance in `items.raw_meta`: fetch-path rows carry
+     {host, fetchedAt, sha256, bytes, mode, truncated}; ingest-path rows
+     carry {mode, fetchedAt}.
 3. **LAKE CONTEXT** — machine-derived lines from our own D1 lake
    (`rag/context.ts`): prior-item counts and the 1–2 most recent titles for
    the same actor (entity keys per archetype: authority, member, country,

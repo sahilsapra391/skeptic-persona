@@ -13,22 +13,28 @@ import type { Payload } from "../templates/types";
 
 /**
  * Payload key(s) that identify "the same actor" per archetype, tried in
- * order. A key missing from the payload degrades to source-level context —
- * never a guess. Only keys verified against a live payload or ingester code
- * are listed.
+ * order; dots reach nested fields. A key missing from the payload degrades
+ * to source-level context — never a guess. Keys corrected against ingester
+ * payload shapes in review: Form 4 nests issuer.{cik,ticker}; Form 144
+ * carries issuerCik; Reg SHO uses symbol; Senate PTRs say `who` where House
+ * says `member`.
  */
 const ENTITY_KEYS: Record<string, readonly string[]> = {
   REGULATORY_NEWS: ["authority"],
-  CONGRESS_PTR: ["member"],
+  CONGRESS_PTR: ["member", "who"],
   RATE_DECISION: ["country"],
   FILING_8K: ["cik", "ticker"],
-  FILING_FORM4: ["issuerCik", "ticker"],
+  FILING_FORM4: ["issuer.cik", "issuer.ticker"],
   OWNERSHIP_STAKE: ["issuerCik", "ticker"],
-  INSIDER_NOTICE: ["ticker"],
+  INSIDER_NOTICE: ["issuerCik"],
   HALT: ["symbol"],
-  SETTLEMENT_FAILURE: ["ticker"],
+  SETTLEMENT_FAILURE: ["symbol"],
   PRODUCT_RECALL: ["firm"],
 };
+
+function valueAtPath(payload: Payload, path: string): unknown {
+  return path.split(".").reduce<unknown>((o, k) => (o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined), payload);
+}
 
 const MAX_LINES = 4;
 const MAX_TITLE_CHARS = 140;
@@ -97,7 +103,7 @@ export async function lakeContext(db: D1Database, item: ItemRow, payload: Payloa
     let entityPath: string | undefined;
     let entityValue: string | undefined;
     for (const key of ENTITY_KEYS[item.archetype] ?? []) {
-      const v = payload[key];
+      const v = valueAtPath(payload, key);
       if (typeof v === "string" && v.length > 0) {
         entityPath = `$.${key}`;
         entityValue = v;
