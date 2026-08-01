@@ -252,6 +252,16 @@ describe("shapes the completeness gate caught in PRODUCTION, 2026-08-01", () => 
   });
 });
 
+// The page-break fixture keeps the XOM band WRAPPED, so no committed fixture
+// contains a bare `CommonP`-style truncation. Building it here once means the
+// sweep below actually exercises the shape rather than iterating six inputs
+// that cannot trip the guard -- the first version of that assertion passed
+// with the guard deleted, which made it decorative.
+const UNWRAPPED_PAGEBREAK = PAGEBREAK.replace(
+  "JT Exxon Mobil Corporation CommonP 02/07/202505/29/2026$15,001 -",
+  "JT Exxon Mobil Corporation CommonP 02/07/202505/29/2026$15,001 - $50,000",
+);
+
 describe("a lowercase boundary means TRUNCATED, not glued", () => {
   // Review finding from the p4 session, reproduced. Widening the boundary to
   // accept a lowercase letter looked like it rescued a glued cell. It does
@@ -264,10 +274,7 @@ describe("a lowercase boundary means TRUNCATED, not glued", () => {
     // un-wrap the XOM amount band, which turns it into the 20033916 shape.
     // Before this guard the parser read 16 of 16 and the gate PASSED, storing
     // assetName "Exxon Mobil Corporation Common" with a null ticker.
-    const unwrapped = PAGEBREAK.replace(
-      "JT Exxon Mobil Corporation CommonP 02/07/202505/29/2026$15,001 -",
-      "JT Exxon Mobil Corporation CommonP 02/07/202505/29/2026$15,001 - $50,000",
-    );
+    const unwrapped = UNWRAPPED_PAGEBREAK;
     expect(unwrapped).not.toBe(PAGEBREAK);
 
     const txns = parseHousePtrText(unwrapped);
@@ -297,6 +304,9 @@ describe("a lowercase boundary means TRUNCATED, not glued", () => {
       ["spaced", SPACED],
       ["untraded", UNTRADED],
       ["pagebreak", PAGEBREAK],
+      // The one input that can actually trip the guard. Without it this
+      // sweep passes with the guard deleted.
+      ["pagebreak-unwrapped", UNWRAPPED_PAGEBREAK],
     ] as const) {
       for (const t of parseHousePtrText(text)) {
         expect(t.ticker !== null || !/[a-z]$/.test(t.assetName), `${label}: ${t.assetName}`).toBe(true);
