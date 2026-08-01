@@ -1,4 +1,5 @@
 import type { Env } from "../env";
+import { issuerGate } from "./issuers";
 import { newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
 import { decodeEntities, extractAll, extractAttr, extractFirst, stripBom } from "../lib/xml";
@@ -383,7 +384,14 @@ async function processDetail(
 
     const owner = doc.owners[0];
     const totals = totalsFor(doc.nonDerivative);
-    const score = scoreForm4(totals);
+    let score = scoreForm4(totals);
+    // ISSUER GATE. Same reference the 8-K lane uses, same fail-open rules.
+    // The filing still lands in the lake; it just stops interrupting.
+    const gate = await issuerGate(env, doc.issuerCik, now);
+    if (!gate.keep) {
+      score = Math.min(score, SCORE_LOG_ONLY);
+      log("debug", "form4 suppressed by issuer gate", { cik: doc.issuerCik, reason: gate.reason });
+    }
     const fresh = isFreshAtIngest(row.event_at ?? "", now);
     const draft = draftForm4(doc, totals);
 

@@ -137,7 +137,8 @@ export interface GateResult {
     | "minor_exchange"
     | "below_float"
     | "not_in_reference"
-    | "reference_unavailable";
+    | "reference_unavailable"
+    | "no_issuer_cik";
 }
 
 /**
@@ -212,6 +213,30 @@ export function keepIssuer(
   if (issuer.publicFloat === null) return { keep: true, reason: "float_unknown" };
   if (issuer.publicFloat < minFloatUsd) return { keep: false, reason: "below_float" };
   return { keep: true, reason: "major_exchange" };
+}
+
+/**
+ * The whole gate in one call: look the issuer up, judge the reference, decide.
+ *
+ * Takes the ISSUER's CIK. Every filing form in this repo also carries a
+ * filer-side CIK -- rptOwnerCik on Form 4, reportingPersonCIK on Schedule 13 --
+ * and those identify a PERSON. Passing one here would look a human up in a
+ * table of companies, find nothing, and (since absence became evidence)
+ * suppress every filing of that type. Verified field name on all three:
+ * `issuerCik`.
+ */
+export async function issuerGate(env: Env, issuerCik: string | number, now: Date): Promise<GateResult> {
+  // "We could not read an issuer CIK" is NOT "this issuer is not listed".
+  // lookupIssuer returns null for both, and after #64 a null means suppress,
+  // so without this an unparsed field would be read as evidence of
+  // non-listing. The gate only ever acts on a POSITIVE finding; deciding what
+  // an unparsed issuer is worth belongs to each source's own scorer, which
+  // already log-onlys them.
+  const n = Number(issuerCik);
+  if (!Number.isFinite(n) || n <= 0) return { keep: true, reason: "no_issuer_cik" };
+
+  const authoritative = referenceIsAuthoritative(await referenceHealth(env), now);
+  return keepIssuer(await lookupIssuer(env, issuerCik), minFloatUsd(env), authoritative);
 }
 
 export function minFloatUsd(env: Env): number {
