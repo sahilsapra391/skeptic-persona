@@ -97,7 +97,24 @@ export async function captureEdgarBodies(
   // the one we want.
   const pending = await env.DB.prepare(
     `SELECT id, source_url FROM items
-      WHERE source = 'edgar_8k' AND raw_text IS NULL AND score >= ?1
+      WHERE source = 'edgar_8k'
+        AND score >= ?1
+        AND (
+          raw_text IS NULL
+          -- OR it was cached by the generation fallback rather than by this
+          -- job. raw_meta.document is written ONLY here: the fallback has no
+          -- notion of which file inside the filing it fetched, because it
+          -- never opened the directory listing. So a row with grounding text
+          -- and no document name is index chrome, and re-capturing replaces
+          -- it with the filing.
+          --
+          -- This is why there is no cleanup migration. A one-off UPDATE would
+          -- have fixed the rows that existed when it ran; this fixes them
+          -- whenever they appear, including any poisoned in the window
+          -- between p4-01 going live and this deploying. Production held
+          -- zero such rows when checked, by both sessions independently.
+          OR json_extract(raw_meta, '$.document') IS NULL
+        )
       ORDER BY id DESC LIMIT ?2`,
   )
     .bind(SCORE_POSTABLE, BODY_BATCH)
