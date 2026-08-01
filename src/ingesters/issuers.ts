@@ -225,7 +225,39 @@ export function keepIssuer(
  * suppress every filing of that type. Verified field name on all three:
  * `issuerCik`.
  */
-export async function issuerGate(env: Env, issuerCik: string | number, now: Date): Promise<GateResult> {
+export interface GateContext {
+  /** Whether absence from the reference may be read as "not listed". */
+  authoritative: boolean;
+  floorUsd: number;
+}
+
+/**
+ * Build the gate's batch-scoped context. Call ONCE per run, never per filing.
+ *
+ * referenceHealth is `SELECT COUNT(*), MAX(updated_at) FROM issuers`, and
+ * MAX over an unindexed column means D1 scans the table -- 12,000 rows read
+ * per call against a real ticker file, versus 1 for the lookupIssuer primary
+ * key hit.
+ *
+ * Per filing that is ruinous. Measured across the three detail lanes at their
+ * real cadences and batch sizes: form4 3,840 gate calls/day, schedule13
+ * 1,536, form144 2,304 -- roughly 87M rows/day against a documented 5M/day
+ * cap, exhausted in about 17 minutes of saturated batches. And because the
+ * jobs table, the dedup ledger and the approval queue are all D1, the
+ * consequence is not three degraded sources, it is every query failing.
+ *
+ * The 8-K lane already hoists this (edgar8k.ts, "Read the reference health
+ * ONCE per batch, not per filing"); this type makes the hoist structural so
+ * the mistake cannot be made again by passing `env` and hoping.
+ */
+export async function gateContext(env: Env, now: Date): Promise<GateContext> {
+  return {
+    authoritative: referenceIsAuthoritative(await referenceHealth(env), now),
+    floorUsd: minFloatUsd(env),
+  };
+}
+
+export async function issuerGate(env: Env, issuerCik: string | number, ctx: GateContext): Promise<GateResult> {
   // "We could not read an issuer CIK" is NOT "this issuer is not listed".
   // lookupIssuer returns null for both, and after #64 a null means suppress,
   // so without this an unparsed field would be read as evidence of
@@ -235,8 +267,7 @@ export async function issuerGate(env: Env, issuerCik: string | number, now: Date
   const n = Number(issuerCik);
   if (!Number.isFinite(n) || n <= 0) return { keep: true, reason: "no_issuer_cik" };
 
-  const authoritative = referenceIsAuthoritative(await referenceHealth(env), now);
-  return keepIssuer(await lookupIssuer(env, issuerCik), minFloatUsd(env), authoritative);
+  return keepIssuer(await lookupIssuer(env, issuerCik), ctx.floorUsd, ctx.authoritative);
 }
 
 export function minFloatUsd(env: Env): number {
