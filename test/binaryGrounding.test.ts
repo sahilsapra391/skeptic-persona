@@ -1,0 +1,72 @@
+import { describe, expect, it } from "vitest";
+import PDF_ESCAPED from "./fixtures/pdf-served-as-page.text.fixture?raw";
+import { htmlToText, looksBinary } from "../src/lib/html";
+
+// The leading bytes of a REAL document a press feed links to:
+// https://www.sec.gov/files/litigation/admin/2026/ia-6984.pdf, fetched
+// 2026-08-01. Three of the six press feeds ship no usable <description>, and
+// two of them (SEC litigation, Bank of Japan) link straight to binaries.
+//
+// NULs are escaped in the committed file and rebuilt here: a literal NUL is
+// invisible in every diff and review UI, which is how this class of thing
+// survives review in the first place. The .text.fixture suffix is required:
+// ?raw resolution under the workers pool only recognises the established
+// fixture extensions, and .bin.fixture fails to resolve at all.
+//
+// Every control character below is written as an escape for the same reason.
+// The first draft of this file carried real CR bytes inside a string literal,
+// which made grep treat the whole file as binary and made it uneditable by
+// exact match. Invisible bytes cost time even when they are harmless.
+const PDF_HEAD = PDF_ESCAPED.replace(/\\u0000/g, "\u0000");
+
+describe("a PDF is not markup", () => {
+  it("recognises the real document the SEC litigation feed links to", () => {
+    expect(PDF_HEAD.startsWith("%PDF-")).toBe(true);
+    expect(PDF_HEAD).toContain("\u0000");
+    expect(looksBinary(PDF_HEAD)).toBe(true);
+  });
+
+  it("extracts NOTHING from it rather than object tables", () => {
+    // Tag-stripping a PDF does not fail. On the full document it yields
+    // 106,641 characters of object tables and byte offsets -- "/Length 93",
+    // "/Prev 223302", "/Size 312" -- and those are DIGITS. Because the
+    // generation validator widens its whitelist to payload union source, a
+    // PDF's internal structure would have licensed its own numbers as facts
+    // our posts may state. A 200 response and non-empty text, both wrong.
+    const text = htmlToText(PDF_HEAD);
+    expect(text).toBe("");
+    expect(text).not.toMatch(/\d/);
+  });
+
+  it("catches the spreadsheets the BoJ feed actually links to", () => {
+    // NOT hypothetical. TEN of Bank of Japan's 43 feed items are .xlsx --
+    // measured 2026-08-01 by fetching every one. A live sample begins with
+    // the zip magic below and decodes to 71.8% replacement characters, so
+    // both halves of the guard catch it. Before this they were tag-stripped
+    // into raw_text exactly as the PDFs were, and a spreadsheet's zip
+    // container is nothing but numbers.
+    expect(looksBinary("PK\u0003\u0004\u0014\u0000\u0006\u0000")).toBe(true);
+    expect(looksBinary("PNG\r\n")).toBe(true);
+    expect(looksBinary("GIF89a")).toBe(true);
+  });
+
+  it("does not mistake real markup for binary", () => {
+    const html = "<html><body><p>CFTC charged Acme with fraud. Penalty $35,000.</p></body></html>";
+    expect(looksBinary(html)).toBe(false);
+    expect(htmlToText(html)).toContain("$35,000");
+  });
+
+  it("does not mistake accented or CJK copy for binary", () => {
+    // Two of our own live sources publish in these scripts. A byte-oriented
+    // heuristic that flagged them would silently un-ground BoJ and the EU.
+    expect(looksBinary("<p>Bundesanstalt fur Finanzdienstleistungsaufsicht</p>")).toBe(false);
+    expect(looksBinary("<p>日本銀行は政策金利を据え置いた</p>")).toBe(false);
+    expect(htmlToText("<p>日本銀行</p>")).toContain("日本銀行");
+  });
+
+  it("treats an empty body as text, not binary", () => {
+    // Empty is already handled downstream as "no grounding". Calling it
+    // binary would be a different and misleading signal.
+    expect(looksBinary("")).toBe(false);
+  });
+});
