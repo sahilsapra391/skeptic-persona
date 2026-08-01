@@ -205,13 +205,33 @@ export async function ownerFinals(
     log("warn", "voice_finals unavailable; using committed exemplars only", { error: String(e) });
     return [];
   }
-  return rows.results
-    .filter((r) => checkRegister(r.text).length === 0 && urlCheck(r.text).length === 0)
-    .map((r) => ({
+  const out: OwnerExemplar[] = [];
+  for (const r of rows.results) {
+    // The archetype is passed, matching the bar committed exemplars clear in
+    // stylepack.test.ts (`checkRegister(ex.text, ex.archetype)`). Omitting it
+    // skipped the archetype-specific rules — chamber-mapped attribution among
+    // them — so the filter was a SUBSET of the standard it claimed to apply.
+    const issues = [...checkRegister(r.text, archetype), ...urlCheck(r.text)];
+    if (issues.length === 0) {
+      out.push({
+        archetype,
+        register: r.register === "commentary" ? ("commentary" as const) : ("wire" as const),
+        text: r.text,
+      });
+      continue;
+    }
+    // LOUD, never silent. This text is something the owner wrote and actually
+    // published, so a rejection here is a genuine disagreement between his
+    // judgement and our register rules — which is worth knowing about, and is
+    // exactly the kind of fact that a quiet `.filter()` would delete. A bank
+    // that empties itself invisibly is the account going quiet by another
+    // route.
+    log("warn", "promoted final excluded from prompt bank", {
       archetype,
-      register: r.register === "commentary" ? ("commentary" as const) : ("wire" as const),
-      text: r.text,
-    }));
+      rules: issues.map((i) => i.rule),
+    });
+  }
+  return out;
 }
 
 /**
