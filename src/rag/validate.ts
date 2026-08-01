@@ -702,6 +702,47 @@ const HEDGE_PATTERNS: readonly RegExp[] = [
   /\bmake of that what you will\b/i,
 ];
 
+/**
+ * A beat/take is a SENTENCE, not a fragment.
+ *
+ * Found in the first live generation (2026-08-01): the sharp variant shipped
+ * `pay $35,000.` as its beat — doctrine-legal (the number is in the payload)
+ * but a lowercase fragment echoing the fact block, which reads as broken
+ * output rather than as a dry observation. Every beat in persona.md section 8
+ * and every beat in the owner's exemplars is a complete sentence.
+ *
+ * Deliberately a CAPITALISATION check, not an echo check: the owner's own
+ * `Nine days.` after "...filed nine days later" is a rhetorical echo and one
+ * of his best beats, so rejecting restatement would reject his voice. What
+ * separates his echo from the model's fragment is that his is a sentence.
+ * (Openings that legitimately start non-alphabetic — a $TICKER, a number, a
+ * permitted emoji — are allowed through.)
+ */
+/**
+ * Issuers whose registered name begins lowercase. The capitalisation rule
+ * would otherwise reject well-formed beats about companies we actually
+ * cover — "iShares was not the buyer." is correct copy, not a fragment.
+ */
+const LOWERCASE_INITIAL_NAMES = /^(i[A-Z]|e[A-Z]|loanDepot|iShares|eBay|iRobot|iHeart|nCino|ePlus|dLocal|oneSpan|uniQure|bluebird|argenx|indie Semiconductor)/;
+
+export function beatShapeCheck(text: string): ValidationIssue[] {
+  // Split on ANY newline, not only blank lines. A beat one newline below the
+  // fact block is the same defect — and it was the ORIGINAL one: the live
+  // `pay $35,000.` case reappears verbatim when separated by \n instead of
+  // \n\n, and the blank-line-only split waved it through.
+  const segments = text.split(/\n+/).slice(1); // everything after the first line
+  for (const seg of segments) {
+    const trimmed = seg.trimStart();
+    const first = trimmed.charAt(0);
+    if (first === "") continue;
+    if (LOWERCASE_INITIAL_NAMES.test(trimmed)) continue; // iShares, eBay, loanDepot
+    if (/[a-z]/.test(first)) {
+      return [{ rule: "beat_shape", detail: `beat starts lowercase ("${seg.trim().slice(0, 32)}") — a beat is a sentence, not a fragment` }];
+    }
+  }
+  return [];
+}
+
 export function hedgeCheck(text: string): ValidationIssue[] {
   const hit = HEDGE_PATTERNS.find((re) => re.test(text));
   return hit ? [{ rule: "hedge", detail: `hedge construction: ${String(hit.exec(text)?.[0])}` }] : [];
@@ -740,15 +781,33 @@ export async function corpusHasData(db: D1Database): Promise<boolean> {
   return row !== null;
 }
 
+/**
+ * D1 caps NUMBERED parameters at 100 per statement:
+ *   D1_ERROR: variable number must be between ?1 and ?100
+ * One parameter per distinct 8-gram means text over ~108 word tokens throws
+ * rather than returning issues — and a throw inside validateVariant escapes
+ * runGeneration, so the failure mode is a crashed generation run, not a
+ * rejected variant. Latent while echo_ngrams was empty (corpusHasData
+ * short-circuits); loading 726k hashes is what armed it. Commentary at 280
+ * weighted is ~45 words, but template fallbacks and owner edited_text are
+ * bounded by nothing.
+ */
+export const D1_MAX_PARAMS = 100;
+const ECHO_CHUNK = 90; // headroom under the cap
+
 export async function corpusEchoCheck(db: D1Database, text: string): Promise<ValidationIssue[]> {
   const hashes = [...ngramHashes(text)];
   if (hashes.length === 0) return [];
-  const placeholders = hashes.map((_, i) => `?${i + 1}`).join(",");
-  const hit = await db
-    .prepare(`SELECT hash FROM echo_ngrams WHERE hash IN (${placeholders}) LIMIT 1`)
-    .bind(...hashes)
-    .first<{ hash: string }>();
-  return hit ? [{ rule: "corpus_echo", detail: "an 8-gram matches the studied corpus" }] : [];
+  for (let i = 0; i < hashes.length; i += ECHO_CHUNK) {
+    const chunk = hashes.slice(i, i + ECHO_CHUNK);
+    const placeholders = chunk.map((_, j) => `?${j + 1}`).join(",");
+    const hit = await db
+      .prepare(`SELECT hash FROM echo_ngrams WHERE hash IN (${placeholders}) LIMIT 1`)
+      .bind(...chunk)
+      .first<{ hash: string }>();
+    if (hit) return [{ rule: "corpus_echo", detail: "an 8-gram matches the studied corpus" }];
+  }
+  return [];
 }
 
 export async function collisionCheck(
@@ -819,6 +878,7 @@ export async function validateVariant(db: D1Database, text: string, opts: Valida
     ...checkRegister(text, opts.archetype, opts.payload),
     ...lengthCheck(text, opts.variant),
     // Group 2 — the contract.
+    ...beatShapeCheck(text),
     ...hedgeCheck(text),
     ...cadenceCheck(text),
   ];

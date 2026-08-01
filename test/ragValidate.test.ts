@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import {
+  beatShapeCheck,
   cadenceCheck,
   checkGroundingProvenance,
   looksLikeProse,
@@ -25,6 +26,7 @@ import {
   wordNumberCheck,
 } from "../src/rag/validate";
 import { fnv1a, maskSkeleton, ngramHashes, openerHash, skeletonHash, NGRAM_SALT } from "../src/rag/echo";
+import { ARCHETYPES } from "../src/templates/archetypes";
 import { iso } from "../src/lib/time";
 
 const NOW = new Date("2026-07-28T15:00:00Z");
@@ -317,6 +319,21 @@ describe("sourcing + url — non-negotiable #2, mechanically", () => {
     }
   });
 
+  it("MAP-FORM attributions are legal: every press authority and every central bank", () => {
+    // The allowlist derives from ARCHETYPES at module load and normalises the
+    // string-or-map form, so PRESS_ATTRIBUTION (payload.authority) and the
+    // rate map (payload.country) are covered with no per-source maintenance.
+    // Pinned because a regression here silently rejects whole sources.
+    const mapped = Object.values(ARCHETYPES).flatMap((a): string[] => {
+      const attr: unknown = a.attribution;
+      return typeof attr === "string" ? [] : Object.values((attr as { map?: Record<string, string> }).map ?? {});
+    });
+    expect(mapped.length, "no map-form attributions found — did the shape change?").toBeGreaterThan(3);
+    for (const attr of mapped) {
+      expect(sourcingCheck(`Something happened, ${attr}.`), attr).toEqual([]);
+    }
+  });
+
   it("our own attributions and rate-phrases pass", () => {
     for (const ok of ["per Senate eFD.", "per SEC Form 4.", "250 posts per day", "$4 per share"]) {
       expect(sourcingCheck(ok), ok).toEqual([]);
@@ -358,6 +375,45 @@ describe("motive — the defamation surface, directly (finding #15)", () => {
     ]) {
       expect(motiveCheck(ok), ok).toEqual([]);
     }
+  });
+});
+
+describe("beatShapeCheck — a beat is a sentence (found in the first live generation)", () => {
+  it("rejects the lowercase fragment the model actually shipped", () => {
+    const real = "CFTC orders George Santos to pay $35,000 for manipulative trading, per CFTC.\n\npay $35,000.";
+    expect(beatShapeCheck(real).map((i) => i.rule)).toEqual(["beat_shape"]);
+  });
+
+  it("FALSE-POSITIVE CORPUS: the owner's own beats all pass, including his echoes", () => {
+    for (const ok of [
+      "Senate PTR: sale, filed nine days later, per Senate eFD.\n\nNine days.", // his echo
+      "Form 4: director bought 25,000 shares, per SEC.\n\nPosition up 31%.",
+      "Four Form 4s, same issuer, per SEC.\n\nFour signatures, not one.",
+      "8-K, Item 4.02, per SEC.\n\nTheir words, about their own numbers.",
+      "CFTC orders a payment, per CFTC.\n\n$35,000, in the order's own figure.", // non-alpha opener
+    ]) {
+      expect(beatShapeCheck(ok), ok.slice(-30)).toEqual([]);
+    }
+  });
+
+  it("catches a SINGLE-newline beat — the original defect, one newline away", () => {
+    // Review finding: splitting only on blank lines meant the live
+    // `pay $35,000.` case passed when separated by \n instead of \n\n.
+    const single = "CFTC orders George Santos to pay $35,000 for manipulative trading, per CFTC.\npay $35,000.";
+    expect(beatShapeCheck(single).map((i) => i.rule)).toEqual(["beat_shape"]);
+  });
+
+  it("does NOT reject issuers whose names begin lowercase", () => {
+    // Deterministic false positives on companies we actually cover.
+    for (const beat of ["iShares was not the buyer.", "eBay's second restatement this year.", "loanDepot filed late."]) {
+      expect(beatShapeCheck(`Fact block, per SEC.\n\n${beat}`), beat).toEqual([]);
+    }
+    // A genuine fragment is still caught.
+    expect(beatShapeCheck("Fact block, per SEC.\n\npay $35,000.").length).toBe(1);
+  });
+
+  it("checks every segment, not just the first take", () => {
+    expect(beatShapeCheck("Fact, per SEC.\n\nGood sentence.\n\nand a bad fragment.").length).toBe(1);
   });
 });
 
@@ -433,6 +489,21 @@ describe("echo + collisions", () => {
     const coat = "Senate PTR: purchase reported in the band disclosed forty five days after the trade date. Quite a lag.";
     expect(templateEchoCheck(coat, template).map((i) => i.rule)).toEqual(["template_echo"]);
     expect(templateEchoCheck("A fresh sentence with its own words entirely, per SEC.", template)).toEqual([]);
+  });
+
+  it("corpusEchoCheck CHUNKS under D1's 100-parameter cap — long text must not throw", async () => {
+    // Reproduced from review: one bound parameter per distinct 8-gram, and D1
+    // raises "variable number must be between ?1 and ?100" past that. Text
+    // over ~108 word tokens crossed it, and a throw inside validateVariant
+    // escapes runGeneration — a crashed run, not a rejected variant.
+    const long = Array.from({ length: 400 }, (_, i) => `token${i}`).join(" ");
+    expect(ngramHashes(long).size).toBeGreaterThan(100); // would have thrown
+    await expect(corpusEchoCheck(env.DB, long)).resolves.toEqual([]);
+    // And it still HITS when a hash from a later chunk is present.
+    const hashes = [...ngramHashes(long)];
+    await env.DB.prepare(`INSERT OR IGNORE INTO echo_ngrams (hash) VALUES (?1)`).bind(hashes.at(-1)).run();
+    expect((await corpusEchoCheck(env.DB, long)).map((i) => i.rule)).toEqual(["corpus_echo"]);
+    await env.DB.prepare(`DELETE FROM echo_ngrams WHERE hash = ?1`).bind(hashes.at(-1)).run();
   });
 
   it("corpusHasData + corpusEchoCheck: empty is empty; a seeded hash hits", async () => {
