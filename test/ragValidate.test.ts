@@ -217,6 +217,30 @@ describe("grounding provenance — wrong document is a fabrication license", () 
     expect(groundingFacts(pdfish).numbers.has("223302")).toBe(true);
   });
 
+  it("REJECTS a tag-stripped spreadsheet — binary is binary at ANY length", () => {
+    // The hole my own 20-token exemption opened, found by testing against the
+    // XLSX class rather than assuming the prose ratio covered it. A stripped
+    // .xlsx is ~10 tokens (binary has no spaces), so it was EXEMPT, and its
+    // docProps title carries the payload's authority.
+    const strippedXlsx = "PK\u0003\u0004\u0014\u0000\u0000\u0000\b\u0000\uFFFD\uFFFD\u0001]\uFFFDtk [Content_Types].xml \uFFFDM \uFFFD Bank of Japan Monetary Base 223302 41728";
+    expect(strippedXlsx.split(/\s+/).filter(Boolean).length).toBeLessThan(20); // under the exemption
+    expect(looksLikeProse(strippedXlsx)).toBe(false);
+    const v = checkGroundingProvenance(strippedXlsx, { authority: "Bank of Japan" });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe("not_prose");
+  });
+
+  it("short LEGITIMATE text stays exempt — the reason the floor exists", () => {
+    // Lake-context lines are terse by design and must not be rejected.
+    for (const terse of [
+      "Second non-reliance filing from this issuer this year.",
+      "3 prior halts on this symbol today.",
+      "Filed 2026-06-03, disclosed 2026-07-18.",
+    ]) {
+      expect(looksLikeProse(terse), terse).toBe(true);
+    }
+  });
+
   it("looksLikeProse separates document internals from every real sample", () => {
     expect(looksLikeProse("%PDF-1.6 /Type /Catalog /Length 93 /Prev 223302 xref 0 312 f n /BaseFont /Times-Roman trailer /Size 312 startxref 224891 %%EOF /Filter /FlateDecode stream endstream obj endobj")).toBe(false);
     for (const real of [
