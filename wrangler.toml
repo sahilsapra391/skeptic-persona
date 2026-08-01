@@ -42,4 +42,10 @@ QUEUE_TTL_OVERRIDES = "MACRO_PRINT:12,HALT:12,CONGRESS_PTR:96"
 # [vars] on every merge deploy — a dashboard-set value would be wiped. Empty =
 # generation holds and the queue accumulates; the owner sets the real id in a
 # PR alongside `wrangler secret put OPENROUTER_API_KEY`.
-OPENROUTER_MODEL = "qwen/qwen3.7-flash"
+# Switched from qwen/qwen3.7-flash 2026-08-01 on measured evidence, not taste:
+# docs/verification/2026-08-01-model-ab.md ran 4 real production items through
+# the real prompt and the real doctrine validators against four models.
+# gpt-5.6-terra: 10/12 drafts valid on 4,875 output tokens.
+# qwen3.7-flash: 8/12 valid on 33,797 — ~7x the tokens for a worse pass rate.
+# Model id verified against the live OpenRouter catalog the same day.
+OPENROUTER_MODEL = "openai/gpt-5.6-terra"
