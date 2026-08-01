@@ -285,7 +285,34 @@ export interface GroundingProvenance {
 export const PROSE_MIN_TOKENS = 20;
 export const PROSE_MIN_WORD_RATIO = 0.6;
 
+/**
+ * Binary masquerading as text, checked INDEPENDENTLY of length.
+ *
+ * Found 2026-08-01 by testing my own gate against the XLSX class the
+ * ingestion session had just discovered (ten BoJ "HTML" items were
+ * spreadsheets). A tag-stripped .xlsx yields ~10 whitespace-separated tokens,
+ * because binary has almost no spaces — so it fell UNDER the 20-token
+ * exemption I added to protect terse lake-context lines, `looksLikeProse`
+ * returned true, and the `docProps` title ("Bank of Japan Monetary Base")
+ * then satisfied the anchor check. The zip container's numbers would have
+ * been licensed.
+ *
+ * The exemption was the hole: short text is only trustworthy if it is TEXT.
+ * Control bytes and U+FFFD are conclusive regardless of length, so this runs
+ * first and has no minimum.
+ */
+function looksBinaryText(text: string): boolean {
+  if (text === "") return false;
+  // Any C0 control byte other than tab/newline/carriage-return.
+  if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(text)) return true;
+  // Replacement characters mean a decode already failed.
+  const repl = (text.match(/\uFFFD/g) ?? []).length;
+  return repl / text.length > 0.01;
+}
+
 export function looksLikeProse(text: string): boolean {
+  // Binary first, and length-independent: a short binary blob is still binary.
+  if (looksBinaryText(text)) return false;
   const tokens = text.split(/\s+/).filter(Boolean);
   if (tokens.length < PROSE_MIN_TOKENS) return true;
   const words = tokens.filter((t) => /^[A-Za-z][A-Za-z'\u2019-]*[.,;:)!?]?$/.test(t));
