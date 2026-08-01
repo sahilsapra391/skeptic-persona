@@ -36,6 +36,39 @@ until then, treat the request/response field names in the success path
 not live-verified. `parseVariants` is written defensively for exactly this
 reason: it assumes the model wraps JSON in prose until proven otherwise.
 
+## echo_ngrams was empty in production for four days — recorded 2026-08-01
+
+The corpus-echo check shipped 2026-07-28 with `scripts/build-echo-hashes.mjs`
+written but never run. `SELECT COUNT(*) FROM echo_ngrams` returned **0** until
+2026-08-01, so every generated draft passed that check by default. It degraded
+open by design (style similarity is not doctrine, unlike the group-1 floor
+which fails closed), and it logged a warn once per run — which nobody read.
+
+Found only because the ingestion session asked, about a different subsystem,
+whether a validator can tell *"not there"* from *"not loaded yet"*. Mine could
+not.
+
+**Loaded 2026-08-01: 726,579 salted 8-gram hashes from 34,092 corpus posts.**
+Hashes only; no third-party text is in the repo or the database.
+
+Verified discriminating against production, not asserted:
+
+| probe | hits in `echo_ngrams` |
+|---|---|
+| three 8-grams from a real corpus post | **3 of 3** |
+| three 8-grams from an owner exemplar | **0 of 3** |
+
+False-rejection risk measured before loading: all **30 owner exemplars** and
+all **3 live generated texts** produce zero collisions against the full set.
+
+Loading notes for whoever reloads it: `wrangler d1 execute --file` fails on
+4.35.0 with a Node `FileHandle`-closed-during-GC error, and `--command`
+batches above roughly 6,500 hashes are rejected. 5,000 per command, 146
+commands, works.
+
+The code now alerts once per 24h when the table is empty rather than logging a
+warn, because a check that is off must say so.
+
 ## Live round-trip — VERIFIED 2026-08-01
 
 The owed verification. `OPENROUTER_API_KEY` was set (Cloudflare dashboard; the

@@ -55,6 +55,7 @@ export const MAX_ATTEMPTS = 4;
 export const RUN_TIME_CAP_MS = 120_000;
 
 const KV_OPENROUTER_ALERTED = "openrouter:auth_alert_sent";
+const KV_ECHO_EMPTY_ALERTED = "echo:empty_alert_sent";
 
 const VARIANTS: readonly Variant[] = ["dry", "sharp", "commentary"];
 
@@ -246,7 +247,17 @@ export async function runGeneration(
   // One probe per run, not per variant (finding #22).
   const corpusPopulated = await corpusHasData(env.DB);
   if (!corpusPopulated) {
-    log("warn", "echo_ngrams is empty; corpus echo check is a no-op (run scripts/build-echo-hashes.mjs)");
+    // ABSENCE IS NOT EVIDENCE (the lesson the issuer gate paid for): an empty
+    // table means "not loaded", never "nothing matches". The check degrades
+    // open — style similarity is not doctrine — but it must be LOUD, because
+    // this silently no-opped in production from 2026-07-28 to 08-01 and only
+    // a manual row count found it. One alert per 24h, not a log line nobody
+    // reads.
+    log("error", "echo_ngrams is EMPTY; corpus echo check is disabled (run scripts/build-echo-hashes.mjs)");
+    if (!(await env.KV.get(KV_ECHO_EMPTY_ALERTED))) {
+      await env.KV.put(KV_ECHO_EMPTY_ALERTED, "1", { expirationTtl: 24 * 3600 });
+      await alertOwner(env, "⚠️ echo_ngrams is empty: the corpus-echo check is OFF, so generated drafts are not being screened against competitor phrasing. Load it with scripts/build-echo-hashes.mjs.", budget);
+    }
   }
 
   for (const row of rows.results) {
