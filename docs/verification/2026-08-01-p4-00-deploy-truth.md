@@ -147,3 +147,68 @@ just the three payload facts.
 PENDING Monday: House index rebuild (~13:00 UTC) + the 14:20 UTC house lane
 queue fresh weekend/Monday e-filings (senate lane parked, §4). Record lands
 here as a docs follow-up on main per owner decision 2026-08-01.
+
+---
+
+## 6. Local signals that do not mean what they say
+
+Three commands that succeed while answering a different question than the one
+the operator is asking. All three cost real time on 2026-08-01 and none of
+them produced an error.
+
+### 6a. A local full-suite result is not evidence about CI, in either direction
+
+`.dev.vars` is gitignored, so it exists in a working checkout and not in a
+fresh worktree or on CI. It supplies real keys, which changes what the suite
+exercises.
+
+Observed the same evening, in **opposite directions**, in two sessions:
+
+| Tree | Result |
+|---|---|
+| ingestion session, `.dev.vars` present | `generate.test.ts` "does nothing unconfigured" FAILS |
+| ingestion session, moved aside | 19/19 green |
+| p4 session, `.dev.vars` present | 1 file FAILED (47/48) |
+| p4 session, moved aside | 48/48, 697 green |
+
+The first framing of this warning was "local is more permissive". That is
+wrong. **Local and CI disagree, and which way depends on which tests the key
+touches.** A key can make an assertion pass that should fail, or fail one
+that should pass.
+
+So the only safe statement is the general one: **a local full-suite result is
+not evidence about CI in either direction.** Move `.dev.vars` aside, or check
+a clean worktree, before believing a green run.
+
+Cost of not knowing this: a long stretch spent reverting changes one at a
+time to find a regression that did not exist, every measurement taken against
+a tree that existed nowhere else.
+
+### 6b. `npm test` says nothing about `npm run typecheck`
+
+They are **separate CI steps** (`ci.yml`). A suite can be entirely green while
+`tsc --noEmit` fails, and it did: three `TS18047` errors shipped in a PR whose
+tests all passed.
+
+The failure was ordering, not omission — typecheck ran, then a test was added,
+then only the suite was re-run. The actionable form is therefore:
+**typecheck AFTER the last edit, not before it.**
+
+### 6c. A mergeability flag read immediately after a push is a stale computation
+
+GitHub reported `CONFLICTING` for roughly twenty seconds after a push while a
+local `git merge --no-commit` of the same two refs was already clean. Both
+sessions hit this and one treated the flag as authoritative.
+
+`mergeable` is computed asynchronously. Immediately after a push it describes
+the previous head. Re-read it, or merge locally into a throwaway worktree,
+which answers the question directly rather than by proxy.
+
+### 6d. The general form
+
+Each of these is a green signal answering a question adjacent to the one being
+asked. The habit that catches them is the same one the review sessions
+converged on all evening: **before trusting a signal, say out loud what
+question it actually answers.** A suite answers "did these assertions hold in
+this tree"; it does not answer "does this compile", "will CI agree", or "can
+this merge".
