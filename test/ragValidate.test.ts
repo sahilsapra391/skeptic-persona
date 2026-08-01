@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   beatShapeCheck,
   cadenceCheck,
+  ALL_ANCHOR_FIELDS,
+  NON_ANCHOR_FIELDS,
   checkGroundingProvenance,
   looksLikeProse,
   groundingFacts,
@@ -174,6 +176,185 @@ describe("entityCheck", () => {
 describe("grounding provenance — wrong document is a fabrication license", () => {
   const filing = { company: "Blink Charging Co", ticker: "BLNK", issuerCik: "1429764", itemCode: "3.01" };
 
+  it("ANCHOR COVERAGE AUDIT: every live payload shape offers an anchor (the test the comment promised)", () => {
+    // validate.ts exported ALL_ANCHOR_FIELDS "for the audit test" and the
+    // audit was never written — a promise in a comment, which is its own
+    // instance of the pattern this work is about. Here it is. Shapes taken
+    // from the live ingesters; a source absent from an anchor field is a
+    // source the gate silently fail-opens for.
+    const LIVE_PAYLOAD_SHAPES: Record<string, string[]> = {
+      FILING_8K: ["company", "cik", "itemCodes"],
+      FILING_FORM4: ["issuer", "issuerCik", "ticker", "insiderName"],
+      CONGRESS_PTR: ["member", "chamber", "ticker"],
+      SENATE_PTR_RAW: ["display", "who", "lastName"],
+      PRODUCT_RECALL: ["firm", "product", "classification"],
+      REGULATORY_NEWS: ["authority", "title", "publishedIso"],
+      FED_PRESS: ["title", "publishedIso"],
+      HALT: ["symbol", "reasonCode", "haltTimeEtShort"],
+      OWNERSHIP_STAKE: ["issuer", "cik", "pct"],
+      MACRO_PRINT: ["headlineYoY", "coreYoY", "releaseDate"],
+      RATE_DECISION: ["country", "rate", "effectiveDate"],
+    };
+    const uncovered: string[] = [];
+    for (const [archetype, fields] of Object.entries(LIVE_PAYLOAD_SHAPES)) {
+      if (!fields.some((f) => ALL_ANCHOR_FIELDS.includes(f))) uncovered.push(archetype);
+    }
+    // MACRO_PRINT and RATE_DECISION legitimately have no entity — a CPI print
+    // is about no company — so they fail-open by nature and are exempted
+    // EXPLICITLY rather than by omission.
+    expect(uncovered.sort()).toEqual(["MACRO_PRINT", "RATE_DECISION"]);
+    // And the site-wide fields must never be counted as anchors.
+    for (const f of NON_ANCHOR_FIELDS) expect(ALL_ANCHOR_FIELDS).not.toContain(f);
+  });
+
+  it("REGRESSION: TEN REAL FILERS whose name reduces to a common word license nothing", () => {
+    // Owner set a hard bar on this gate: it is the one validator whose failure
+    // puts invented facts on the account. So the poison cases are REAL, pulled
+    // from our own issuers table (8,043 rows) — not invented. 2,081 of those
+    // (26%) have a conformed name that reduces to a single token; these ten
+    // reduce to a common English word.
+    const REAL_FILERS = [
+      "Block, Inc.", "BOX INC", "CROWN HOLDINGS, INC.", "Freedom Holding Corp.",
+      "Frontier Group Holdings, Inc.", "GAP INC", "Noble Corp plc", "On Holding AG",
+      "Target Group Inc.", "TARGET CORP",
+    ];
+    const unrelated =
+      "Acme Industries said the block trade will close now that the gap in coverage is on target. " +
+      "The box was noted, a crown jewel asset, giving freedom at the frontier with noble intent.";
+    for (const company of REAL_FILERS) {
+      expect(checkGroundingProvenance(unrelated, { company }).ok, company).toBe(false);
+    }
+  });
+
+  it("...and each still matches its OWN document", () => {
+    for (const company of ["Block, Inc.", "BOX INC", "CROWN HOLDINGS, INC.", "GAP INC", "On Holding AG"]) {
+      const own = `${company} today announced results for the quarter ended June 30, 2026, and filed a current report.`;
+      expect(checkGroundingProvenance(own, { company }).ok, company).toBe(true);
+    }
+  });
+
+  it("a name that cannot discriminate is DROPPED, never guessed", () => {
+    // "RH" reduces to one token in both forms, so no form of it can prove
+    // provenance. Dropping falls through to a VISIBLE fail-open rather than
+    // matching "rh" anywhere it appears.
+    const v = checkGroundingProvenance("Some unrelated prose mentioning rh in passing, at length, with many other words here.", { company: "RH" });
+    expect(v.ok).toBe(true);
+    expect(v.reason).toBe("no_usable_anchor"); // visible, not silent
+    expect(v.matched).toBeNull();
+  });
+
+  it("dotted and EDGAR-state name forms still match (punctuation runs before suffix stripping)", () => {
+    const cases: Array<[string, string]> = [
+      ["ENTERPRISE PRODUCTS PARTNERS L.P.", "Enterprise Products Partners LP reported quarterly distributable cash flow today."],
+      ["Nestle S.A.", "Nestle SA announced the divestiture of its water brands portfolio today."],
+      ["BANK OF AMERICA CORP /DE/", "Bank of America Corporation filed a current report with the Commission today."],
+    ];
+    for (const [company, body] of cases) {
+      expect(checkGroundingProvenance(body, { company }).ok, company).toBe(true);
+    }
+  });
+
+  // A ticker is a word, and the first two attempts to handle that used a length
+  // floor — ">= 4 chars or a digit". Measured against the live issuers table:
+  // of 5,906 four- and five-character tickers, 371 are ordinary English words.
+  // Measured against 14 real 8-K filings from the EDGAR daily index for
+  // 2026-07-30/31, EVERY filing contains at least 11 of them as bare prose
+  // (median 23). The floor did not leak sometimes; it licensed everything.
+  const WORD_TICKERS = [
+    "LOVE", "WELL", "FORM", "LINE", "SUCH", "WHEN", "ELSE", "MAIN",
+    "REAL", "SAFE", "CASH", "COST", "PLAY", "ROAD", "PATH", "LIFE", "WAVE",
+  ] as const;
+
+  it("HIGH: a word-shaped ticker in bare prose licenses NOTHING, at any length", () => {
+    // One sentence of ordinary filing boilerplate containing every one of them.
+    const prose =
+      "When the board reviewed the real cost of the main line of business, it " +
+      "found no safe path forward, and so the form of the transaction was " +
+      "changed. Cash on hand will fund the road ahead; nothing else in the " +
+      "life of the agreement rides on such a wave, and there is much to love " +
+      "about how well the plan reads.";
+    const licensed = WORD_TICKERS.filter((t) => checkGroundingProvenance(prose, { ticker: t }).ok);
+    expect(licensed).toEqual([]);
+  });
+
+  it("a symbol anchors only where a filing PRINTS it as a symbol", () => {
+    // The four shapes real filings and releases actually use.
+    for (const body of [
+      "Lovesac Company (NASDAQ: LOVE) today reported results for the quarter.",
+      "The Lovesac Company (LOVE) filed a current report with the Commission.",
+      'The shares trade under the symbol "LOVE" on the Nasdaq Global Market.',
+      "Title of each class\nCommon Stock\nTrading Symbol(s)\nLOVE\nName of each exchange",
+    ]) {
+      expect(checkGroundingProvenance(body, { ticker: "LOVE" }).matched, body.slice(0, 40)).toBe("LOVE");
+    }
+  });
+
+  it("case is load-bearing — a lowercase word is never the uppercase symbol", () => {
+    // "well" in prose vs WELL, a live ticker. Same letters, opposite verdicts.
+    expect(checkGroundingProvenance("The transaction was received well by the market, as noted.", { ticker: "WELL" }).ok)
+      .toBe(false);
+    expect(checkGroundingProvenance("Welltower Inc. (NYSE: WELL) filed a current report today.", { ticker: "WELL" }).matched)
+      .toBe("WELL");
+  });
+
+  it("a present-but-unprinted symbol fails CLOSED, not open", () => {
+    // Absence of the symbol is not absence of evidence: we had something to
+    // test with and it did not check out, so licensing is withheld.
+    const v = checkGroundingProvenance("Acme Industries announced a restructuring of its operations today.", { ticker: "LOVE" });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe("no_anchor");
+  });
+
+  it("three-letter word tickers are not conclusive identifiers", () => {
+    // ALL (Allstate) and NOW (ServiceNow) are live ticker values, and under
+    // identifiers-first ordering a word match would be FIRST and final.
+    expect(checkGroundingProvenance("The company said all outstanding shares would be exchanged.", { ticker: "ALL" }).ok)
+      .toBe(false);
+    expect(checkGroundingProvenance("Blink Charging Co (NASDAQ: BLNK) common stock will be suspended.", { ticker: "BLNK" }).matched)
+      .toBe("BLNK");
+  });
+
+  it("HIGH: another company's document is REJECTED — no single shared token licenses it", () => {
+    // Review finding: the longest-token fallback matched "pharmaceuticals",
+    // so a Sorrento filing licensed itself against an Acme payload. Any two
+    // issuers sharing Holdings/Technologies/Capital/Partners had the same hole.
+    const sorrento = "Sorrento Pharmaceuticals, Inc. today announced that its board approved a restructuring. Sorrento Pharmaceuticals will file the related agreements as exhibits to a current report.";
+    const v = checkGroundingProvenance(sorrento, { company: "Acme Pharmaceuticals, Inc.", cik: "0001234567" });
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe("no_anchor");
+  });
+
+  it("IDENTIFIERS are consulted BEFORE names, so a weak path cannot decide first", () => {
+    // Previously `company` sat at index 0 and `cik` at index 6, so the token
+    // fallback settled it before the conclusive anchor was ever tried.
+    const doc = "Central Index Key 1429764 filed this report today with the Commission.";
+    expect(checkGroundingProvenance(doc, { cik: "1429764", company: "Blink Charging Co" }).matched).toBe("1429764");
+  });
+
+  it("names match WHOLE after normalisation — legal suffixes and punctuation do not break it", () => {
+    const filing = "On July 28, 2026, BLINK CHARGING CO. received a letter from the Listing Qualifications Department.";
+    expect(checkGroundingProvenance(filing, { company: "Blink Charging Co" }).matched).toBe("Blink Charging Co");
+  });
+
+  it("MEDIUM: recall payloads have anchors now, and the FDA landing page is rejected", () => {
+    // PRODUCT_RECALL carries {firm, product} — absent from the old field list,
+    // so anchorsTried was 0 and the gate fail-opened on precisely the source
+    // whose source_url is always a landing page.
+    const landing = "Recalls, Market Withdrawals, & Safety Alerts. FDA posts press releases and other notices of recalls and market withdrawals from the firms involved as a service to consumers.";
+    const v = checkGroundingProvenance(landing, { firm: "Acme Labs LLC", product: "Lot 44 tablets" });
+    expect(v.anchorsTried).toBe(2);
+    expect(v.ok).toBe(false);
+  });
+
+  it("LOW: 'authority' alone never licenses — it matches every page on the regulator's site", () => {
+    const footer = "This page is part of an archive maintained for reference. Content on SEC.gov is provided for informational purposes and does not constitute legal advice to any person or entity.";
+    const v = checkGroundingProvenance(footer, { authority: "SEC" });
+    // No usable anchor at all, so it fail-opens — but VISIBLY, with a reason
+    // the caller logs, rather than silently claiming verification.
+    expect(v.reason).toBe("no_usable_anchor");
+    expect(v.anchorsTried).toBe(0);
+  });
+
   it("REJECTS the EDGAR index chrome that started this (no payload anchor in it)", () => {
     // Shape of the real 2,077-char mis-fetch: navigation + a GTM snippet,
     // non-empty and healthy-looking, mentioning neither company nor ticker.
@@ -188,10 +369,23 @@ describe("grounding provenance — wrong document is a fabrication license", () 
 
   it("ACCEPTS the real filing body on any one anchor", () => {
     expect(checkGroundingProvenance("Blink Charging Co. received a notice from Nasdaq...", filing).ok).toBe(true);
-    expect(checkGroundingProvenance("...the common stock of BLNK will be suspended...", filing).ok).toBe(true);
+    expect(checkGroundingProvenance("Blink Charging Co (Nasdaq: BLNK) common stock will be suspended.", filing).ok).toBe(true);
     expect(checkGroundingProvenance("Central Index Key 1429764 filed this report.", filing).ok).toBe(true);
     // Trailing-period mismatch must not reject: longest-token fallback.
     expect(checkGroundingProvenance("BLINK CHARGING CO. ANNOUNCES...", filing).matched).toBe("Blink Charging Co");
+  });
+
+  it("a BARE ticker no longer licenses, even a non-word one like BLNK", () => {
+    // The cost of the shape rule, stated rather than hidden. It is a false
+    // negative only for a document that prints the symbol bare AND never names
+    // the company or its CIK — which no real filing does. Measured: all 14
+    // 8-Ks sampled from the EDGAR daily index print their own cover-page
+    // symbol in symbol shape, 14 of 14, so recall on real bodies is unharmed.
+    expect(checkGroundingProvenance("...the common stock of BLNK will be suspended...", { ticker: "BLNK" }).ok)
+      .toBe(false);
+    // And the same body is still accepted via the name or the CIK.
+    expect(checkGroundingProvenance("...the common stock of BLNK will be suspended...", filing).reason)
+      .toBe("no_anchor");
   });
 
   it("token-bounded: a substring of a longer word is NOT a match", () => {
