@@ -126,7 +126,10 @@ describe("prompt assembly", () => {
 
   it("the payload is the only fact source; no URL ever enters the prompt", () => {
     const p = buildPrompt("CONGRESS_PTR", PTR_PAYLOAD, [EXEMPLAR]);
-    expect(p.user).toContain("ONLY source of facts");
+    // Without grounding, the whitelist contract names the payload alone.
+    expect(p.user).toContain("must appear in the payload;");
+    expect(p.user).not.toContain("SOURCE DOCUMENT");
+    expect(p.user).not.toContain("LAKE CONTEXT");
     expect(p.user).toContain("never do arithmetic");
     expect(p.user).not.toMatch(/https?:\/\//); // finding #10: the model gets no URL at all
     expect(p.system).toContain("OWNER EXEMPLARS");

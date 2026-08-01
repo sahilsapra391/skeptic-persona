@@ -135,6 +135,7 @@ async function ingestPress(env: Env, sourceId: string, body: string, now: Date):
         },
         score,
         status: score >= SCORE_POSTABLE && isFreshAtIngest(item.publishedIso, now) ? "new" : "logged",
+        rawText: item.description,
       },
       now,
     );

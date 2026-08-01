@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import { newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
 import { decodeEntities, extractAll, extractFirst, stripBom } from "../lib/xml";
+import { htmlToText, scrubUrls } from "../lib/html";
 import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE ,
   recordSourceError,
 } from "../lib/db";
@@ -95,6 +96,10 @@ export interface PressItem {
   publishedIso: string;
   categories: string[];
   guid: string;
+  /** RSS <description>, tag-stripped and capped — the item's own summary of
+   *  itself, captured at ingest as grounding text (p4-01). Null when the
+   *  feed carries none or only boilerplate. */
+  description: string | null;
 }
 
 function parseDate(v: string): string {
@@ -103,6 +108,22 @@ function parseDate(v: string): string {
   // anything it cannot read is dropped rather than guessed.
   const d = new Date(v.replace(/\s+-\s+/, " "));
   return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
+
+/** Descriptions this short restate the title or the feed's boilerplate;
+ *  storing them as grounding would teach the model nothing. */
+const MIN_DESCRIPTION_CHARS = 40;
+const MAX_DESCRIPTION_CHARS = 2_000;
+
+function parseDescription(item: string, title: string): string | null {
+  const raw = extractFirst(item, "description") ?? "";
+  const unwrapped = raw.replace(/^\s*<!\[CDATA\[/, "").replace(/\]\]>\s*$/, "");
+  // Feeds embed HTML inside descriptions (CFTC, FCA); strip to text. URLs are
+  // scrubbed because this text feeds the URL-free generation prompt.
+  const text = scrubUrls(htmlToText(decodeEntities(unwrapped))).slice(0, MAX_DESCRIPTION_CHARS).trim();
+  if (text.length < MIN_DESCRIPTION_CHARS) return null;
+  if (text.toLowerCase() === title.toLowerCase()) return null;
+  return text;
 }
 
 export function parsePressFeed(xml: string): PressItem[] {
@@ -119,6 +140,7 @@ export function parsePressFeed(xml: string): PressItem[] {
       publishedIso: published,
       categories: extractAll(item, "category").map((c) => decodeEntities(c.trim())).filter(Boolean),
       guid: (extractFirst(item, "guid") ?? link).trim(),
+      description: parseDescription(item, title),
     });
   }
   return out;
@@ -170,6 +192,7 @@ export function makePressHandler(src: PressSource) {
             },
             score,
             status: score >= SCORE_POSTABLE && fresh ? "new" : "logged",
+            rawText: item.description,
           },
           now,
         );
