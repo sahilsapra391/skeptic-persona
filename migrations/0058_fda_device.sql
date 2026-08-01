@@ -1,0 +1,27 @@
+-- FDA device enforcement: the third openFDA recall dataset, after drug
+-- (0018) and food (0041). Same API, same field names, same grouping problem,
+-- so it is a row in FDA_SOURCES rather than an ingester.
+--
+-- Endpoint live-verified 2026-08-01:
+--   https://api.fda.gov/device/enforcement.json?limit=30&sort=report_date:desc
+--
+-- Class I ONLY, decided by counting rather than by analogy to food.
+-- Over 2026-05-01..08-01:
+--
+--   Class I    151 rows ->  38 events  (~13/month)
+--   Class II   640 rows -> 200 events  (~67/month)
+--   Class III    2 rows
+--
+-- Class II is double the food Class II rate that got food capped, and one
+-- firm (Medline) is 189 of its 640 rows.
+--
+-- Why device is worth a lane at all: unlike CPSC consumer recalls, which were
+-- probed the same night and rejected, the recalling firm here is routinely a
+-- listed device maker -- Abiomed, Becton Dickinson, Boston Scientific, GE
+-- Medical Systems, Arrow International. The recall names the company whose
+-- stock it moves. See docs/verification/2026-08-01-recall-sources.md.
+--
+-- Cadence: hourly at priority 55, matching fda_food_recall. Device Class I
+-- runs about 13 events a month, so most polls are a 304.
+INSERT OR IGNORE INTO jobs (name, due_at, cadence_profile, enabled, priority) VALUES
+  ('fda_device_recall', '2026-08-02T00:00:00.000Z', 'hourly', 1, 55);
