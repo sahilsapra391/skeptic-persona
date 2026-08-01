@@ -86,21 +86,45 @@ Confirmed against production data, not inference:
 - One call produced all three variants; the retry path fired exactly once,
   for the variant the validator rejected, as designed.
 - `max_tokens: 2048` was ample; no `finish_reason: "length"` truncation.
-- The validator gauntlet did real work on real output: `dry` and `sharp`
-  validated, `commentary` was rejected `length` on attempt 1 and
-  `entity` on attempt 2 (the model named "April Maduro charge" and "May pool
-  fraud judgment" — lake context it had seen but which was not in THIS item's
-  payload). That is the no-fabrication floor doing exactly its job on live
-  model output.
+- The validator gauntlet did real work on real output: `commentary` was
+  rejected `length` on attempt 1 and `entity` on attempt 2.
 
-**Model quality note, recorded because it is a product input:**
-`qwen/qwen3.7-flash` is a fast/cheap tier and it shows. The `sharp` beat it
-produced was `pay $35,000.` — a lowercase fragment echoing the fact block.
-Doctrine-legal, so no validator caught it; it is a WRITING failure, not a
-truth failure. Closed with `beatShapeCheck` (a beat is a sentence), but the
-underlying signal is that a stronger model would likely clear the commentary
-contract more often. Worth revisiting `OPENROUTER_MODEL` once there is a
-zero-edit rate to compare against.
+**CORRECTED 2026-08-01** (the p4 session caught this, and the sharper reading
+is the useful one). The first version of this record said attempt 2 died
+because the model used lake context that was not in the payload. That is
+wrong. Since p4-01 the whitelist is payload ∪ source document ∪ lake context
+(`groundingFacts` + `mergeFacts`), so everything the prompt showed is
+licensed — and attempt 1 proves it, quoting "Nicolás Maduro-Related Event
+Contracts" and "9 enforcement actions since 2026-04-23" verbatim from context
+and passing `entityCheck` cleanly before dying on length (293 vs 280).
+
+What actually happened on attempt 2 is better: **squeezed under the length
+budget, the model compressed "2026-04-23" and a name from a neighbouring title
+into "April Maduro" — a two-word proper noun naming a person who does not
+exist.** `entityCheck`'s multi-word-proper-noun rule caught it. So the finding
+is not "it reached outside its grounding"; it is *lossy compression invented a
+human being, and the floor stopped it.* Regression-pinned by the p4 session in
+#71; full analysis in `2026-08-01-p4-01-grounded-generation.md`.
+
+**Model quality note — CORRECTED 2026-08-01, and the correction is the
+point.** The first version of this note read the `sharp` beat `pay $35,000.`
+as evidence that `qwen/qwen3.7-flash` is too cheap a tier, and told the owner
+the model id was the first dial to turn. The ingestion session pushed back:
+check what the payload actually offered before blaming the model. Measured:
+
+    queue #918 payload = 5 fields (authority, title, empty categories,
+    publishedIso, factLine restating the title); raw_text length = 0
+
+The model was handed a headline and a date. There was no second fact to build
+a beat out of, so it echoed the only number it had. **A stronger model writes
+more fluent prose around the same missing facts.** `OPENROUTER_MODEL` is the
+right first dial for VOICE and the wrong one for SUBSTANCE; when a draft reads
+thin, check `payload` and `raw_text` first. (`items.raw_text` was 0 of 10,825
+rows at the time of this generation — it captures at ingest going forward, so
+this item predates any source text.)
+
+`beatShapeCheck` still stands on its own: a lowercase fragment is a writing
+failure regardless of why the model reached for it.
 
 Env contract (listed in the PR): `OPENROUTER_API_KEY` (secret),
 `OPENROUTER_MODEL` (var — model id is config, never code).

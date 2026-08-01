@@ -26,6 +26,7 @@ import {
   wordNumberCheck,
 } from "../src/rag/validate";
 import { fnv1a, maskSkeleton, ngramHashes, openerHash, skeletonHash, NGRAM_SALT } from "../src/rag/echo";
+import { ARCHETYPES } from "../src/templates/archetypes";
 import { iso } from "../src/lib/time";
 
 const NOW = new Date("2026-07-28T15:00:00Z");
@@ -315,6 +316,21 @@ describe("sourcing + url — non-negotiable #2, mechanically", () => {
       "per Bloomberg, the stake grew",
     ]) {
       expect(sourcingCheck(bad).map((i) => i.rule), bad).toContain("sourcing");
+    }
+  });
+
+  it("MAP-FORM attributions are legal: every press authority and every central bank", () => {
+    // The allowlist derives from ARCHETYPES at module load and normalises the
+    // string-or-map form, so PRESS_ATTRIBUTION (payload.authority) and the
+    // rate map (payload.country) are covered with no per-source maintenance.
+    // Pinned because a regression here silently rejects whole sources.
+    const mapped = Object.values(ARCHETYPES).flatMap((a): string[] => {
+      const attr: unknown = a.attribution;
+      return typeof attr === "string" ? [] : Object.values((attr as { map?: Record<string, string> }).map ?? {});
+    });
+    expect(mapped.length, "no map-form attributions found — did the shape change?").toBeGreaterThan(3);
+    for (const attr of mapped) {
+      expect(sourcingCheck(`Something happened, ${attr}.`), attr).toEqual([]);
     }
   });
 
