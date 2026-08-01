@@ -137,7 +137,8 @@ export interface GateResult {
     | "minor_exchange"
     | "below_float"
     | "not_in_reference"
-    | "reference_unavailable";
+    | "reference_unavailable"
+    | "no_issuer_cik";
 }
 
 /**
@@ -212,6 +213,61 @@ export function keepIssuer(
   if (issuer.publicFloat === null) return { keep: true, reason: "float_unknown" };
   if (issuer.publicFloat < minFloatUsd) return { keep: false, reason: "below_float" };
   return { keep: true, reason: "major_exchange" };
+}
+
+/**
+ * The whole gate in one call: look the issuer up, judge the reference, decide.
+ *
+ * Takes the ISSUER's CIK. Every filing form in this repo also carries a
+ * filer-side CIK -- rptOwnerCik on Form 4, reportingPersonCIK on Schedule 13 --
+ * and those identify a PERSON. Passing one here would look a human up in a
+ * table of companies, find nothing, and (since absence became evidence)
+ * suppress every filing of that type. Verified field name on all three:
+ * `issuerCik`.
+ */
+export interface GateContext {
+  /** Whether absence from the reference may be read as "not listed". */
+  authoritative: boolean;
+  floorUsd: number;
+}
+
+/**
+ * Build the gate's batch-scoped context. Call ONCE per run, never per filing.
+ *
+ * referenceHealth is `SELECT COUNT(*), MAX(updated_at) FROM issuers`, and
+ * MAX over an unindexed column means D1 scans the table -- 12,000 rows read
+ * per call against a real ticker file, versus 1 for the lookupIssuer primary
+ * key hit.
+ *
+ * Per filing that is ruinous. Measured across the three detail lanes at their
+ * real cadences and batch sizes: form4 3,840 gate calls/day, schedule13
+ * 1,536, form144 2,304 -- roughly 87M rows/day against a documented 5M/day
+ * cap, exhausted in about 17 minutes of saturated batches. And because the
+ * jobs table, the dedup ledger and the approval queue are all D1, the
+ * consequence is not three degraded sources, it is every query failing.
+ *
+ * The 8-K lane already hoists this (edgar8k.ts, "Read the reference health
+ * ONCE per batch, not per filing"); this type makes the hoist structural so
+ * the mistake cannot be made again by passing `env` and hoping.
+ */
+export async function gateContext(env: Env, now: Date): Promise<GateContext> {
+  return {
+    authoritative: referenceIsAuthoritative(await referenceHealth(env), now),
+    floorUsd: minFloatUsd(env),
+  };
+}
+
+export async function issuerGate(env: Env, issuerCik: string | number, ctx: GateContext): Promise<GateResult> {
+  // "We could not read an issuer CIK" is NOT "this issuer is not listed".
+  // lookupIssuer returns null for both, and after #64 a null means suppress,
+  // so without this an unparsed field would be read as evidence of
+  // non-listing. The gate only ever acts on a POSITIVE finding; deciding what
+  // an unparsed issuer is worth belongs to each source's own scorer, which
+  // already log-onlys them.
+  const n = Number(issuerCik);
+  if (!Number.isFinite(n) || n <= 0) return { keep: true, reason: "no_issuer_cik" };
+
+  return keepIssuer(await lookupIssuer(env, issuerCik), ctx.floorUsd, ctx.authoritative);
 }
 
 export function minFloatUsd(env: Env): number {
