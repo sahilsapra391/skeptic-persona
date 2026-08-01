@@ -354,6 +354,12 @@ export interface SourceState {
   lastPolledAt: string | null;
   lastOkAt: string | null;
   consecutiveFailures: number;
+  /**
+   * When the CURRENT failure run began. Null when the source is healthy, and
+   * also null on any row that predates this column -- see the migration for
+   * why absence has to mean "old" rather than "new".
+   */
+  firstFailureAt?: string | null;
   /** Last failure text, so triage is a D1 query rather than a timed tail. */
   lastError?: string | null;
   lastErrorAt?: string | null;
@@ -409,19 +415,30 @@ export async function getSourceState(db: D1Database, source: string): Promise<So
   };
 }
 
-export async function putSourceState(db: D1Database, s: SourceState): Promise<void> {
+export async function putSourceState(db: D1Database, s: SourceState, now: Date = new Date()): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO source_state (source, etag, last_modified, cursor, last_polled_at, last_ok_at, consecutive_failures)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+      // first_failure_at is maintained HERE, in SQL, rather than by callers.
+      // Every ingester already does `state.consecutiveFailures += 1` and
+      // calls this; asking each of them to also stamp a timestamp is a rule
+      // that one of them eventually forgets, silently. Stamped when the run
+      // starts, preserved while it continues, cleared the moment the source
+      // succeeds.
+      `INSERT INTO source_state (source, etag, last_modified, cursor, last_polled_at, last_ok_at, consecutive_failures, first_failure_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, CASE WHEN ?7 = 0 THEN NULL ELSE ?8 END)
        ON CONFLICT(source) DO UPDATE SET
          etag = excluded.etag,
          last_modified = excluded.last_modified,
          cursor = excluded.cursor,
          last_polled_at = excluded.last_polled_at,
          last_ok_at = excluded.last_ok_at,
-         consecutive_failures = excluded.consecutive_failures`,
+         consecutive_failures = excluded.consecutive_failures,
+         first_failure_at = CASE
+           WHEN excluded.consecutive_failures = 0 THEN NULL
+           WHEN source_state.first_failure_at IS NULL THEN ?8
+           ELSE source_state.first_failure_at
+         END`,
     )
-    .bind(s.source, s.etag, s.lastModified, s.cursor, s.lastPolledAt, s.lastOkAt, s.consecutiveFailures)
+    .bind(s.source, s.etag, s.lastModified, s.cursor, s.lastPolledAt, s.lastOkAt, s.consecutiveFailures, iso(now))
     .run();
 }

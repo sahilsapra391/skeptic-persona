@@ -1,0 +1,19 @@
+-- When the CURRENT failure run began, so "never succeeded" can tell a dead
+-- endpoint from a young one.
+--
+-- source_state's row is created on the FIRST failure, so before this column
+-- a source deployed into a transient 503 on an every_1m cadence reached
+-- twelve consecutive failures twelve minutes later and was auto-quarantined
+-- before anyone had looked at it. The streak was real; the inference was not.
+--
+-- ABSENCE MEANS OLD, NOT NEW. Every row that exists when this lands has NULL
+-- here, and those are precisely the long-running failures the quarantine was
+-- built for -- treasury_auction has been failing since well before this
+-- shipped. hoursSince(null) is +Infinity, so a legacy row stays catchable and
+-- only rows created after this point get an age.
+--
+-- Maintained entirely inside putSourceState, in SQL: stamped when a run
+-- starts, preserved while it continues, cleared on success. No ingester
+-- changes, because "also stamp a timestamp" is a rule one of thirty callers
+-- eventually forgets, silently.
+ALTER TABLE source_state ADD COLUMN first_failure_at TEXT;
