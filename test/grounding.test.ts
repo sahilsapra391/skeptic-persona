@@ -5,7 +5,8 @@ import { lakeContext } from "../src/rag/context";
 import { fetchSourceText } from "../src/rag/sourceText";
 import { htmlToText, scrubUrls } from "../src/lib/html";
 import { groundingFacts, mergeFacts, payloadFacts, numberCheck, entityCheck, urlCheck } from "../src/rag/validate";
-import { buildPrompt } from "../src/rag/generate";
+import { buildPrompt, COMMENTARY_FACT_BUDGET, COMMENTARY_TAKE_BUDGET } from "../src/rag/generate";
+import { POST_TEXT_LIMIT, weightedLength } from "../src/templates/length";
 import { parsePressFeed } from "../src/ingesters/regulatoryPress";
 
 const NOW = new Date("2026-08-01T20:00:00.000Z");
@@ -193,6 +194,62 @@ describe("prompt carries the grounding blocks (p4-01)", () => {
     expect(p.user).toContain("the payload, the SOURCE DOCUMENT, or the LAKE CONTEXT below");
     expect(p.user).toContain("No claims about market reaction");
     expect(p.user).not.toMatch(/https?:\/\//);
+  });
+});
+
+describe("commentary segment budgets (p4-01b)", () => {
+  const EX = { archetype: "REGULATORY_NEWS" as const, text: "CFTC filed a complaint, per CFTC.", register: "wire" as const };
+  const P = { authority: "CFTC", title: "Order", factLine: "CFTC: Order" };
+
+  it("states both segment budgets, and they fit inside the post limit", () => {
+    const p = buildPrompt("REGULATORY_NEWS", P, [EX]);
+    expect(p.user).toContain(`at most ${COMMENTARY_FACT_BUDGET} weighted chars including the attribution`);
+    expect(p.user).toContain(`at most ${COMMENTARY_TAKE_BUDGET} weighted chars`);
+    // A draft honouring both parts is in budget by construction — the point
+    // of splitting the budget. Worst case is FOUR separator chars, not two:
+    // the prompt permits a two-segment take and structuralCheck allows three
+    // segments for commentary, i.e. two blank lines. Asserting +2 left three
+    // characters of undocumented slack, so bumping a constant by 2 could keep
+    // this green while a fully obedient draft measured 281 and was rejected
+    // on length — the exact failure this change exists to remove.
+    const worstCase = COMMENTARY_FACT_BUDGET + COMMENTARY_TAKE_BUDGET + 4;
+    expect(worstCase).toBeLessThanOrEqual(POST_TEXT_LIMIT);
+    expect(worstCase).toBeGreaterThanOrEqual(200);
+    // And prove it against the real measure, not just arithmetic.
+    const maxDraft = "a".repeat(COMMENTARY_FACT_BUDGET) + "\n\n" + "b".repeat(70) + "\n\n" + "c".repeat(COMMENTARY_TAKE_BUDGET - 72);
+    expect(weightedLength(maxDraft)).toBeLessThanOrEqual(POST_TEXT_LIMIT);
+  });
+
+  it("tells the model how to cite a prior item without compressing names", () => {
+    const p = buildPrompt("REGULATORY_NEWS", P, [EX], [], {
+      contextLines: ['Prior: "CFTC Charges U.S. Service Member with Insider Trading" (2026-04-23).'],
+    });
+    expect(p.user).toContain("copied exactly from its title");
+    expect(p.user).toContain("never merge a date with a name");
+  });
+
+  it("the live #918 failure shape is still refused", () => {
+    // Regression pin: the compression that produced this must keep failing,
+    // budgets or not — the prompt guides, the validator decides.
+    //
+    // The compound is carried MID-SENTENCE and asserted on the DETAIL. An
+    // earlier version put it at the sentence opener and asserted only
+    // rule === "entity"; review mutation-tested that and showed the greedy
+    // multi-word regex was matching the capitalised verb ("Follows April
+    // Maduro"), so the identical assertion fired on a legitimate name and the
+    // pin could not tell fabrication from ordinary prose.
+    const payload = { authority: "CFTC", title: "CFTC Orders George Santos to Pay $35,000", factLine: "CFTC: order" };
+    const ctx = 'Prior: "CFTC Charges U.S. Service Member with Insider Trading in Nicolás Maduro-Related Event Contracts" (2026-04-23).';
+    const facts = mergeFacts(payloadFacts(payload), groundingFacts(ctx));
+
+    const fabricated = entityCheck("Santos joins April Maduro on the ledger.", payload, facts);
+    expect(fabricated.some((i) => i.detail.includes("April Maduro"))).toBe(true);
+
+    // Control: a name the grounding DOES carry, in the same position, passes.
+    // Without this the pin cannot distinguish "rejects a fabrication" from
+    // "rejects any capitalised pair".
+    const legitimate = entityCheck("Santos joins Service Member on the ledger.", payload, facts);
+    expect(legitimate.some((i) => i.detail.includes("Service Member"))).toBe(false);
   });
 });
 
