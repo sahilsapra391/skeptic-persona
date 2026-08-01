@@ -23,6 +23,12 @@ export interface NewItem {
    * an ever-growing 'new' backlog would burn the D1 rows-read budget).
    */
   status?: "new" | "logged" | "pending_detail";
+  /**
+   * Source-document text already in hand at ingest (p4-01 grounding): press
+   * RSS descriptions today, more sources as their ingesters adopt it. Items
+   * without it get a one-time cached fetch at generation (rag/sourceText).
+   */
+  rawText?: string | null;
 }
 
 export function dedupKey(source: string, externalId: string): string {
@@ -42,8 +48,8 @@ export async function insertItem(
   const res = await db
     .prepare(
       `INSERT OR IGNORE INTO items
-         (dedup_key, source, external_id, category, event_at, fetched_at, source_url, payload, score, status)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+         (dedup_key, source, external_id, category, event_at, fetched_at, source_url, payload, score, status, raw_text, raw_meta)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
     )
     .bind(
       dedupKey(item.source, item.externalId),
@@ -56,6 +62,8 @@ export async function insertItem(
       JSON.stringify(item.payload),
       item.score,
       item.status ?? "new",
+      item.rawText ?? null,
+      item.rawText ? JSON.stringify({ mode: "ingest_rss", fetchedAt: iso(now) }) : null,
     )
     .run();
   if (res.meta.changes === 0) return { outcome: "duplicate", id: null };
