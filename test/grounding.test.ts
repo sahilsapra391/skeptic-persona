@@ -5,7 +5,8 @@ import { lakeContext } from "../src/rag/context";
 import { fetchSourceText } from "../src/rag/sourceText";
 import { htmlToText, scrubUrls } from "../src/lib/html";
 import { groundingFacts, mergeFacts, payloadFacts, numberCheck, entityCheck, urlCheck } from "../src/rag/validate";
-import { buildPrompt } from "../src/rag/generate";
+import { buildPrompt, COMMENTARY_FACT_BUDGET, COMMENTARY_TAKE_BUDGET } from "../src/rag/generate";
+import { POST_TEXT_LIMIT } from "../src/templates/length";
 import { parsePressFeed } from "../src/ingesters/regulatoryPress";
 
 const NOW = new Date("2026-08-01T20:00:00.000Z");
@@ -193,6 +194,39 @@ describe("prompt carries the grounding blocks (p4-01)", () => {
     expect(p.user).toContain("the payload, the SOURCE DOCUMENT, or the LAKE CONTEXT below");
     expect(p.user).toContain("No claims about market reaction");
     expect(p.user).not.toMatch(/https?:\/\//);
+  });
+});
+
+describe("commentary segment budgets (p4-01b)", () => {
+  const EX = { archetype: "REGULATORY_NEWS" as const, text: "CFTC filed a complaint, per CFTC.", register: "wire" as const };
+  const P = { authority: "CFTC", title: "Order", factLine: "CFTC: Order" };
+
+  it("states both segment budgets, and they fit inside the post limit", () => {
+    const p = buildPrompt("REGULATORY_NEWS", P, [EX]);
+    expect(p.user).toContain(`at most ${COMMENTARY_FACT_BUDGET} weighted chars including the attribution`);
+    expect(p.user).toContain(`at most ${COMMENTARY_TAKE_BUDGET} weighted chars`);
+    // A draft honouring both parts (plus the blank line) is in budget by
+    // construction — that is the whole point of splitting the budget.
+    expect(COMMENTARY_FACT_BUDGET + COMMENTARY_TAKE_BUDGET + 2).toBeLessThanOrEqual(POST_TEXT_LIMIT);
+    expect(COMMENTARY_FACT_BUDGET + COMMENTARY_TAKE_BUDGET + 2).toBeGreaterThanOrEqual(200);
+  });
+
+  it("tells the model how to cite a prior item without compressing names", () => {
+    const p = buildPrompt("REGULATORY_NEWS", P, [EX], [], {
+      contextLines: ['Prior: "CFTC Charges U.S. Service Member with Insider Trading" (2026-04-23).'],
+    });
+    expect(p.user).toContain("copied exactly from its title");
+    expect(p.user).toContain("never merge a date with a name");
+  });
+
+  it("the live #918 failure shape is still refused", () => {
+    // Regression pin: the compression that produced this must keep failing,
+    // budgets or not — the prompt guides, the validator decides.
+    const payload = { authority: "CFTC", title: "CFTC Orders George Santos to Pay $35,000", factLine: "CFTC: order" };
+    const ctx = 'Prior: "CFTC Charges U.S. Service Member with Insider Trading in Nicolás Maduro-Related Event Contracts" (2026-04-23).';
+    const facts = mergeFacts(payloadFacts(payload), groundingFacts(ctx));
+    const issues = entityCheck("Follows April Maduro charge and May pool fraud judgment.", payload, facts);
+    expect(issues.some((i) => i.rule === "entity")).toBe(true);
   });
 });
 
