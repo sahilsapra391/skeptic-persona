@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import MULTI from "./fixtures/house-ptr-multi.text.fixture?raw";
 import SINGLE from "./fixtures/house-ptr-single.text.fixture?raw";
 import { INGEST_PATH, PENDING_PATH } from "../src/ingestRelay";
-import { pollHousePtr, SOURCE as HOUSE_SOURCE } from "../src/ingesters/housePtr";
+import { HOUSE_RAW_TEXT_CAP, pollHousePtr, SOURCE as HOUSE_SOURCE } from "../src/ingesters/housePtr";
 import { insertItem, SCORE_LOG_ONLY } from "../src/lib/db";
 
 const URL_BASE = "https://worker.local";
@@ -242,5 +242,66 @@ describe("house_ptr items past the relay's drain limit still reach the queue", (
       .bind(HOUSE_SOURCE, ...docs)
       .first<{ n: number }>();
     expect(after!.n).toBeLessThan(stranded!.n);
+  });
+});
+
+describe("the filing's own text is kept as grounding", () => {
+  async function rawOf(docId: string) {
+    return env.DB.prepare(`SELECT raw_text AS t, raw_meta AS m FROM items WHERE dedup_key = ?1`)
+      .bind(`${HOUSE_SOURCE}:${docId}`)
+      .first<{ t: string | null; m: string | null }>();
+  }
+
+  it("stores the extracted body, which cost no extra fetch", async () => {
+    // The courier already extracted this to parse transactions out of it, and
+    // it was discarded the moment parsing finished. CONGRESS_PTR is both the
+    // signature archetype and the deepest-exemplared one, so this is the
+    // highest-value grounding text in the pipeline and it is free.
+    await seedIndexRow("20260400", NOW);
+    await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260400", text: MULTI }] }) });
+
+    const row = await rawOf("20260400");
+    expect(row?.t).toBeTruthy();
+    expect(row!.t).toContain("Home Depot");
+    const meta = JSON.parse(row!.m!) as Record<string, unknown>;
+    expect(meta.mode).toBe("full");
+    expect(meta.host).toBe("disclosures-clerk.house.gov");
+    expect(meta.document).toBe("20260400.pdf");
+  });
+
+  it("strips the NUL bytes the font encoding injects", async () => {
+    // House PDFs carry NULs from a font quirk. A NUL reaching a generation
+    // prompt is invisible junk at best; at worst it is the byte that makes a
+    // downstream binary check fire on legitimate text.
+    await seedIndexRow("20260401", NOW);
+    await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260401", text: SINGLE }] }) });
+
+    const row = await rawOf("20260401");
+    expect(SINGLE).toContain("\u0000");
+    expect(row!.t).not.toContain("\u0000");
+    expect(row!.t).toContain("Ares Capital");
+  });
+
+  it("stores nothing when the extraction is refused", async () => {
+    // A filing held by the completeness gate must not leave grounding text
+    // behind: the body would license facts for a trade list we declined to
+    // publish precisely because we could not read all of it.
+    await seedIndexRow("20260402", NOW);
+    const truncated = MULTI.slice(0, MULTI.lastIndexOf("$")) + "$";
+    await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260402", text: truncated }] }) });
+
+    const row = await rawOf("20260402");
+    expect(row?.t).toBeNull();
+    expect(row?.m).toBeNull();
+  });
+
+  it("caps a long body at the same ceiling the generation path uses", async () => {
+    await seedIndexRow("20260403", NOW);
+    const padded = MULTI + " lorem ipsum".repeat(4_000);
+    await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260403", text: padded }] }) });
+
+    const row = await rawOf("20260403");
+    expect(row!.t!.length).toBe(HOUSE_RAW_TEXT_CAP);
+    expect(JSON.parse(row!.m!).truncated).toBe(true);
   });
 });

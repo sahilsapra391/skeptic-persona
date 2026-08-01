@@ -18,6 +18,13 @@ import { bandSpan, bandWidth, isFreshDateOnly, lagDays, mdyToIso } from "./share
 
 export const SOURCE = "house_ptr";
 
+/**
+ * Ceiling for a filing body stored as grounding text. Matches the generation
+ * path's official-host cap so a PTR body cannot crowd a prompt that other
+ * sources are already sized against.
+ */
+export const HOUSE_RAW_TEXT_CAP = 24_000;
+
 export function houseZipUrl(year: number): string {
   return `https://disclosures-clerk.house.gov/public_disc/financial-pdfs/${year}FD.zip`;
 }
@@ -440,8 +447,35 @@ export async function applyHousePtrText(
   // A filing whose PDF arrives days after the index row still belongs in the
   // lake; it just does not interrupt anyone.
   const status = fresh ? "new" : "logged";
-  await env.DB.prepare(`UPDATE items SET payload = ?1, score = ?2, status = ?3 WHERE id = ?4`)
-    .bind(JSON.stringify(merged), SCORE_POSTABLE, status, row.id)
+  // CAPTURE THE FILING'S OWN TEXT AS GROUNDING.
+  //
+  // The courier already extracted this to parse transactions out of it, and
+  // until now it was discarded the moment parsing finished. Storing it costs
+  // NO extra fetch -- the bytes are already in this request -- and CONGRESS_PTR
+  // is both the signature archetype and the deepest-exemplared one, so it is
+  // the highest-value grounding text available anywhere in the pipeline.
+  //
+  // Trimmed to the same 24k ceiling the generation path uses for official
+  // hosts, and NULs are stripped: House PDFs carry them from a font-encoding
+  // quirk, and a NUL reaching a prompt is invisible junk at best.
+  const rawText = text.replace(/\u0000/g, "").trim().slice(0, HOUSE_RAW_TEXT_CAP) || null;
+  const rawMeta = rawText
+    ? JSON.stringify({
+        mode: "full",
+        host: "disclosures-clerk.house.gov",
+        fetchedAt: iso(now),
+        bytes: text.length,
+        truncated: text.length > HOUSE_RAW_TEXT_CAP,
+        // Provenance: this is the courier's pypdf extraction of the filing
+        // itself, not a page fetched at generation time.
+        document: `${docId}.pdf`,
+      })
+    : null;
+
+  await env.DB.prepare(
+    `UPDATE items SET payload = ?1, score = ?2, status = ?3, raw_text = ?5, raw_meta = ?6 WHERE id = ?4`,
+  )
+    .bind(JSON.stringify(merged), SCORE_POSTABLE, status, row.id, rawText, rawMeta)
     .run();
   if (!fresh) {
     log("info", "house_ptr stale-at-ingest suppressed", { docId, filedDate });
