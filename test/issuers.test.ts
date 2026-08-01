@@ -8,6 +8,8 @@ import {
   MAJOR_EXCHANGES,
   parseFloatFrame,
   parseTickerFile,
+  referenceIsAuthoritative,
+  MIN_AUTHORITATIVE_ROWS,
   type Issuer,
 } from "../src/ingesters/issuers";
 import { ingestForTest } from "../src/ingesters/edgar8k";
@@ -103,10 +105,24 @@ describe("keepIssuer — the gate fails OPEN on unknowns", () => {
     expect(keepIssuer(small, 10_000_000).keep).toBe(true);
   });
 
-  it("KEEPS an issuer it has never heard of", () => {
-    // Absence is not evidence of smallness: the table refreshes weekly and a
-    // fresh listing shows up late. Only a positive finding suppresses.
-    expect(keepIssuer(null)).toEqual({ keep: true, reason: "float_unknown" });
+  it("KEEPS an unknown issuer when the reference cannot be trusted", () => {
+    // An empty or stale table cannot distinguish "not listed" from "not
+    // refreshed", so absence means nothing and the filing passes.
+    expect(keepIssuer(null, DEFAULT_MIN_FLOAT_USD, false)).toEqual({
+      keep: true,
+      reason: "reference_unavailable",
+    });
+  });
+
+  it("SUPPRESSES an unknown issuer once the reference covers the market", () => {
+    // SEC's ticker file lists every exchange-listed issuer, so a filer
+    // missing from a complete, fresh copy is a non-traded vehicle. Measured
+    // 2026-07-28: 45 of 455 live 8-K items, all of them BlackRock /
+    // Blackstone / KKR / Golub / PennantPark / Ares private funds.
+    expect(keepIssuer(null, DEFAULT_MIN_FLOAT_USD, true)).toEqual({
+      keep: false,
+      reason: "not_in_reference",
+    });
   });
 
   it("KEEPS a major-exchange issuer whose float is unknown", () => {
@@ -188,9 +204,11 @@ describe("the gate in the 8-K ingest path", () => {
     expect(row!.status).toBe("new");
   });
 
-  it("lets an issuer it has never seen through", async () => {
-    // Fails OPEN. A fresh listing the weekly refresh has not picked up yet
-    // must not be silenced.
+  it("holds a non-traded fund that is absent from a populated reference", async () => {
+    // The bucket the first version of this gate let through: 45 of 455 live
+    // 8-K items, every one a BlackRock / Blackstone / KKR / Golub private
+    // fund. The reference table is seeded above MIN_AUTHORITATIVE_ROWS by the
+    // helper below, so absence is now evidence.
     await ingestForTest(env, [
       {
         accession: "0000000000-26-000003",
@@ -204,5 +222,63 @@ describe("the gate in the 8-K ingest path", () => {
     ]);
     const row = await scoreOf("5550000");
     expect(row!.status).toBe("new");
+  });
+});
+
+describe("referenceIsAuthoritative — absence only counts from a complete table", () => {
+  const NOW = new Date("2026-07-28T18:00:00.000Z");
+
+  it("trusts a full, fresh table", () => {
+    expect(referenceIsAuthoritative({ rows: 8014, updatedAt: "2026-07-28T17:10:00.000Z" }, NOW)).toBe(true);
+  });
+
+  it("refuses an empty or partial table", () => {
+    // A failed refresh must never be read as "nothing is listed".
+    expect(referenceIsAuthoritative({ rows: 0, updatedAt: "2026-07-28T17:10:00.000Z" }, NOW)).toBe(false);
+    expect(referenceIsAuthoritative({ rows: 12, updatedAt: "2026-07-28T17:10:00.000Z" }, NOW)).toBe(false);
+    expect(referenceIsAuthoritative({ rows: MIN_AUTHORITATIVE_ROWS - 1, updatedAt: "2026-07-28T17:10:00.000Z" }, NOW)).toBe(false);
+  });
+
+  it("refuses a stale table, so a broken refresh degrades to passing filings", () => {
+    expect(referenceIsAuthoritative({ rows: 8014, updatedAt: "2026-07-01T00:00:00.000Z" }, NOW)).toBe(false);
+    expect(referenceIsAuthoritative({ rows: 8014, updatedAt: null }, NOW)).toBe(false);
+    expect(referenceIsAuthoritative({ rows: 8014, updatedAt: "not-a-date" }, NOW)).toBe(false);
+  });
+});
+
+describe("absence in the ingest path, once the reference is populated", () => {
+  async function fillReference(rows: number) {
+    // Enough rows that the table plausibly covers the market.
+    for (let i = 0; i < rows; i += 500) {
+      const batch = [];
+      for (let j = i; j < Math.min(i + 500, rows); j++) {
+        batch.push(
+          env.DB.prepare(
+            `INSERT OR IGNORE INTO issuers (cik, name, ticker, exchange, public_float, updated_at)
+             VALUES (?1, 'FILLER', 'F', 'Nasdaq', 9000000000, ?2)`,
+          ).bind(900000 + j, new Date().toISOString()),
+        );
+      }
+      await env.DB.batch(batch);
+    }
+  }
+
+  it("holds a private credit fund's 8-K that a sparse table would have passed", async () => {
+    await fillReference(MIN_AUTHORITATIVE_ROWS + 10);
+    await ingestForTest(env, [
+      {
+        accession: "0000000000-26-000009",
+        company: "SOMEBODY PRIVATE CREDIT FUND",
+        cik: "4242424", // deliberately absent from issuers
+        formType: "8-K",
+        items: [{ code: "4.02", title: "Non-Reliance on Previously Issued Financial Statements" }],
+        filedIso: new Date().toISOString(),
+        indexUrl: "https://www.sec.gov/pcf",
+      },
+    ]);
+    const row = await env.DB.prepare(
+      `SELECT status FROM items WHERE source = 'edgar_8k' AND json_extract(payload,'$.cik') = '4242424'`,
+    ).first<{ status: string }>();
+    expect(row!.status).toBe("logged");
   });
 });

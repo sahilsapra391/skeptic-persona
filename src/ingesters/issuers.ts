@@ -130,7 +130,48 @@ export const DEFAULT_MIN_FLOAT_USD = 300_000_000;
 
 export interface GateResult {
   keep: boolean;
-  reason: "major_exchange" | "float_unknown" | "not_listed" | "minor_exchange" | "below_float";
+  reason:
+    | "major_exchange"
+    | "float_unknown"
+    | "not_listed"
+    | "minor_exchange"
+    | "below_float"
+    | "not_in_reference"
+    | "reference_unavailable";
+}
+
+/**
+ * The reference table is only allowed to speak for the whole market when it
+ * plausibly covers it. Below this many rows a partial or failed refresh could
+ * silence everything, so absence stops meaning anything.
+ */
+export const MIN_AUTHORITATIVE_ROWS = 5_000;
+
+/** Beyond this, the table is too old for absence to be evidence. */
+export const MAX_REFERENCE_AGE_DAYS = 7;
+
+export interface ReferenceHealth {
+  rows: number;
+  updatedAt: string | null;
+}
+
+/**
+ * Is the reference table complete and fresh enough that a MISSING issuer
+ * means "not listed" rather than "not looked up yet"?
+ */
+export function referenceIsAuthoritative(health: ReferenceHealth, now: Date): boolean {
+  if (health.rows < MIN_AUTHORITATIVE_ROWS) return false;
+  if (!health.updatedAt) return false;
+  const age = now.getTime() - new Date(health.updatedAt).getTime();
+  if (!Number.isFinite(age)) return false;
+  return age <= MAX_REFERENCE_AGE_DAYS * 86_400_000;
+}
+
+export async function referenceHealth(env: Env): Promise<ReferenceHealth> {
+  const row = await env.DB.prepare(
+    `SELECT COUNT(*) AS rows, MAX(updated_at) AS updatedAt FROM issuers`,
+  ).first<{ rows: number; updatedAt: string | null }>();
+  return { rows: row?.rows ?? 0, updatedAt: row?.updatedAt ?? null };
 }
 
 /**
@@ -146,8 +187,26 @@ export interface GateResult {
  * Only a POSITIVE finding suppresses: listed somewhere minor, or a float the
  * issuer itself reported below the floor.
  */
-export function keepIssuer(issuer: Issuer | null, minFloatUsd = DEFAULT_MIN_FLOAT_USD): GateResult {
-  if (!issuer) return { keep: true, reason: "float_unknown" };
+export function keepIssuer(
+  issuer: Issuer | null,
+  minFloatUsd = DEFAULT_MIN_FLOAT_USD,
+  referenceAuthoritative = false,
+): GateResult {
+  if (!issuer) {
+    // ABSENCE IS EVIDENCE, but only from a table that covers the market.
+    // SEC's ticker file lists every exchange-listed issuer; a filer missing
+    // from it is a non-traded vehicle, and measured on 2026-07-28 that bucket
+    // was 45 of 455 live 8-K items -- BlackRock Private Credit Fund,
+    // Blackstone Private Credit Fund, KKR Infrastructure Conglomerate, three
+    // Golub Capital funds, PennantPark, Ares Strategic Income. Exactly the
+    // filings this gate exists to hold.
+    //
+    // When the table is small or stale we cannot tell "not listed" from "not
+    // refreshed", so absence means nothing and the filing passes.
+    return referenceAuthoritative
+      ? { keep: false, reason: "not_in_reference" }
+      : { keep: true, reason: "reference_unavailable" };
+  }
   if (!issuer.exchange) return { keep: false, reason: "not_listed" };
   if (!MAJOR_EXCHANGES.has(issuer.exchange)) return { keep: false, reason: "minor_exchange" };
   if (issuer.publicFloat === null) return { keep: true, reason: "float_unknown" };
