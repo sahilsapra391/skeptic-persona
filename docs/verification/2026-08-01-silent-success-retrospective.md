@@ -155,6 +155,32 @@ someone checked a number they expected to be boring:
 - "which of these six feeds ship a body?" → three don't, two link to PDFs
 - "does my gate catch the class you just found?" → no
 
+### And in every case the finder had no stake in the subsystem
+
+Sharper than "measure what you believe", because it names a practice rather
+than an attitude. Three sessions worked this codebase concurrently, and each
+serious defect was found by whichever one did **not** own the code:
+
+| defect | found by | while doing |
+|---|---|---|
+| empty `echo_ngrams` (generation) | ingestion | asking about the **issuer gate** |
+| per-filing D1 table scan (ingestion) | p4/ops | reviewing a **filing gate**, not performance |
+| PDF licensing facts (grounding) | ingestion | measuring **press-feed thinness** |
+| provenance gate mostly fail-open | p4/ops | reviewing a PR that **claimed a defect in their own work** |
+
+Nobody was auditing. Each was doing ordinary adjacent work and looked one layer
+sideways. That is far cheaper to institutionalise than "review harder": it
+requires only that the layers keep telling each other what they actually
+observe.
+
+The uncomfortable corollary is the reason it works. **All three sessions
+reviewed their own work carefully and all three shipped a critical defect
+anyway** — not for want of rigour. One hard-asserted every patch anchor and
+still shipped a per-filing table scan; another wrote a provenance gate and
+missed that it fail-opened for half the pipeline. The blind spot is structural,
+not attitudinal, so no amount of self-discipline reaches it. The only
+instrument that did was a reader with different priors.
+
 ## The one where a guard created the gap
 
 #6 is the only case where a **present, well-reasoned check** opened the hole
