@@ -11,6 +11,12 @@ the point.
 > exactly the document that must not assert unverified things. Each correction
 > below is marked where it lands. Found by the p4 session reviewing it properly
 > after it had already been merged as "doc-only, zero-risk".
+>
+> Read the second way on purpose: a document about signals that report success
+> while being wrong, which itself shipped five wrong assertions behind a green
+> review, is the cheapest available demonstration of its own thesis. The
+> instructive part is not that it happened but *where* — in the PR whose
+> framing ("doc-only, zero-risk") is precisely the one that skips scrutiny.
 
 ## The finding
 
@@ -67,6 +73,45 @@ carries?), `looksLikeProse` (is this text, or a document's internals?) and
 **complementary, not redundant** — an SEC litigation PDF carries
 `/Title (In the Matter of <RESPONDENT>)`, so the anchor test passes on it and
 only the prose test refuses it.
+
+## A third class: correct, and ruinous
+
+Both shapes above eventually produce a wrong answer, which some assertion can
+eventually catch. This one produces the **correct** answer, forever, and no
+output-based test can see it.
+
+`issuerGate` called `referenceHealth` once per filing. The query is
+`SELECT COUNT(*) AS rows, MAX(updated_at) FROM issuers` — and `MAX` over an
+unindexed column means D1 scans the table. **Measured against production:
+8,043 rows read per call**, versus 1 for the primary-key lookup sitting beside
+it. At the three lanes' real cadences the ingestion session put this in the
+tens of millions of rows per day against a documented 5M/day cap — exhausted in
+minutes. And because the jobs table, the dedup ledger and the approval queue
+are all D1, the consequence is not three degraded sources but **every query
+failing**.
+
+Every answer it returned was correct. Every test passed.
+
+This is neither shape A nor shape B. It is **correct behaviour at a ruinous
+price**, and the only instrument that shows it is a cost meter.
+
+**We have no such instrument.** Verified — none of these appears anywhere in
+`src/` or `test/` on main:
+
+- `meta.rows_read` assertions on hot-path queries
+- an `EXPLAIN QUERY PLAN` check that no per-item query reports `SCAN`
+- a per-tick D1 budget counter
+
+It was caught because a reviewer went looking, not because anything failed.
+Recorded so the absence is a **known gap rather than an assumed cover**.
+
+**The fix was structural, and the sequence matters more than the fix.** The 8-K
+lane had already hoisted this call, with a comment saying to. The comment was
+read, understood, and the bug was reintroduced in three lanes anyway — a
+comment doing the only thing a comment can do, which is *ask*. `issuerGate` now
+takes a `GateContext` built once per batch, so the expensive read cannot be
+reached from a per-filing call site at all. **A signature that cannot express
+the mistake removes the asking.**
 
 ## The rule that follows
 
