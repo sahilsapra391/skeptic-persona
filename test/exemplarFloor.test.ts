@@ -165,6 +165,25 @@ describe("owner exemplars vs the fabrication floor", () => {
     expect([...tripped].filter((t) => t.startsWith("UNKNOWN"))).toEqual([]);
   });
 
+  it("the known-conflict list has not gone STALE either", () => {
+    // The list can rot in BOTH directions and the test above only catches one.
+    // When the ingestion session's #101 lands, "per ECB" stops tripping — and
+    // an entry that no longer describes a real conflict is a standing excuse
+    // for a problem that no longer exists. Asserting every entry still trips
+    // makes the fix force its own cleanup.
+    const stillTripping = new Set<string>();
+    for (const ex of OWNER_EXEMPLARS) {
+      const payload = payloadLicensingFactsOf(ex.text);
+      const facts = payloadFacts(payload);
+      for (const issue of FLOOR_GATES.flatMap((g) => g.run(ex.text, payload, facts))) {
+        const known = KNOWN_FLOOR_CONFLICTS.find((k) => issue.detail.includes(k));
+        if (known) stillTripping.add(known);
+      }
+    }
+    const stale = KNOWN_FLOOR_CONFLICTS.filter((k) => !stillTripping.has(k));
+    expect(stale, "remove these from KNOWN_FLOOR_CONFLICTS — they no longer trip").toEqual([]);
+  });
+
   for (const [i, ex] of covered.entries()) {
     it(`E${i + 1} ${ex.archetype} survives the FLOOR: "${ex.text.slice(0, 38).replace(/\n/g, " ")}..."`, () => {
       const payload = payloadLicensingFactsOf(ex.text);
