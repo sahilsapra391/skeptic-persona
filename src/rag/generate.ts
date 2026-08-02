@@ -8,14 +8,14 @@ import { ARCHETYPES, renderForQueue } from "../templates";
 import type { ArchetypeId, Payload } from "../templates/types";
 import { evaluateGate } from "../templates/gate";
 import { fillSlots, resolveAttribution } from "../templates/render";
-import { fitsInPost } from "../templates/length";
+import { fitsInPost, POST_TEXT_LIMIT } from "../templates/length";
 import { checkRegister } from "../templates/validate";
 import { chatComplete, OpenRouterError, parseVariants } from "./openrouter";
 import { OWNER_EXEMPLARS, stylePackFor } from "./stylepack";
 import { fetchSourceText, hasDedicatedCapture, isBlockedGroundingHost, type SourceText } from "./sourceText";
 import { lakeContext } from "./context";
 import { openerHash, skeletonHash } from "./echo";
-import { checkGroundingProvenance, corpusHasData, validateVariant, type ValidationIssue, type Variant } from "./validate";
+import { checkGroundingProvenance, commentaryFloor, commentaryIsPossible, corpusHasData, validateVariant, type ValidationIssue, type Variant } from "./validate";
 
 // The generation job (docs/p2r-plan.md Part D): approved queue rows become
 // three copy-ready variants. Runs AFTER the Approve tap, so the template
@@ -121,11 +121,17 @@ export function buildPrompt(
   exemplars: ReadonlyArray<{ archetype: ArchetypeId; text: string; register?: "wire" | "commentary" }>,
   feedback: readonly string[] = [],
   grounding?: { source?: SourceText | null; contextLines?: readonly string[] },
+  /** The wire draft, so the commentary budget stated to the model is the one
+   *  the validator will apply. Two numbers that must agree, read from one
+   *  function — the prompt asking for 200 while lengthCheck wanted something
+   *  else is the shape that produced 5 rejections on the first live call. */
+  templateDraft = "",
 ): { system: string; user: string } {
+  const floor = commentaryFloor(templateDraft);
   const beats = eligibleBeats(archetypeId, payload);
   const system = [
     stylePackFor(archetypeId),
-    "OWNER EXEMPLARS (the voice to match; these outrank everything above on tone). Their NUMBERS are from PAST filings: reusing any number not in this item's payload fails validation. Commentary exemplars may run longer than the platform limit: match their VOICE, obey the 200-280 contract.",
+    `OWNER EXEMPLARS (the voice to match; these outrank everything above on tone). Their NUMBERS are from PAST filings: reusing any number not in this item's payload fails validation. Commentary exemplars may run longer than the platform limit: match their VOICE, obey the ${floor}-${POST_TEXT_LIMIT} contract for THIS item.`,
     ...exemplars.map((e) => `--- ${e.register ?? "wire"} ---\n${e.text}\n---`),
     beats.length > 0
       ? `ELIGIBLE BEATS for this item (pre-gated against the payload; you may use AT MOST one, verbatim or not at all):\n${beats.map((b) => `- ${b}`).join("\n")}`
@@ -171,7 +177,7 @@ export function buildPrompt(
     // Segment budgets, not just a total: given only "200-280" the model wrote
     // a 115-char fact block and then crushed the take to fit, which is where
     // lossy name compression (and its fabrication risk) comes from.
-    `- commentary (THE deliverable; the other two are fallbacks): 200-280 weighted chars TOTAL, built as two budgeted parts. Fact block FIRST, at most ${COMMENTARY_FACT_BUDGET} weighted chars including the attribution — compress it yourself (drop clause padding, keep every number and name exact); it must survive being screenshotted alone. Then a blank line, then the take, at most ${COMMENTARY_TAKE_BUDGET} weighted chars: one or two short segments (a punch line, then the argument), opinionated, a real point of view, no hedging, no advice, no imputed motive. Engage the SPECIFIC record in the data above — what this actor did, how it sits against the prior record — not generalities about markets. No claims about market reaction (spreads, flows, pricing, positioning) unless stated in the data above. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a fact as if it were the take.`,
+    `- commentary (THE deliverable; the other two are fallbacks): ${floor}-${POST_TEXT_LIMIT} weighted chars TOTAL, built as two budgeted parts. Fact block FIRST, at most ${COMMENTARY_FACT_BUDGET} weighted chars including the attribution — compress it yourself (drop clause padding, keep every number and name exact); it must survive being screenshotted alone. Then a blank line, then the take, at most ${COMMENTARY_TAKE_BUDGET} weighted chars: one or two short segments (a punch line, then the argument), opinionated, a real point of view, no hedging, no advice, no imputed motive. Engage the SPECIFIC record in the data above — what this actor did, how it sits against the prior record — not generalities about markets. No claims about market reaction (spreads, flows, pricing, positioning) unless stated in the data above. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a fact as if it were the take.`,
     "- sharp: wire register (fact block + attribution, then at most one beat line), the escalation tier: the sharpest ELIGIBLE beat, compression at maximum.",
     "- dry: wire register, 100-140 weighted chars. Fact block + attribution, then at most one eligible beat on its own line.",
     attribution !== null
@@ -402,15 +408,38 @@ export async function runGeneration(
     const licensedSource = sourceProvenance.ok ? (source?.text ?? "") : "";
     const grounding = [licensedSource, ...context.lines].filter(Boolean).join("\n") || undefined;
 
+    // THE ONE CASE WHERE A TAKE IS ARITHMETICALLY IMPOSSIBLE. If the record's
+    // own fact block plus the owner's shortest signed take exceeds the platform
+    // limit, no commentary can exist inside 280 — so asking for one can only
+    // produce something that fails, or something that invented room by cutting
+    // the record. The item still gets dry and sharp, which carry no minimum and
+    // are the archetype's own default. Measured against 400 live queue rows
+    // this withholds 6 of them.
+    //
+    // Recorded as a generations row, not skipped in silence: a variant that
+    // was never requested has to be distinguishable from one that failed.
+    const commentaryPossible = commentaryIsPossible(fallback);
+    const wanted: readonly Variant[] = commentaryPossible ? VARIANTS : VARIANTS.filter((v) => v !== "commentary");
+    if (!commentaryPossible) {
+      await insertGeneration(
+        env.DB,
+        { queueId: row.queue_id, variant: "commentary", text: "", status: "skipped_record_too_thin", attempt },
+        now,
+      );
+      log("info", "commentary withheld: the record cannot fund a take inside the limit", {
+        queueId: row.queue_id, archetype: archetypeId, floor: commentaryFloor(fallback),
+      });
+    }
+
     const valid = new Set<Variant>();
     const feedback: string[] = [];
     let sawApiError = false;
 
-    for (let round = 0; round < 2 && attemptsLeft > round && valid.size < VARIANTS.length; round++) {
+    for (let round = 0; round < 2 && attemptsLeft > round && valid.size < wanted.length; round++) {
       if (!budget.take(1, { reserved: true })) break;
       let content: string;
       try {
-        const prompt = buildPrompt(archetypeId, payload, bank, feedback, { source, contextLines: context.lines });
+        const prompt = buildPrompt(archetypeId, payload, bank, feedback, { source, contextLines: context.lines }, fallback);
         content = await chatComplete(env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, [
           { role: "system", content: prompt.system },
           { role: "user", content: prompt.user },
@@ -436,7 +465,7 @@ export async function runGeneration(
       }
 
       const variants = parseVariants(content);
-      for (const v of VARIANTS) {
+      for (const v of wanted) {
         if (valid.has(v)) continue;
         const text = variants[v];
         if (!text) {

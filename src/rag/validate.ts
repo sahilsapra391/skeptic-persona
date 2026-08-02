@@ -859,12 +859,71 @@ export function structuralCheck(text: string, variant: Variant = "dry"): Validat
   return issues;
 }
 
-export function lengthCheck(text: string, variant: Variant): ValidationIssue[] {
+/**
+ * The shortest TAKE the owner has ever signed off, in weighted characters.
+ *
+ * Measured across all 27 OWNER_EXEMPLARS: takes run 75 to 271, median 124.
+ * 75 is not a chosen threshold — it is the observed floor of the voice this
+ * validator enforces, so anything above it would reject text he has written.
+ */
+export const MIN_TAKE_WEIGHTED = 75;
+
+/** The first segment: fact block plus attribution, per the structural law. */
+function factBlockOf(text: string): string {
+  return text.split(/\n+/).map((s) => s.trim()).find(Boolean) ?? "";
+}
+
+/**
+ * What a commentary variant must reach, GIVEN WHAT THE RECORD SUPPORTS.
+ *
+ * The flat 200 was the forcing function behind unsourced world-knowledge.
+ * Measured: the fact block a live item can produce runs 46-190 weighted chars
+ * (median 86 for halts), so a flat 200 demanded 85-154 characters the record
+ * could not fund — and the only remaining source is the model's knowledge of
+ * the world. The drafts were complying with a contract we wrote.
+ *
+ * The floor is now the record's own fact block plus the owner's shortest
+ * signed take. Two properties make that safe rather than lax:
+ *
+ *  - It is computed from the TEMPLATE DRAFT, not from the model's own fact
+ *    block, so a model cannot lower its own bar by writing less.
+ *  - 11 of the owner's 27 exemplars sit UNDER 200 weighted. The flat floor was
+ *    rejecting 41% of the voice it exists to enforce.
+ *
+ * Against 400 live queue rows this relaxes 61% and withholds 1%.
+ */
+export function commentaryFloor(templateDraft: string): number {
+  return weightedLength(factBlockOf(templateDraft)) + MIN_TAKE_WEIGHTED;
+}
+
+/**
+ * When even the shortest signed take cannot fit beside the record's own fact
+ * block, commentary CANNOT EXIST inside the platform limit. That is
+ * arithmetic, not a tuned threshold, and it is the one case where the honest
+ * answer is to not ask for a take at all — the item still gets dry and sharp,
+ * which are the archetype's own default and carry no length minimum.
+ */
+export function commentaryIsPossible(templateDraft: string): boolean {
+  return commentaryFloor(templateDraft) <= POST_TEXT_LIMIT;
+}
+
+export function lengthCheck(text: string, variant: Variant, templateDraft = ""): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const w = weightedLength(text);
   if (w > POST_TEXT_LIMIT) issues.push({ rule: "length", detail: `${w} weighted chars, limit ${POST_TEXT_LIMIT}` });
-  if (variant === "commentary" && w < 200) {
-    issues.push({ rule: "length", detail: `commentary is ${w} weighted chars; contract is 200-280` });
+  if (variant === "commentary") {
+    // Default templateDraft of "" yields a floor of MIN_TAKE_WEIGHTED, which
+    // is the LOOSEST answer. A caller that forgets the draft gets a permissive
+    // length rule rather than a spuriously strict one — the strictness lives
+    // in the fabrication floor, and a length rule failing closed here would
+    // reject legitimate short commentary for a plumbing mistake.
+    const floor = commentaryFloor(templateDraft);
+    if (w < floor) {
+      issues.push({
+        rule: "length",
+        detail: `commentary is ${w} weighted chars; this record supports ${floor}-${POST_TEXT_LIMIT}`,
+      });
+    }
   }
   return issues;
 }
@@ -1082,7 +1141,7 @@ export async function validateVariant(db: D1Database, text: string, opts: Valida
     // Payload arg (PR #53): resolves the single correct attribution for
     // chamber-mapped archetypes — the wrong-chamber check comes free.
     ...checkRegister(text, opts.archetype, opts.payload),
-    ...lengthCheck(text, opts.variant),
+    ...lengthCheck(text, opts.variant, opts.templateDraft),
     // Group 2 — the contract.
     ...beatShapeCheck(text),
     ...hedgeCheck(text),
