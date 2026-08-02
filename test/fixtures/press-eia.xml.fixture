@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<?xml-stylesheet href="rss.xsl" type="text/xsl" media="screen"?>
+<rss version="2.0">
+	<channel>
+		<title>Today in Energy</title>
+		<link>http://www.eia.gov/todayinenergy</link>
+		<description>Short, timely articles with graphics on energy facts, issues, and trends.</description>
+		<language>en-us</language>
+		<lastBuildDate>Fri, 31 Jul 2026 09:00:00 EST</lastBuildDate>
+		<webMaster>wmaster@eia.gov</webMaster>
+
+		<image>
+		<title>EIA logo</title>
+		<url>http://www.eia.gov/global/images/logos/eia_logo_250.png</url>
+		<link>http://www.eia.gov/</link>
+		<description>U.S. Energy Information Administration</description>
+		</image>
+		
+		<item>
+		<title>China's crude oil imports fell in the second quarter</title>
+		<link>https://www.eia.gov/todayinenergy/detail.php?id=67905</link>
+		<pubDate>Fri, 31 Jul 2026  09:00:00 EST</pubDate>
+		<description>China, the world's largest importer of crude oil, imported less crude oil in the second quarter of 2026 (2Q26) following higher crude oil prices that resulted from disrupted flows through the Strait of Hormuz. China's lower imports reduced global demand, softening the upward price effects from the disrupted supply through the strait.</description>
+		</item>
+		
+		<item>
+		<title>Lower crude oil prices reduced U.S.-Canada energy trade value in 2025</title>
+		<link>https://www.eia.gov/todayinenergy/detail.php?id=67904</link>
+		<pubDate>Wed, 29 Jul 2026  09:00:00 EST</pubDate>
+		<description>The value of energy trade between the United States and Canada fell by 11% in 2025 to an estimated $137 billion, according to data from the U.S. Census Bureau. Energy trade value is the total value of energy imports and exports between two countries and is driven by commodity volumes and prices. Most of the U.S.-Canada trade value is U.S. energy imports from Canada&#8212;$111 billion in 2025&#8212;rather than from U.S. energy exports to Canada, which totaled $26 billion last year. Crude oil accounts for the largest component of U.S.-Canada energy trade, making up 69% of the total value traded in 2025.</description>
+		</item>
+		
+		<item>
+		<title>Hybrid sales rise while battery electric sales remain lower after tax credit expiration</title>
+		<link>https://www.eia.gov/todayinenergy/detail.php?id=67885</link>
+		<pubDate>Mon, 27 Jul 2026  09:00:00 EST</pubDate>
+		<description>In the second quarter of 2026 (2Q26), 24% of new light-duty vehicles sold in the United States were hybrid electric, battery electric, or plug-in hybrid electric vehicles, up from 22% in 2Q25. Between 2Q25 and 2Q26, hybrid electric vehicles continued to gain market share, reaching a record 16% of light-duty vehicle sales. The market shares of battery electric and plug-in hybrid electric vehicles decreased, according to estimates from Omdia. In 2Q26, battery electric vehicle sales were 6% of new light-duty vehicles sold, down from 7% in 2Q25; plug-in hybrid electric vehicle sales fell from 1.9% to 1.4% over the same period.</description>
+		</item>
+		
+		</channel></rss>
