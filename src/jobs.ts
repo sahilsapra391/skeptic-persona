@@ -23,6 +23,7 @@ import { pollNasdaqHalts, pollNyseHalts } from "./ingesters/halts";
 import { pollHousePtr } from "./ingesters/housePtr";
 import { pollSenatePtr } from "./ingesters/senatePtr";
 import { runGeneration } from "./rag/generate";
+import { runVoiceDigest } from "./rag/digest";
 import { deliverCards } from "./rag/deliver";
 import { newTickBudget, type TickBudget } from "./lib/budget";
 import { expirePendingBefore } from "./lib/db";
@@ -155,6 +156,7 @@ export function registerJobs(): void {
   registry["halts_nyse"] = pollNyseHalts;
   registry["bls_calendar"] = syncBlsCalendar;
   registry["bls_watch"] = watchBls;
+  registry["voice_digest"] = runVoiceDigest;
   // One tick: generate, then deliver any undelivered terminal rows —
   // including rows a previous crashed run generated but never delivered.
   registry["digest_push"] = pushDigests;
