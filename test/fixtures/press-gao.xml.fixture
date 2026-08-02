@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="/scripts/rss.xsl" ?>
+<rss xmlns:atom="http://www.w3.org/2005/Atom" version="2.0">
+  <channel>
+      <atom:link href="https://www.gao.gov/rss/reports.xml" rel="self" type="application/rss+xml"/>
+      <title>Reports News from the GAO</title>
+      <description>Reports News from the GAO.</description>
+      <link>https://www.gao.gov/rss/reports.xml</link>
+      <lastBuildDate>Sat, 01 Aug 2026 04:33:48 -0400</lastBuildDate>
+      <generator>GAO</generator>
+      <image>
+          <url>https://www.gao.gov/themes/custom/gao_uswds/img/gao-logo-rss.gif</url>
+          <title>Reports News from the GAO</title>
+          <link>https://www.gao.gov/rss/reports.xml</link>
+          <description>Feed provided by GAO.</description> 
+      </image>
+
+            <item>
+                <title>Army Corps of Engineers: Disaster Funding and Information Used to Support Flood Risk Management</title>
+                <link>https://www.gao.gov/products/gao-26-108504</link>
+                <description>
+What GAO Found
+
+The U.S. Army Corps of Engineers is responsible for planning, designing, and constructing much of the nation’s federally funded flood risk management infrastructure. The Corps usually does not request funds for disaster response during the annual budget cycle but instead receives supplemental appropriations for such activities after a disaster has occurred. In fiscal year (FY) 2004 through FY 2025, Congress appropriated more than $60 billion to the Corps for disaster response through 19 post-disaster supplemental appropriations acts and $450 million through annual appropriations acts.
+
+Post-Disaster Supplemental Appropriations to the Corps for Disaster Response, FYs 2004–2025
+
+
+
+If necessary to address disasters, the Corps can transfer funds from certain other appropriations accounts to the Flood Control and Coastal Emergencies account, which funds the Corps’s disaster work. The Corps has transferred about $910 million into this account since FY 2004. Officials said they reimburse funds transferred once they receive an appropriation.
+
+The Corps spent more than $34 billion on disasters from FY 2006 through FY 2025. Because the Corps has historically received “no-year” appropriations that are available for obligation indefinitely, the Corps does not have to immediately expend funds. Disaster spending during this period included activities related to preparedness (such as supplies and equipment, planning, and training), emergency response, and project repair.
+
+After a disaster, the Corps gathers information by assessing damage to projects. The Corps may use this information to support flood risk management and emergency response. This includes activities such as improving flood risk management models and informing early warnings systems and evacuation protocols. The Corps has also used this information to make decisions about modifications to damaged projects to provide greater protection and improve resilience, such as increasing the height of a levee. The Corps’s Emergency Response to Natural Disasters program has exercised its authority under P.L. 84-99 to modify several projects.
+
+Why GAO Did This Study
+
+Many of the nation’s dams and levees were built over 50 years ago and, like other aging infrastructure, may be more vulnerable to failure, especially given the rise in the number of disasters and increasing challenges related to delivery of federal disaster assistance.
+
+The Thomas R. Carper Water Resources Development Act of 2024 includes a provision for GAO to analyze Corps disaster preparedness and response activities. This report provides information on how Corps disaster response and praeparedness activities have been funded since FY 2004 and how the Corps uses information about the effects of natural disasters when making decisions on flood risk management projects.
+
+To conduct this work, GAO analyzed budget requests, appropriations acts, and Corps expenditure data and reviewed Corps documents, including agency guidance and webpages. GAO is reporting expenditure data from post-disaster supplemental appropriations beginning in FY 2006 rather than FY 2004 because that is when the Corps began using specific codes in its financial system of record to link expenditures to post-disaster supplemental appropriations acts. GAO also examined publicly available information on levees and dams and interviewed Corps officials.
+
+For more information, contact Rachel Frisk at FriskR@gao.gov.
+</description>
+                <pubDate>Fri, 31 Jul 2026 06:58:09 -0400</pubDate>
+                <guid isPermaLink="false">/products/gao-26-108504</guid>
+            </item>
+            <item>
+                <title>B-52 Bomber: Air Force Actions Needed to Improve Major Modernization and Sustainment Efforts</title>
+                <link>https://www.gao.gov/products/gao-26-109272</link>
+                <description>
+What GAO Found
+
+Ten of the 13 B-52 modernizations are experiencing cost, schedule, or performance challenges. The Air Force’s most expensive B-52 modernization effort, the Commercial Engine Replacement Program (CERP) will likely continue to face significant challenges as the Air Force plans to begin production with little to no developmental flight testing. While the Air Force analyzed and accepted increased risks from this approach in 2023, since then CERP costs increased by about $3 billion and initial operational capability was delayed more than 15 months. Department of Defense (DOD) policy states cost estimates should consider risk and include an analysis that identifies and evaluates alternative courses of action that may reduce cost and risk. Reassessing these risks would better inform decision-makers as they consider when to begin production.
+
+B-52 Transporting an X-15 Rocket Research Aircraft in 1959
+
+
+
+In addition, as the Air Force develops its 13 modernizations, it is not consistently using digital engineering tools that provide decision-makers real-time data to assess overall performance allowing them to make timely and well-informed decisions. DOD issued guidance in 2023 stating programs in development should incorporate digital tools, such as digital twins, when it’s practical, beneficial, and affordable. The Air Force has not assessed the potential use of digital engineering on all B-52 modernizations. As a result, the Air Force may be missing opportunities to take advantage of efficiencies that digital engineering can provide, including avoiding future sustainment and supportability challenges.
+
+The Air Force conducts planned maintenance on B-52s at a repair depot about every 4 years and has developed analyses to ensure it has sufficient capacity to perform planned modernization. However, the current maintenance plans assume that the Air Force will complete CERP and install new engines on time and do not account for risks from further schedule delays. B-52 maintenance is already struggling with finding sufficient parts for the current engines. Without planning for the possibility of engine delays from CERP, the Air Force risks falling behind on planned B-52 maintenance, which could impact readiness.
+
+Why GAO Did This Study
+
+The B-52 bomber is an aircraft capable of performing conventional and nuclear missions. The B-52 was originally introduced in 1955 with a projected lifespan of 20 years. The Air Force has since extended the aircraft’s lifespan through 2050. To maintain the B-52’s strategic edge, the Air Force is projected to spend an estimated $21 billion for modernizations including new engines, radar, and communications.
+
+A Senate report included a provision for GAO to assess B-52 modernization. This report addresses, among other things, the extent to which (1) B-52 modernizations are meeting their cost, schedule, and performance goals, and (2) the Air Force has developed plans to ensure sufficient depot capacity for the modernizations. This is a public version of a sensitive report issued in July 2026. DOD deemed some schedule and mission capable information sensitive, and GAO omitted it from this report.
+
+To conduct this review, GAO evaluated Air Force acquisition and sustainment documentation. GAO conducted site visits to the B-52 program office, depot, and logistics center. GAO also analyzed data and interviewed officials on depot performance, spare part and support equipment needs, and B-52 availability.
+
+
+</description>
+                <pubDate>Fri, 31 Jul 2026 07:50:23 -0400</pubDate>
+                <guid isPermaLink="false">/products/gao-26-109272</guid>
+            </item>
+            <item>
+                <title>Federal Land and Water Management: Lessons Learned from Implementing Federal-Tribal Shared Decision-Making Agreements</title>
+                <link>https://www.gao.gov/products/gao-26-108965</link>
+                <description>
+What GAO Found
+
+Various federal land and water management agencies and Tribes have entered into shared decision-making agreements. Under these agreements, Tribes provide substantive input on federal natural and cultural resource management decisions over many years. The relevant federal agencies are the Departments of Agriculture, Commerce, the Interior, and their subcomponents. The subcomponents include the U.S. Forest Service, National Oceanic and Atmospheric Administration, Bureau of Land Management, U.S. Fish and Wildlife Service, and National Park Service.
+
+GAO identified five lessons learned from the implementation of shared decision-making agreements between federal agencies and Tribes.
+
+Five Lessons Federal Agency and Tribal Officials Learned from Implementing Shared Decision-Making Agreements
+
+
+
+These lessons are important for various reasons. For example, with respect to developing mutual understanding and trust, tribal officials party to an agreement said agency staff met with them in person, had open minds, and treated them with respect. This encouraged candid conversations and helped participants better understand one another’s perspectives.
+
+In developing and implementing shared decision-making agreements, there are key questions related to each lesson learned that would be useful for federal agencies and Tribes to consider. For example,
+
+
+	Does the agreement or supporting documents clearly identify how the parties will implement the agreement?
+	Have parties taken concerted efforts to understand each other’s approaches to natural and cultural resource management, and recognize constraints on their participation, such as legal limitations?
+	Have parties identified existing policies and procedures that can create challenges to working together, such as contrasting definitions or differing timelines?
+	Have parties identified the appropriate knowledge and skills federal staff need to implement the agreement?
+	Have parties determined what resources are available?
+
+
+Why GAO Did This Study
+
+Federal agencies manage public lands and waters, including national forests and parks, that are tribal ancestral territories and have special importance to Tribes. Agencies collaborate with Tribes to help achieve their missions and fulfill the unique federal trust and treaty responsibilities.
+
+GAO was asked to examine issues related to agencies developing and implementing shared decision-making agreements with Tribes. In a January 2026 report, GAO reported on factors that affected development of shared decision-making agreements. This report identifies lessons that federal agencies and Tribes learned during the implementation of shared decision-making agreements for managing public lands and waters. It also includes related key questions.
+
+GAO reviewed information collected in interviews with the parties to shared decision-making agreements discussed in the previous report (GAO-26-106626). GAO analyzed statements related to implementing agreements, and identified lessons learned, their importance, and related key questions.
+
+For more information, contact Anna Maria Ortiz at OrtizA@gao.gov.
+</description>
+                <pubDate>Fri, 31 Jul 2026 07:00:09 -0400</pubDate>
+                <guid isPermaLink="false">/products/gao-26-108965</guid>
+            </item>
+            </channel></rss>

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0" xml:base="https://www.sec.gov/">
+  <channel>
+    <title>Speeches and Statements</title>
+    <link>https://www.sec.gov/</link>
+    <description>Speeches, statements and testimony given by the Chair, Commissioners, and staff of the SEC.</description>
+    <language>en</language>
+    
+    <item>
+  <title>Headstands and Summervaults: A Statement on Crypto Vaults and Lending Strategies</title>
+  <link>https://www.sec.gov/newsroom/speeches-statements/peirce-statement-crypto-vaults-lending-strategies-072226</link>
+  <description>Commissioner Hester M. Peirce</description>
+  <pubDate>Wed, 22 Jul 2026 10:11:31 -0400</pubDate>
+    <dc:creator> </dc:creator>
+    <guid isPermaLink="false">e5c46562-a1cc-4b67-945a-614290dc3262</guid>
+    </item>
+<item>
+  <title>Remarks at the Small Business Capital Formation Advisory Committee Meeting </title>
+  <link>https://www.sec.gov/newsroom/speeches-statements/atkins-remarks-small-business-capital-formation-advisory-meeting-07-21-2026-remarks-small-business-capital-formation-advisory-committee-meeting</link>
+  <description> </description>
+  <pubDate>Tue, 21 Jul 2026 10:47:09 -0400</pubDate>
+    <dc:creator> </dc:creator>
+    <guid isPermaLink="false">ec0053ff-7fd6-40fd-89a8-a21e45450e39</guid>
+    </item>
+<item>
+  <title>Seeking Public Comment on Seeking Public Capital: Remarks Before the Small Business Capital Formation Advisory Committee</title>
+  <link>https://www.sec.gov/newsroom/speeches-statements/peirce-remarks-small-business-capital-formation-advisory-committee-072126</link>
+  <description>Commissioner Hester M. Peirce</description>
+  <pubDate>Tue, 21 Jul 2026 10:20:05 -0400</pubDate>
+    <dc:creator> </dc:creator>
+    <guid isPermaLink="false">baeb3036-793f-4b1e-bb91-812e77052045</guid>
+    </item>
+</channel></rss>
