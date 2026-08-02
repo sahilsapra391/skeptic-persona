@@ -34,7 +34,16 @@ limits plus 2,000 GH Actions min/month.
 | p4-07 | Mesh MEDIUM tier (5–15 min): GDELT, Google News RSS query feeds, outlet RSS (Reuters, AP, CNBC, FT, Nikkei, Economic Times, Moneycontrol + the owner-signed list), public Telegram channels via `t.me/s/` HTML | Live-verify record per source |
 | p4-08 | Mesh SLOW tier (hourly/daily): remaining B2/B3 fanout — DOJ/SDNY, OCC/FDIC, FINRA revisit, sanctions lists (OFAC/EU/UK OFSI), IMF/World Bank, Eurostat/ONS, India (what is honestly reachable; NSE stays parked) | Live-verify record per source |
 | p4-09 | Grounding, decided (G2 + Upstash, four namespaces): D1 structural-records table over all ten archives (LATEST files D1-only); TOPIC namespace (TOP archives, structural metadata + engagement tier ONLY) as a salience prior, never prompt text; DEVICE namespace (~20–30 rhetorical devices distilled via a one-time OpenRouter labeling pass — name, abstract description in our words, trigger conditions, engagement tier, archetype affinity; zero source text, zero reconstructable post ids), 2–3 devices injected into STYLE by payload shape; `SPICE_LEVEL` env 1–3 (default 2) sets device count + beat escalation and NEVER relaxes the never-list; edge targets records/rules/timing/coverage gaps, never motive or character; new validators: 7-gram verbatim-leak check vs a build-time hash set of the TOP archives (archives never ship), template-smell extended to a device's canonical form | Verification doc: device count, engagement distribution per device, 20-record zero-verbatim spot-check, 10 sample generations per spice level — owner reviews before this path goes live |
-| p4-10 | VOICE namespace (our posts + `owner_final` exemplars, the ONLY namespace whose verbatim text may reach a prompt; retrieval provenance logged on every draft that used it) + the learning loop ((draft, final) pairs, digest, promotion, ships-unedited counters, zero-edit rate as headline metric) | Promotion works end to end |
+| p4-10a | The learning loop, D1 only: (draft, final) pairs captured at post time, promotion of owner finals into a `voice_finals` table, finals fed back into the generation prompt, nightly digest with zero-edit rate as the headline metric | Promotion works end to end |
+| p4-10b | VOICE namespace in Upstash (similarity retrieval over `voice_finals`, the ONLY namespace whose verbatim text may reach a prompt; retrieval provenance logged on every draft that used it) | Gated on post volume — see the split note below |
+
+Split note (2026-08-01): the learning loop was one chunk paired with an Upstash
+VOICE namespace. That was a sequencing error. The loop needs only D1 and the
+`post_log.final_text` capture that already ships, and with zero manual posts
+recorded there is nothing to retrieve against — a similarity index over an
+empty table is a dependency bought for no return. The loop goes first because
+it cannot report on days that happened before it existed; the namespace waits
+for volume worth retrieving.
 
 Re-sequencing note: full-source grounding was originally deferred behind
 exemplar coverage; the owner un-deferred it 2026-08-01 after reviewing the

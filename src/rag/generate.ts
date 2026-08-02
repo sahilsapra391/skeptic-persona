@@ -12,6 +12,7 @@ import { fitsInPost } from "../templates/length";
 import { checkRegister } from "../templates/validate";
 import { chatComplete, OpenRouterError, parseVariants } from "./openrouter";
 import { OWNER_EXEMPLARS, stylePackFor } from "./stylepack";
+import { ownerFinals } from "./learn";
 import { fetchSourceText, hasDedicatedCapture, isBlockedGroundingHost, type SourceText } from "./sourceText";
 import { lakeContext } from "./context";
 import { openerHash, skeletonHash } from "./echo";
@@ -53,6 +54,31 @@ export const MAX_GENERATIONS_PER_RUN = 3;
 export const MAX_ATTEMPTS = 4;
 /** Stop starting new rows after this much wall time (cadence is 300s). */
 export const RUN_TIME_CAP_MS = 120_000;
+/**
+ * CEILING on owner finals injected per archetype (p4-09). The EFFECTIVE limit
+ * is `floor((committed - 1) / 2)` — see the call site — so promoted text is
+ * always a strict minority of the bank. This constant only stops a large
+ * committed bank from pulling in an unbounded number of finals; for every
+ * archetype we have today the relative rule binds first, and for the
+ * two-exemplar archetypes it allows nothing at all until the owner writes a
+ * third. That is the correct answer for a thin bank rather than a limitation:
+ * there is no range there to outweigh.
+ */
+export const MAX_OWNER_FINALS = 4;
+
+/**
+ * How many promoted finals may ride alongside a committed bank of this size.
+ *
+ * Exported because it is the containment for voice collapse and a formula
+ * buried in a call site is a formula nobody tests. Strict minority by
+ * construction: at 2 committed exemplars it returns 0, which is correct rather
+ * than unfortunate — there is no signed-off range there to outweigh, so the
+ * loop contributes nothing until the owner writes a third.
+ */
+export function ownerFinalsAllowance(committedCount: number): number {
+  if (committedCount <= 0) return 0;
+  return Math.min(MAX_OWNER_FINALS, Math.floor((committedCount - 1) / 2));
+}
 
 const KV_OPENROUTER_ALERTED = "openrouter:auth_alert_sent";
 const KV_ECHO_EMPTY_ALERTED = "echo:empty_alert_sent";
@@ -303,7 +329,33 @@ export async function runGeneration(
     }
 
     // THE EXEMPLAR GATE. No owner exemplar for this archetype = no LLM call.
-    const bank = exemplars.filter((e) => e.archetype === archetypeId);
+    //
+    // Owner finals (p4-09) join the committed bank rather than replacing it.
+    // Only the owner's REWRITES are promoted — see promotionStatement for why
+    // feeding back our own accepted output is training on its own predictions.
+    // They do NOT open the gate on their own either: a promoted final is
+    // downstream of a generation a committed exemplar already licensed, so
+    // gate-opening would let the loop bootstrap an archetype the owner never
+    // wrote for.
+    //
+    // THE CAP IS RELATIVE, NOT ABSOLUTE, and that correction came from review.
+    // A flat MAX_OWNER_FINALS=4 is not a cap where it matters: the committed
+    // banks are CONGRESS_PTR 7, FILING_FORM4 5, FILING_8K 4, REGULATORY_NEWS
+    // 3, and INSIDER_CLUSTER / HALT / MACRO_PRINT / RATE_DECISION 2 each.
+    // Four promoted finals would make the bank majority-promoted for FIVE of
+    // the eight archetypes — placed first, under a header saying they outrank
+    // everything above on tone. HALT and MACRO_PRINT are among the highest
+    // cadence, so the thinnest banks were the most exposed.
+    //
+    // Holding it to a strict minority of the committed count means the owner's
+    // signed-off range always outweighs anything the loop added, by
+    // construction rather than by a detector that has to notice.
+    const committed = exemplars.filter((e) => e.archetype === archetypeId);
+    const finalsAllowance = ownerFinalsAllowance(committed.length);
+    const bank =
+      committed.length === 0
+        ? committed
+        : [...(await ownerFinals(env.DB, archetypeId, finalsAllowance)), ...committed];
     if (bank.length === 0) {
       await insertGeneration(env.DB, { queueId: row.queue_id, variant: "none", text: "", status: "skipped_no_exemplar", attempt: 1 }, now);
       log("info", "generation skipped: no owner exemplar for archetype", { queueId: row.queue_id, archetype: archetypeId });
