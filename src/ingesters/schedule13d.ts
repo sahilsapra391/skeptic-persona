@@ -1,6 +1,6 @@
 import type { Env } from "../env";
 import { gateContext, issuerGate } from "./issuers";
-import { fetchPool, newTickBudget, type TickBudget } from "../lib/budget";
+import { fetchPool, newTickBudget, SEC_POOL_CONCURRENCY, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
 import { decodeEntities, extractAllNs, extractAttr, extractFirst, extractFirstNs, stripBom } from "../lib/xml";
 import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
@@ -233,7 +233,9 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
   const affordable = pending.results.filter(() => budget.take(1));
   if (affordable.length === 0) return;
 
-  await fetchPool(affordable, async (row) => {
+  await fetchPool(
+    affordable,
+    async (row) => {
     let attempts = 0;
     try {
       const stub = JSON.parse(row.payload) as { dirUrl: string; accession: string; formType: string; attempts?: number };
@@ -300,7 +302,10 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
         .run()
         .catch(() => {});
     }
-  });
+    },
+    // Nested inside the dispatcher's job pool: see SEC_POOL_CONCURRENCY.
+    SEC_POOL_CONCURRENCY,
+  );
 }
 
 async function drainPostables(env: Env, now: Date, budget: TickBudget): Promise<void> {

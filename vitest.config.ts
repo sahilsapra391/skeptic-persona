@@ -26,6 +26,21 @@ export default defineWorkersConfig(async () => {
               // the day. A floor of 0 passes everything; a bypass of 0 makes
               // every item ignore the daily caps. test/salience.test.ts turns
               // the gate back ON explicitly by spreading its own env.
+              //
+              // KNOWN MASKING, do not read these two lines as harmless.
+              // Removing them yields 767 passed / 2 FAILED, both in
+              // test/edgar8k.test.ts: the drain-cap test expects 10 sends and
+              // gets 4, and the 304 test expects a positive drain and gets 0.
+              // So the busiest source in the pipeline has its end-to-end
+              // expectations pinned against a configuration production never
+              // runs. Neutralising a variable to isolate a suite is fine;
+              // neutralising it until a real disagreement disappears is not,
+              // and the second is what is happening to edgar_8k today.
+              //
+              // Owned by p4-03 (salience), not by this chunk — tracked against
+              // PR #79 rather than fixed here, because the right fix is either
+              // edgar_8k's expectations or its salience scores, and deciding
+              // which belongs with the scorer.
               SALIENCE_FLOOR: "0",
               CAP_BYPASS_SCORE: "0",
               THREADS_APP_ID: "TESTAPP",

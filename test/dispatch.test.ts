@@ -1,7 +1,13 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { KILL_SWITCH_KEY, MAX_JOBS_PER_TICK, registry, tick } from "../src/dispatch";
-import { fetchPool, MAX_CONCURRENT_FETCHES, newTickBudget } from "../src/lib/budget";
+import {
+  KILL_SWITCH_KEY,
+  MAX_JOBS_PER_TICK,
+  MAX_TICK_JOB_CONCURRENCY,
+  registry,
+  tick,
+} from "../src/dispatch";
+import { fetchPool, MAX_CONCURRENT_FETCHES, newTickBudget, SEC_POOL_CONCURRENCY } from "../src/lib/budget";
 
 // These tests own the jobs table; clear migration-seeded jobs (queue_expiry)
 // so synthetic fixtures alone determine what each tick sees.
@@ -272,13 +278,17 @@ describe("paid-tier budget", () => {
     let inFlight = 0;
     let peak = 0;
     const items = Array.from({ length: 20 }, (_, i) => i);
-    const { results: out, errors } = await fetchPool(items, async (n) => {
-      inFlight += 1;
-      peak = Math.max(peak, inFlight);
-      await new Promise((r) => setTimeout(r, 5));
-      inFlight -= 1;
-      return n * 2;
-    });
+    const { results: out, errors } = await fetchPool(
+      items,
+      async (n) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight -= 1;
+        return n * 2;
+      },
+      MAX_CONCURRENT_FETCHES,
+    );
     expect(peak).toBeLessThanOrEqual(MAX_CONCURRENT_FETCHES);
     // Order preserved despite out-of-order completion.
     expect(out).toEqual(items.map((n) => n * 2));
@@ -288,12 +298,114 @@ describe("paid-tier budget", () => {
   it("one throwing worker does not void the batch", async () => {
     // Each item is an independent filing; a single 503 must not discard the
     // other five results or abandon undispatched work.
-    const { results, errors } = await fetchPool([0, 1, 2, 3, 4], async (n) => {
-      if (n === 2) throw new Error("boom");
-      return n * 10;
-    });
+    const { results, errors } = await fetchPool(
+      [0, 1, 2, 3, 4],
+      async (n) => {
+        if (n === 2) throw new Error("boom");
+        return n * 10;
+      },
+      MAX_CONCURRENT_FETCHES,
+    );
     expect(results).toEqual([0, 10, undefined, 30, 40]);
     expect(errors.map((e) => e.index)).toEqual([2]);
+  });
+
+  it("nested pools cannot exceed the platform's 6 connections to one host", () => {
+    // Concurrency MULTIPLIES. The dispatcher runs jobs in a pool, and the three
+    // SEC-hosted fan-out ingesters (13D/G, Form 144, Form 25) each open their
+    // own pool inside their job. Left at fetchPool's default width that is
+    // 3 x 6 = 18 simultaneous connections to www.sec.gov, against a source that
+    // asks for <= 10 req/s and can block a User-Agent for ignoring it.
+    //
+    // The overlap is structural, not unlucky: all three carry cadence
+    // `every_5m_us_0600_2200` and priority 50 (migrations 0012/0021/0035), so
+    // they sort adjacently under the dispatcher's ORDER BY and land in the
+    // same wave by construction.
+    //
+    // This asserts the PRODUCT, which is the only number that bounds the
+    // connection count. Raising either constant alone turns it red.
+    expect(MAX_TICK_JOB_CONCURRENCY * SEC_POOL_CONCURRENCY).toBeLessThanOrEqual(MAX_CONCURRENT_FETCHES);
+  });
+});
+
+describe("time-budget exposure is bounded by the concurrency", () => {
+  it("an already-spent budget lets at most `concurrency` jobs start", async () => {
+    // The trade this design accepts, stated as an assertion rather than prose.
+    //
+    // Serially, the budget check ran between every job, so exactly one job
+    // could overrun it. Concurrently, a whole wave passes the check before any
+    // of them increments `ran`, so up to `concurrency` jobs can start against a
+    // spent budget. That is the accepted cost of the rewrite — bounded, and
+    // safe because ingesters are idempotent via dedup — but "bounded" is only
+    // true while something pins the bound.
+    //
+    // Without the `ran > 0 && elapsed >= budget` guard, all 8 run.
+    const started: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      const name = `budgetjob${i}`;
+      registry[name] = async () => {
+        started.push(name);
+        await new Promise((r) => setTimeout(r, 15));
+      };
+      await seedJob(name, "2026-07-22T13:30:00.000Z");
+    }
+    const tight = Object.assign(Object.create(Object.getPrototypeOf(env)), env, {
+      TICK_TIME_BUDGET_MS: "1",
+      TICK_JOB_CONCURRENCY: "2",
+    });
+    await tick(tight, NOW);
+    expect(started.length).toBeGreaterThan(0); // the first job is unconditional
+    expect(started.length).toBeLessThanOrEqual(2); // and the wave is the bound
+  });
+});
+
+describe("a claim failure must not be silent", () => {
+  it("re-raises when the atomic claim throws, after the other jobs finish", async () => {
+    // The claim UPDATE is the one statement in the worker body OUTSIDE the
+    // handler's try/catch, so a D1 error there is not a job failing — it is D1
+    // failing. fetchPool deliberately swallows worker rejections into `errors`
+    // so one bad item cannot void the batch, which meant this class of failure
+    // became invisible: `ran` stays 0, consecutive_failures is never
+    // incremented (that bump lives in the handler catch, never reached), and
+    // the `ran > 0` gate suppresses even the "tick complete" line. A tick that
+    // claimed nothing reported nothing.
+    //
+    // src/index.ts depends on the opposite: "failures then land in the
+    // dashboard's Past Events".
+    const ok: string[] = [];
+    registry["claimok"] = async () => {
+      ok.push("claimok");
+    };
+    registry["claimboom"] = async () => {
+      ok.push("claimboom");
+    };
+    await seedJob("claimok", "2026-07-22T13:40:00.000Z");
+    await seedJob("claimboom", "2026-07-22T13:41:00.000Z");
+
+    const realPrepare = env.DB.prepare.bind(env.DB);
+    const brokenDb = {
+      prepare(sql: string) {
+        const stmt = realPrepare(sql);
+        if (!sql.includes("UPDATE jobs SET due_at")) return stmt;
+        return {
+          bind(...args: unknown[]) {
+            const bound = stmt.bind(...args);
+            return {
+              async run() {
+                if (args[1] === "claimboom") throw new Error("D1_ERROR: no such table");
+                return bound.run();
+              },
+            };
+          },
+        };
+      },
+    };
+    const brokenEnv = Object.assign(Object.create(Object.getPrototypeOf(env)), env, { DB: brokenDb });
+
+    await expect(tick(brokenEnv, NOW)).rejects.toThrow(/failed outside the handler/);
+    // The healthy job still ran: the throw happens after the pool drains, so
+    // one broken claim does not abandon work that had already been claimed.
+    expect(ok).toContain("claimok");
   });
 });
 
@@ -315,22 +427,37 @@ describe("starvation guard", () => {
     // due every minute cycled ahead of it forever.
     const now = new Date("2026-07-28T16:00:00.000Z");
     await env.DB.prepare("DELETE FROM jobs").run();
+
+    // The fixture MUST exceed MAX_JOBS_PER_TICK or this test proves nothing:
+    // below the limit every seeded job runs whatever the ordering does, so the
+    // guard is never the reason "starved" appears. That is not hypothetical —
+    // it was seeded at a hardcoded 12 fresh jobs when the limit was 12, and
+    // raising the limit to 24 silently disarmed it. Neutering the guard
+    // (`WHEN due_at <= ?3 AND 0 THEN 1`) still left the suite green.
+    //
+    // So derive the count from the constant. If MAX_JOBS_PER_TICK moves again,
+    // this fixture moves with it and the guard stays under test.
+    const freshCount = MAX_JOBS_PER_TICK; // + the starved row = MAX + 1 total
     await seedJob("starved", 90, "2026-07-28T00:00:00.000Z"); // 16h overdue
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < freshCount; i++) {
       await seedJob(`fresh_${i}`, 50, "2026-07-28T15:59:59.000Z"); // due this second
     }
 
     const ran: string[] = [];
-    for (const name of ["starved", ...Array.from({ length: 12 }, (_, i) => `fresh_${i}`)]) {
+    for (const name of ["starved", ...Array.from({ length: freshCount }, (_, i) => `fresh_${i}`)]) {
       registry[name] = async () => {
         ran.push(name);
       };
     }
 
     await tick(env as never, now);
-    // Without the guard the starved job sorts 13th of 13 and is cut by the
-    // LIMIT before the time budget even matters.
+    // Without the guard the starved job sorts last of MAX_JOBS_PER_TICK + 1
+    // and is cut by the LIMIT before the time budget even matters.
     expect(ran).toContain("starved");
+    // Anti-vacuity: prove the LIMIT actually bit. If everything ran, the
+    // assertion above passes for a reason that has nothing to do with the
+    // guard, which is exactly the failure this fixture just had.
+    expect(ran.length).toBe(MAX_JOBS_PER_TICK);
   });
 
   it("leaves normal ordering alone when nothing is starving", async () => {

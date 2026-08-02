@@ -1,6 +1,6 @@
 import type { Env } from "./env";
 import { nextDue } from "./cadence";
-import { fetchPool, MAX_CONCURRENT_FETCHES, newTickBudget, type TickBudget } from "./lib/budget";
+import { fetchPool, newTickBudget, type TickBudget } from "./lib/budget";
 import { iso } from "./lib/time";
 import { log } from "./lib/log";
 
@@ -9,11 +9,16 @@ import { log } from "./lib/log";
 // jobs table and this dispatcher fans out to due jobs each minute.
 
 /**
- * Jobs started per tick. Raised 4 -> 12 for the paid tier and the source
+ * Jobs started per tick. Raised 4 -> 24 for the paid tier and the source
  * expansion: at ~40 jobs, four per tick means a fully-due backlog takes ten
  * minutes to drain, which silently defeats the release-second watchers that
  * are the entire point of the scheduled-print archetype. TICK_TIME_BUDGET_MS
  * remains the real governor.
+ *
+ * Raising this can silently disarm a test: the starvation-guard regression in
+ * test/dispatch.test.ts only exercises the guard when the fixture is LARGER
+ * than this limit, since below it every seeded job runs whatever the ordering.
+ * That test now seeds MAX_JOBS_PER_TICK + 1 so it tracks this constant.
  */
 export const MAX_JOBS_PER_TICK = 24;
 
@@ -22,8 +27,23 @@ export const MAX_JOBS_PER_TICK = 24;
  * simultaneous outbound connections, and several SEC-hosted jobs can be due
  * in the same tick while SEC asks for <= 10 req/s. Raise it from [vars] after
  * measuring, not before — the tick time budget is the safety net either way.
+ *
+ * This counts JOBS, not connections. A job may open its own inner pool, so the
+ * connection count is this number times that pool's width — see
+ * SEC_POOL_CONCURRENCY, and MAX_TICK_JOB_CONCURRENCY below for the ceiling.
  */
 export const TICK_JOB_CONCURRENCY = 3;
+
+/**
+ * Ceiling for the TICK_JOB_CONCURRENCY override from [vars].
+ *
+ * Separate from MAX_CONCURRENT_FETCHES on purpose. The two were conflated
+ * here, and clamping a JOB count against a CONNECTION constant is how 6 came
+ * to mean two different things in the same file: it let the override reach 6
+ * jobs, each of which could open a 6-wide inner pool. Jobs and connections are
+ * different units and now have different constants.
+ */
+export const MAX_TICK_JOB_CONCURRENCY = 3;
 
 /**
  * Per-tick TIME budget (wall clock, not CPU — performance.now() measures
@@ -124,26 +144,49 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
   // poll is one request and a few hundred ms of latency — and running them
   // one after another made tick time the SUM of those waits. Measured in
   // production 2026-07-28: 4 jobs, 68.6 seconds, against a 45s budget and a
-  // 60s cron interval, so ~36 of 40 jobs were deferred every tick and the
-  // slowest were effectively starved. That is a latency problem before it is
-  // a throughput one: a source polled "every 2 minutes" was running every
-  // ten, which is the opposite of being first to a filing.
+  // 60s cron interval — so the tick blew its budget on four jobs and the rest
+  // waited for a later minute that kept arriving in the same state.
+  //
+  // An earlier draft of this comment said "~36 of 40 jobs were deferred every
+  // tick". That number is wrong and the correction matters more than the
+  // deletion: `deferred` counts only rows the pool actually reached and
+  // skipped, so it is bounded by due.results.length - ran, and the LIMIT was
+  // 12 at the time. Eight was the arithmetic maximum; five was observed. The
+  // starvation was real and independently proven — issuer_refresh (priority
+  // 90) and fda_food_recall (55) had never run once — but it was proven by
+  // those never-run jobs, not by a deferred count that could not have said it.
+  //
+  // It is a latency problem before it is a throughput one: a source polled
+  // "every 2 minutes" was running every ten, the opposite of being first to a
+  // filing.
   //
   // Concurrency is bounded and deliberately conservative. Workers allows 6
   // simultaneous outbound connections on both plans (see lib/budget.ts), and
   // several SEC-hosted jobs can be due together while SEC asks for <= 10
   // req/s, so the default leaves headroom rather than saturating the ceiling.
-  // Per-source pacing inside each ingester still applies underneath this.
+  //
+  // What bounds the CONNECTION count is the product, not this number. Jobs
+  // that fan out open their own inner pool, so three SEC jobs at an unbounded
+  // inner default would be 18 connections to one host. The inner pools are
+  // pinned to SEC_POOL_CONCURRENCY and the product is asserted in the tests.
+  //
+  // An earlier version of this comment claimed "per-source pacing inside each
+  // ingester still applies underneath this." That was false and is worth
+  // recording rather than deleting: there is no pacing anywhere. politeFetch
+  // sets a User-Agent and conditional-GET headers and calls fetch, with no
+  // delay and no token bucket. The only sleeps in those ingesters are
+  // QUEUE_NOTIFY_SPACING_MS, which paces TELEGRAM messages (<= 1/s per chat),
+  // a different concern that happens to look like the same one.
   const rawConcurrency = Number(env.TICK_JOB_CONCURRENCY ?? TICK_JOB_CONCURRENCY);
   const concurrency =
-    Number.isFinite(rawConcurrency) && rawConcurrency >= 1 && rawConcurrency <= MAX_CONCURRENT_FETCHES
+    Number.isFinite(rawConcurrency) && rawConcurrency >= 1 && rawConcurrency <= MAX_TICK_JOB_CONCURRENCY
       ? Math.floor(rawConcurrency)
       : TICK_JOB_CONCURRENCY;
 
   let ran = 0;
   let deferred = 0;
   const durations: Array<{ job: string; ms: number }> = [];
-  await fetchPool(
+  const pool = await fetchPool(
     due.results,
     async (row: JobRow) => {
       // Don't START a job we probably can't finish: a killed invocation leaves
@@ -205,6 +248,32 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
     concurrency,
   );
 
+  // fetchPool swallows every worker rejection into `errors` so one bad item
+  // cannot void the batch. That is right for the handler body — which has its
+  // own try/catch and records failures against consecutive_failures — but it
+  // means anything landing HERE came from the code outside that try: the
+  // atomic claim UPDATE and the bookkeeping around it. In other words, an
+  // entry in `errors` is D1 itself failing, not a job failing.
+  //
+  // Serially that exception propagated out of tick(), and src/index.ts depends
+  // on it: "Awaited directly: the runtime waits on the returned promise for
+  // cron events, and failures then land in the dashboard's Past Events."
+  // Dropping it would have made a total claim failure invisible — ran stays 0,
+  // consecutive_failures is never incremented because the handler catch is
+  // never reached, and the `ran > 0` gate below suppresses even the
+  // "tick complete" line. A tick that claimed nothing would report nothing.
+  //
+  // So: log every one, then re-raise. Re-raising AFTER the pool drains is a
+  // deliberate difference from the serial version, and the better half of the
+  // trade — the jobs that did claim still finish instead of being abandoned
+  // mid-flight, and the signal still reaches Past Events.
+  for (const { index, error } of pool.errors) {
+    log("error", "dispatch failed outside the handler (claim or bookkeeping)", {
+      job: due.results[index]?.name ?? `#${index}`,
+      error: String(error),
+    });
+  }
+
   if (deferred > 0) {
     log("warn", "tick time budget spent; deferring remaining jobs to the next tick", {
       ranThisTick: ran,
@@ -226,5 +295,16 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
       serialMs: durations.reduce((n, d) => n + d.ms, 0),
       slowest: durations.slice(0, 5),
     });
+  }
+
+  // Last, so a partially-failed tick still reports its distribution above
+  // before the exception leaves for Past Events.
+  if (pool.errors.length > 0) {
+    const first = pool.errors[0]!;
+    throw new Error(
+      `dispatch: ${pool.errors.length} job(s) failed outside the handler; first was ` +
+        `${due.results[first.index]?.name ?? `#${first.index}`}: ${String(first.error)}`,
+      { cause: first.error },
+    );
   }
 }
