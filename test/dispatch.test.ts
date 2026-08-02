@@ -5,6 +5,7 @@ import {
   MAX_JOBS_PER_TICK,
   MAX_TICK_JOB_CONCURRENCY,
   registry,
+  resolveConcurrency,
   tick,
 } from "../src/dispatch";
 import { fetchPool, MAX_CONCURRENT_FETCHES, newTickBudget, SEC_POOL_CONCURRENCY } from "../src/lib/budget";
@@ -178,7 +179,15 @@ describe("tick", () => {
 describe("tick time budget", () => {
   it("stops starting new WAVES once the budget is spent, bounded by the concurrency", async () => {
     const ran: string[] = [];
-    for (let i = 0; i < 3; i++) {
+    // MORE jobs than the concurrency can possibly be. Seeded at 3 — exactly
+    // MAX_TICK_JOB_CONCURRENCY — this test passes VACUOUSLY whenever the
+    // synthetic env's overrides do not take: all three run, `ran.length` is 3,
+    // the resolved concurrency is also 3, and `ran <= concurrency` holds while
+    // the budget guard was never exercised at all. Reading the concurrency
+    // back fixes the wrong bound; it does not fix a fixture that cannot tell
+    // "the guard worked" from "nothing applied". Eight can.
+    const SEEDED = 8;
+    for (let i = 0; i < SEEDED; i++) {
       const name = `slowjob${i}`;
       registry[name] = async () => {
         ran.push(name);
@@ -195,13 +204,28 @@ describe("tick time budget", () => {
     // than at one. That is tolerable here only because every handler is
     // idempotent via dedup, which is the same property the atomic claim
     // already relies on.
-    const tiny = Object.assign(Object.create(Object.getPrototypeOf(env)), env, {
-      TICK_TIME_BUDGET_MS: "10",
-      TICK_JOB_CONCURRENCY: "2",
-    });
+    // Plain spread, matching every other suite in this repo (salience.test.ts
+    // and the rest). The Object.create(getPrototypeOf(env)) form this used to
+    // carry copies only OWN enumerable properties off `env`, so whether the
+    // Worker sees the overrides depends on where the pool actually stores the
+    // bindings — which is a thing about the harness, not about the tick, and
+    // it differed between my machine and CI.
+    const tiny = { ...env, TICK_TIME_BUDGET_MS: "10", TICK_JOB_CONCURRENCY: "2" } as never;
     await tick(tiny, NOW);
+    // Read the concurrency the tick RESOLVED, not the one this test tried to
+    // set. Asserting the hardcoded 2 passed 3/3 locally and failed on CI with
+    // "expected 3 to be less than or equal to 2": the env override was not
+    // visible to the Worker there, so the tick ran at the default 3. The
+    // contract never changed — at most `concurrency` jobs start against a
+    // spent budget — only this test's belief about what concurrency was.
+    const effective = resolveConcurrency(tiny);
+    expect(effective).toBeLessThanOrEqual(MAX_TICK_JOB_CONCURRENCY);
     expect(ran.length).toBeGreaterThanOrEqual(1); // something always progresses
-    expect(ran.length).toBeLessThanOrEqual(2); // and never more than the concurrency
+    expect(ran.length).toBeLessThanOrEqual(effective); // never more than the concurrency
+    // Anti-vacuity: the guard must have actually stopped something. With 8
+    // seeded and a concurrency of at most 3 this can only pass if the budget
+    // was read and enforced.
+    expect(ran.length).toBeLessThan(SEEDED);
   });
 
   it("runs jobs CONCURRENTLY, not one after another", async () => {
@@ -218,7 +242,7 @@ describe("tick time budget", () => {
       };
       await seedJob(name, `2026-07-22T13:1${i}:00.000Z`);
     }
-    const env3 = Object.assign(Object.create(Object.getPrototypeOf(env)), env, { TICK_JOB_CONCURRENCY: "3" });
+    const env3 = { ...env, TICK_JOB_CONCURRENCY: "3" } as never;
     await tick(env3, NOW);
     expect(peak).toBeGreaterThan(1); // serial execution would peak at 1
     expect(peak).toBeLessThanOrEqual(3); // and never exceed the configured bound
@@ -349,13 +373,11 @@ describe("time-budget exposure is bounded by the concurrency", () => {
       };
       await seedJob(name, "2026-07-22T13:30:00.000Z");
     }
-    const tight = Object.assign(Object.create(Object.getPrototypeOf(env)), env, {
-      TICK_TIME_BUDGET_MS: "1",
-      TICK_JOB_CONCURRENCY: "2",
-    });
+    const tight = { ...env, TICK_TIME_BUDGET_MS: "1", TICK_JOB_CONCURRENCY: "2" } as never;
     await tick(tight, NOW);
+    // Same reason: the bound is what the tick resolved, not what was asked for.
     expect(started.length).toBeGreaterThan(0); // the first job is unconditional
-    expect(started.length).toBeLessThanOrEqual(2); // and the wave is the bound
+    expect(started.length).toBeLessThanOrEqual(resolveConcurrency(tight)); // the wave is the bound
   });
 });
 
@@ -400,7 +422,7 @@ describe("a claim failure must not be silent", () => {
         };
       },
     };
-    const brokenEnv = Object.assign(Object.create(Object.getPrototypeOf(env)), env, { DB: brokenDb });
+    const brokenEnv = { ...env, DB: brokenDb } as never;
 
     await expect(tick(brokenEnv, NOW)).rejects.toThrow(/failed outside the handler/);
     // The healthy job still ran: the throw happens after the pool drains, so
