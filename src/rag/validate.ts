@@ -797,7 +797,8 @@ export function entityCheck(text: string, payload: Payload, precomputed?: Payloa
     // Exact furniture phrases only — a PREFIX skip exempted "Senate Ethics
     // Committee" wholesale (bypass #6).
     if (FURNITURE.has(name.toUpperCase())) continue;
-    if (!isNameShaped(name)) continue;
+    // The following characters decide whether a trailing month is a date.
+    if (!isNameShaped(name, text.slice(m.index! + name.length, m.index! + name.length + 8))) continue;
     if (!inPayload(json, name, false)) {
       issues.push({ rule: "entity", detail: `name "${name}" does not appear in the payload` });
     }
@@ -827,21 +828,40 @@ export function entityCheck(text: string, payload: Payload, precomputed?: Payloa
  * the wrong one: a fabricated name can open a sentence, and exempting position
  * would blind the check exactly where a model most often puts a subject.
  */
-function isNameShaped(name: string): boolean {
-  const parts = name.split(/[-\s]/).map((p) => p.toLowerCase());
-  const ownedElsewhere = (t: string): boolean => t in MONTHS || t in WORD_UNITS || t in WORD_SCALES;
-  // A LEADING numeral is a quantity, not part of the name: E4's "One House PTR
-  // filed today" is one filing from the House, and the name is "House".
-  // Stripping it and re-testing keeps "Three Arrows Capital" checkable, since
-  // "Arrows Capital" is still multi-token. It does surrender "Four Seasons",
-  // which reduces to a single token — but single-token names are ALREADY
-  // unchecked by this regex, so that is the existing hole and not a new one.
-  let i = 0;
-  while (i < parts.length - 1 && (parts[i]! in WORD_UNITS || parts[i]! in WORD_SCALES)) i++;
-  const rest = parts.slice(i);
-  if (rest.length < 2) return false;
-  // Every token after the first is governed by another validator -> not a name.
-  return !rest.slice(1).every(ownedElsewhere);
+function isNameShaped(name: string, following: string): boolean {
+  const parts = name.split(/[-\s]/);
+  const lower = parts.map((p) => p.toLowerCase());
+
+  // A LEADING numeral is a quantity ONLY when what follows it is furniture.
+  //
+  // The first version stripped any leading numeral and re-tested the rest,
+  // which exempted a class of REAL ISSUERS: "Six Flags", "One Medical", "Two
+  // Sigma", "Nine West" all returned [] where main rejected them. Naming the
+  // wrong issuer in a filing post breaks the no-fabrication and
+  // primary-sources rules at once, so the exemption now has to earn itself
+  // against FURNITURE — "House" qualifies through the House Clerk attribution,
+  // "Flags" and "Medical" do not.
+  //
+  // It also retracts a claim I made defending the first version: that "Four
+  // Seasons" was an inherited single-token hole. It was not. The PHRASE was
+  // checked on main and my relaxation stopped checking it. New hole, and the
+  // justification was wrong before the code was.
+  if ((lower[0]! in WORD_UNITS || lower[0]! in WORD_SCALES) && parts.length >= 2) {
+    if (FURNITURE.has(parts.slice(1).join(" ").toUpperCase())) return false;
+  }
+
+  // A trailing MONTH is a date component ONLY when a day number follows it.
+  //
+  // The adjacency requirement is the whole rule, and its absence was the bug:
+  // dateCheck owns a month only in "July 18", never the bare word. Without it,
+  // any capitalised phrase ending in a month token went unchecked — "Theresa
+  // May", "Senator May", "Congressman June", "Analyst Dec" — and MONTHS holds
+  // the abbreviations too, so Dec/Sept/Nov/Mar/Aug were all name-killers.
+  // Reusing another validator's lexicon is not by itself a safety argument;
+  // the predicate has to match as well as the vocabulary.
+  if (parts.length === 2 && lower[1]! in MONTHS && /^[\s.,]*\d{1,2}\b/.test(following)) return false;
+
+  return true;
 }
 
 // --- sourcing, urls, structure, length -------------------------------------

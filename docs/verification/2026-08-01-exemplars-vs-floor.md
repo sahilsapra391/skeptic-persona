@@ -128,6 +128,63 @@ The parity test licenses these figures explicitly so that it measures LANGUAGE
 CONSTRUCTIONS rather than re-reporting this gap on every run. That exemption is
 named in the test, not silent.
 
+## TWO CLAIMS IN THIS DOCUMENT WERE WRONG — corrected after review
+
+Recorded rather than edited away, because a document about specifications
+disagreeing is the last one that should quietly revise itself.
+
+**1. "Four Seasons is the pre-existing single-token hole, not a new one."**
+False. Main checked the PHRASE `Four Seasons`; the first version of my fix
+stopped checking it. The relaxation also exempted **`Six Flags`, `One
+Medical`, `Two Sigma`, `Nine West`** — all real listed issuers — which main
+rejected and my branch returned `[]` for. Naming the wrong issuer in a filing
+post breaks the no-fabrication and primary-sources rules at once. **New hole,
+and the justification was wrong before the code was.**
+
+Narrowed: a leading numeral is stripped only when the remainder is entirely
+FURNITURE, so `One House` still passes through the House Clerk attribution
+while `One Medical` does not.
+
+**2. "`All Code` is the same shape as `One House`."** False. `all` is in no
+lexicon, so `isNameShaped("All Code")` returns true and the check still runs.
+It is a genuine floor conflict, not an instance of the numeral rule.
+
+**A third direction was disclosed nowhere.** The trailing-token rule skipped
+any capitalised phrase whose tokens after the first were months — and MONTHS
+holds the abbreviations, so `Dec`, `Sept`, `Nov`, `Mar` and `Aug` were all
+name-killers:
+
+```
+"Theresa May signed the order."   "Senator May filed it."
+"Congressman June filed it."      "Analyst Dec called it."
+```
+
+All returned `[]`; all reject on main. The PR body said "adversarially checked
+that it opened nothing" and surrendered only the leading-numeral case.
+
+The reasoning error underneath is the one worth keeping: **reusing another
+validator's lexicon is not by itself a safety argument.** `dateCheck` owns a
+month only when a day number follows it; my exemption had no adjacency
+requirement, so the two were never the same predicate. Fixed by requiring the
+adjacency the borrowed rule actually has.
+
+## A FOURTH instance of the exemplar/pipeline mismatch, in the rates lane
+
+Expanding the parity test from one archetype to all eight surfaced two more,
+and they are the same bug that killed the first live generation:
+
+- **`per ECB`** — `RATE_ATTRIBUTION` declares `"per European Central Bank"`;
+  the exemplar teaches the abbreviation. `sourcingCheck` allows only the
+  declared string.
+- **`per MPC statement`** — India is absent from `RATE_ATTRIBUTION` entirely,
+  so an RBI decision resolves to null and, per that module's own comment,
+  "the renderer refuses to post".
+
+`PRESS_ATTRIBUTION` fixed exactly this for regulatory press in #66 — exemplars
+taught `per CFTC` while the archetype declared `per the issuing authority`.
+**The same fix was never applied to rates.** Flagged to the ingestion session
+rather than fixed here; `src/ingesters/rateAttribution.ts` is their lane.
+
 ## A second, unrelated hole in the same function
 
 `entityCheck` only matches **multi-token** proper nouns, so single-token
