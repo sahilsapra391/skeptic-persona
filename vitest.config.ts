@@ -5,6 +5,25 @@ export default defineWorkersConfig(async () => {
   return {
     test: {
       setupFiles: ["./test/setup.ts"],
+      // Vitest's default is 5000 ms and this suite is nowhere near a unit
+      // suite: every file runs real D1 through miniflare, real fetch mocks and
+      // real render paths, and singleWorker below puts all 51 files on ONE
+      // runtime so they contend.
+      //
+      // The cost of leaving it at the default is not a slow suite, it is FALSE
+      // REDS that three sessions have now each debugged separately. Measured
+      // on origin/main: the full run is green, while
+      // `npx vitest run test/housePtrRelay.test.ts` fails at 5001 ms
+      // reproducibly, and a loaded run intermittently reds db.test.ts and
+      // congressPtr.test.ts at exactly 5000/5001 ms — tests with no logic
+      // failure and no assertion message, just the timeout. Adding ANY new
+      // test file tips a different neighbour over, which is how #97 broke
+      // housePtrRelay without touching it.
+      //
+      // 20 s is a real ceiling, not an off switch: the slowest genuine test
+      // measures ~1.2 s, so anything that trips this is ~16x its own cost and
+      // is a regression worth failing on.
+      testTimeout: 20_000,
       poolOptions: {
         workers: {
           singleWorker: true,
