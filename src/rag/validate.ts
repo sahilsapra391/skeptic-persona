@@ -1150,7 +1150,23 @@ export interface ValidateOptions {
   /** Grounding text shown to the model (source document + lake context);
    *  widens the number/entity whitelist to exactly what the prompt showed. */
   readonly grounding?: string;
+  /** What the model must not merely restate — the text that would post if
+   *  generation fails, owner edit included. Consumed by templateEchoCheck. */
   readonly templateDraft: string;
+  /**
+   * The CANONICAL render of the record, for the commentary floor only.
+   *
+   * Deliberately separate from templateDraft, because the two answer
+   * different questions and briefly shared a field. "What must this not
+   * echo?" is the text that would post — the owner's edit if he made one.
+   * "What does the record support?" is the template render and nothing else:
+   * an owner edit with a short first line would otherwise LOWER the floor and
+   * admit thin commentary against a real record.
+   *
+   * Defaults to templateDraft when absent, so existing callers keep working
+   * and only the generation path needs to know the difference.
+   */
+  readonly floorAnchor?: string;
   readonly skeletonHash: string;
   readonly openerHash: string;
   /** Probed once per run via corpusHasData(); false = skip the echo query. */
@@ -1178,7 +1194,7 @@ export async function validateVariant(db: D1Database, text: string, opts: Valida
     // Payload arg (PR #53): resolves the single correct attribution for
     // chamber-mapped archetypes — the wrong-chamber check comes free.
     ...checkRegister(text, opts.archetype, opts.payload),
-    ...lengthCheck(text, opts.variant, opts.templateDraft),
+    ...lengthCheck(text, opts.variant, opts.floorAnchor ?? opts.templateDraft),
     // Group 2 — the contract.
     ...beatShapeCheck(text),
     ...hedgeCheck(text),
