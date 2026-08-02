@@ -182,17 +182,81 @@ export function payloadFacts(payload: Payload): PayloadFacts {
  * their word value. The raw text becomes part of the entity/verbatim
  * haystack via mergeFacts.
  */
+/**
+ * A scale unit DECLARED by the document itself, governing the figures in it.
+ *
+ * Grounding deliberately scales DOWN only: from "40816" it licenses 40.816 and
+ * 0.040816, never 40,816,000,000, because scaling up invents magnitude a
+ * source never stated. That is right for bare prose and wrong for a table
+ * whose header carries the unit and whose rows carry the value.
+ *
+ * The live case (queue #919, RBI swap facility):
+ *
+ *     Type Amount
+ *     (USD million)
+ *     FCNR(B) Deposits 36,725
+ *     OFCBs 2,575
+ *     ECBs 1,516
+ *     Total 40,816
+ *
+ * The document says forty billion dollars. A draft writing "USD 40,816
+ * million" is CORRECT and was rejected, because draftNumbers resolves it to
+ * 4.0816e10 and grounding had only licensed 40816 and smaller. The draft that
+ * passed said "40,816" with no unit — a figure a thousand times too small,
+ * stated as a bare number. THE VALIDATOR WAS TEACHING THE MODEL TO STRIP
+ * UNITS, and the safe-looking output was the misleading one.
+ *
+ * So a declaration is honoured, and only a declaration: parenthesised, or a
+ * line that is the unit and nothing else. It cannot be inferred from prose
+ * that merely mentions "million" — a model can write that word, and the whole
+ * point is that the SOURCE must have said it.
+ *
+ * Deliberately coarse: the declaration governs every figure in the text, not
+ * just the table under it, because flattened HTML has no table boundaries left
+ * to scope by. The cost is a document mixing declared-unit and bare figures,
+ * where a bare figure also gets its scaled-up form licensed. That is a real
+ * widening and is stated rather than hidden; it is bounded by the source
+ * having made the declaration at all.
+ */
+const DECLARED_SCALE_RE =
+  /\((?:[^()]*?\b)?(million|billion|thousand|mn|bn|crore|lakh)s?\b[^()]*?\)|^[ \t]*(?:in\s+)?(?:USD|US\$|\$|EUR|GBP|INR|Rs\.?)?\s*(million|billion|thousand|mn|bn|crore|lakh)s?[ \t]*$/gim;
+
+const DECLARED_FACTORS: Readonly<Record<string, number>> = {
+  thousand: 1e3, lakh: 1e5, million: 1e6, mn: 1e6, crore: 1e7, billion: 1e9, bn: 1e9,
+};
+
+/** Scale factors the grounding text explicitly declares for its own figures. */
+export function declaredScales(grounding: string): number[] {
+  const out = new Set<number>();
+  for (const m of grounding.matchAll(DECLARED_SCALE_RE)) {
+    const word = (m[1] ?? m[2] ?? "").toLowerCase();
+    const f = DECLARED_FACTORS[word];
+    if (f !== undefined) out.add(f);
+  }
+  return [...out];
+}
+
 export function groundingFacts(grounding: string): PayloadFacts {
   const numbers = new Set<string>();
   const percents = new Set<string>();
   const dates = new Set<string>();
 
+  // Scales the DOCUMENT declares for its own figures (see declaredScales).
+  // Empty for ordinary prose, so the scale-up below is unreachable unless the
+  // source stated a unit.
+  const declared = declaredScales(grounding);
+
   const addNumber = (n: number): void => {
     if (!Number.isFinite(n)) return;
     numbers.add(canon(n));
     numbers.add(canon(Math.abs(n)));
-    // Same scale-DOWN-only licensing as payloadFacts; nothing scales up.
+    // Scale-DOWN is always licensed; nothing scales up on its own.
     if (Math.abs(n) >= 1000) for (const [, f] of SCALE_WORDS) numbers.add(canon(n / f));
+    // Scale-UP ONLY under a declaration the source made itself.
+    for (const f of declared) {
+      numbers.add(canon(n * f));
+      numbers.add(canon(Math.abs(n) * f));
+    }
   };
 
   // Dates first, consumed — their components must not leak into the numeric
