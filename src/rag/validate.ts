@@ -509,6 +509,14 @@ function anchorForm(name: string): string | null {
   return null; // e.g. "RH" — nothing here can discriminate
 }
 
+/**
+ * Capture modes whose text provably belongs to the item, with no fetch in
+ * between. Adding a mode here asserts that the ingester builds the payload and
+ * the grounding text from ONE source record; anything that FETCHES must not be
+ * listed, because a fetch is exactly where the wrong document comes from.
+ */
+export const SAME_ENTRY_MODES: ReadonlySet<string> = new Set(["ingest_rss"]);
+
 export interface GroundingProvenance {
   readonly ok: boolean;
   readonly matched: string | null;
@@ -538,9 +546,46 @@ function collect(payload: Payload, fields: readonly string[]): string[] {
  * anchor, returns ok — but the latter returns reason `no_usable_anchor` and is
  * logged, because a silent fail-open is the shape this whole exercise is about.
  */
-export function checkGroundingProvenance(grounding: string, payload: Payload): GroundingProvenance {
+export function checkGroundingProvenance(
+  grounding: string,
+  payload: Payload,
+  /** SourceText.mode. "ingest_rss" means the text was captured from the SAME
+   *  feed entry that produced the payload — see SAME_ENTRY_MODES. */
+  mode?: string,
+): GroundingProvenance {
   if (grounding.trim() === "") return { ok: true, matched: null, anchorsTried: 0, reason: null };
   if (!looksLikeProse(grounding)) return { ok: false, matched: null, anchorsTried: 0, reason: "not_prose" };
+
+  // SAME-ENTRY CAPTURE — deliberately AFTER looksLikeProse. "It is the right
+  // document" and "it is text" are different claims, and same-entry only
+  // answers the first. Placing this first re-licensed the binary class (a
+  // PDF's /Prev 223302 entering the fact whitelist) that the prose gate was
+  // written for; my own regression test caught it before it shipped.
+  //
+  // SAME-ENTRY CAPTURE. The anchor test is a PROXY for one question: is this
+  // the right document? It exists because a FETCH can return the wrong thing —
+  // an EDGAR index page instead of the filing, an exhibit instead of the
+  // exhibit's parent.
+  //
+  // For "ingest_rss" there is no fetch. regulatoryPress.ts builds
+  // payload.title, payload.publishedIso and rawText from ONE parsed feed
+  // entry, in one object literal, so the text and the payload are the same
+  // record by construction. The stronger guarantee is already held; running a
+  // weaker proxy for it can only produce false negatives.
+  //
+  // It produced them. Measured on production: 7 of 12 REGULATORY_NEWS
+  // generations died `rejected:number` using figures that were in front of the
+  // model. #919 is the worked case — the RBI swap-facility release carries
+  // "FCNR(B) Deposits 36,725 / OFCBs 2,575 / ECBs 1,516 / Total 40,816" in its
+  // body, the payload's only anchor is authority "Reserve Bank of India", and
+  // the body says "RBI". anchorsTried=1, reason=no_anchor, licence withheld —
+  // so the model was shown the numbers and refused for quoting them.
+  //
+  // NOT a relaxation of the fabrication gate: a fetched document still has to
+  // prove it belongs. This narrows the check to the case it was written for.
+  if (mode !== undefined && SAME_ENTRY_MODES.has(mode)) {
+    return { ok: true, matched: null, anchorsTried: 0, reason: "same_entry_capture" };
+  }
 
   const hay = grounding.toLowerCase();
   const codes = collect(payload, CODE_FIELDS).filter(isUsableCode);
