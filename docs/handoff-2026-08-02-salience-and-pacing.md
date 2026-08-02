@@ -261,6 +261,49 @@ otherwise.
 
 ---
 
+## 7. One defect in the generation lane, added after parking
+
+Recorded here rather than lost, because it was found by the ingestion session
+after both handoffs were written, and it is in `validate.ts` — my lane.
+
+**A raw ISO timestamp in a draft fails `numberCheck` and costs a variant.**
+Live: `#919`'s `sharp` variant died on `"Published 2026-08-01T09:45:00.000Z."`
+
+Reproduced against the real payload — and the rejection is on the string's
+COMPONENTS, which is the part that names the cause:
+
+```
+"08"  does not appear in the payload
+"01"  does not appear in the payload
+"09"  does not appear in the payload
+"000" does not appear in the payload
+```
+
+The same sentence written as `"Published August 1."` passes.
+
+**The defect is an asymmetry between the two sides of the same check.**
+`payloadFacts` consumes ISO strings structurally, so the payload side never
+leaks `2026-08-01` as the free integers 2026, 8, 1 — that was bypass #4, closed
+twice. `draftNumbers` does **not** do the same on the draft side, so a model
+that quotes a timestamp verbatim has it shredded into unlicensed components.
+
+It is bypass #4 inverted: that one leaked payload components **in** as
+licensed, this one leaks draft components **out** as unlicensed. Both come from
+one side of a pair treating ISO strings structurally and the other not.
+
+**Not cosmetic — it costs a whole variant**, and the fix is not a prompt
+instruction telling the model to avoid timestamps. It is making the draft side
+consume ISO datetimes the way the payload side already does, then checking the
+resulting date against the payload's dates as a tuple. The bypass-#4 machinery
+to do that already exists and is tested; it is simply not applied to the draft
+side of this path.
+
+**Care required**, and it is why this is a note and not a patch: the draft side
+is where `numberCheck` catches fabricated quantities, so anything that consumes
+digits there widens what a draft may state. Any fix needs the enumerate-the-
+class treatment the owner's #80 bar sets for a fabrication-gate relaxation, not
+a one-line regex.
+
 ## Provenance
 
 Sections 1–6 describe code and measurements produced by the ingestion and p4
