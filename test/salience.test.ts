@@ -13,7 +13,8 @@ import { etDay, etDayStartUtc, holdForDigest, promoteHeldItem, pushDigests, push
 import { insertItem, SCORE_POSTABLE } from "../src/lib/db";
 import { ARCHETYPES } from "../src/templates";
 import type { ArchetypeId, Payload } from "../src/templates/types";
-import { enqueueForApproval } from "../src/pipeline/enqueue";
+import { enqueueForApproval, resetEnqueueLocks } from "../src/pipeline/enqueue";
+import { paceChat, resetChatPacing } from "../src/lib/telegram";
 
 const NOW = new Date("2026-08-03T18:00:00.000Z"); // Monday, 14:00 ET
 
@@ -385,5 +386,72 @@ describe("the enqueue gate", () => {
     );
     // Not held: a gate that cannot read D1 must let the item through.
     expect(res.held).toBeUndefined();
+  });
+});
+
+describe("concurrency must not breach the ceilings this stack exists to enforce (p4-12)", () => {
+  it("the daily category cap holds when several jobs enqueue the same archetype at once", async () => {
+    // CHECK-THEN-ACT. pushedTodayByCategory reads, then ~4 awaits later
+    // createQueueEntry writes. Serial execution made that safe; concurrency
+    // does not. Several job families emit ONE archetype from MANY job rows —
+    // halts_nasdaq + halts_nyse both push HALT, the ten rate_* jobs all push
+    // RATE_DECISION, every FDA source pushes PRODUCT_RECALL — so two readers
+    // land inside the same window and both see pushed < cap.
+    resetEnqueueLocks();
+    const capped = { ...env, CATEGORY_DAILY_CAPS: "HALT:1", CAP_BYPASS_SCORE: "101", SALIENCE_FLOOR: "0" } as never;
+
+    const ids: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await insertItem(env.DB, {
+        source: "halts_nasdaq", externalId: `CAPRACE-${i}`, category: "halt",
+        eventAt: NOW.toISOString(), sourceUrl: `https://www.nasdaqtrader.com/x${i}`,
+        payload: { symbol: `AA${i}`, reasonCode: "T1" }, score: SCORE_POSTABLE,
+      });
+      ids.push(res.id ?? 0);
+    }
+
+    // Fired together, exactly as three due HALT-pushing jobs would be.
+    const results = await Promise.all(
+      ids.map((id, i) =>
+        enqueueForApproval(
+          capped, id, "HALT",
+          { symbol: `AA${i}`, reasonCode: "T1", name: `Test ${i}`, reasonText: "News Pending", haltTimeEtShort: "09:30" },
+          `https://www.nasdaqtrader.com/x${i}`, NOW,
+        ),
+      ),
+    );
+
+    expect(results.filter((r) => r.queueId > 0).length).toBe(1); // was 3 before the lock
+    expect(results.filter((r) => r.held === "category_cap").length).toBe(2); // losers held, not dropped
+  });
+});
+
+describe("Telegram per-chat pacing survives concurrent jobs (p4-12)", () => {
+  it("paces the CHAT, not each caller against itself", async () => {
+    // The sleep used to live in each drain loop, pacing a job against its own
+    // iterations. Concurrent jobs turned AAABBBCCC into ABCABCABC — three
+    // messages inside one window, 3x Telegram's documented ~1 msg/s per chat.
+    resetChatPacing();
+    const SPACING = 40;
+    const at: number[] = [];
+    const started = performance.now();
+    await Promise.all(
+      [0, 1, 2].map(async () => {
+        await paceChat("424242", SPACING);
+        at.push(performance.now() - started);
+      }),
+    );
+    at.sort((a, b) => a - b);
+    expect(at[0]).toBeLessThan(SPACING); // the first send is not delayed
+    expect(at[1]! - at[0]!).toBeGreaterThanOrEqual(SPACING * 0.8);
+    expect(at[2]! - at[1]!).toBeGreaterThanOrEqual(SPACING * 0.8);
+  });
+
+  it("a different chat is never delayed by another chat's queue", async () => {
+    resetChatPacing();
+    await paceChat("chat-a", 200);
+    const started = performance.now();
+    await paceChat("chat-b", 200);
+    expect(performance.now() - started).toBeLessThan(100);
   });
 });

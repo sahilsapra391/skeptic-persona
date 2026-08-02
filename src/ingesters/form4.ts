@@ -511,8 +511,6 @@ async function drainPostables(env: Env, now: Date, budget: TickBudget): Promise<
     .bind(SOURCE, CLUSTER_SOURCE, SCORE_POSTABLE, MAX_ENQUEUES_PER_RUN)
     .all<{ id: number; source: string; source_url: string; payload: string }>();
 
-  const spacingRaw = Number(env.QUEUE_NOTIFY_SPACING_MS ?? 1100);
-  const spacingMs = Number.isFinite(spacingRaw) && spacingRaw >= 0 ? spacingRaw : 1100;
 
   let sent = 0;
   for (const row of pending.results) {
@@ -530,9 +528,8 @@ async function drainPostables(env: Env, now: Date, budget: TickBudget): Promise<
       log("warn", "telegram flood control; deferring remaining form4 notifications", { retryAfter: result.retryAfter });
       break;
     }
-    if (spacingMs > 0 && sent < pending.results.length) {
-      await new Promise((resolve) => setTimeout(resolve, spacingMs));
-    }
+    // Pacing moved to sendMessage (per-CHAT, not per-job). A sleep here paced
+    // this loop against itself; with concurrent jobs nothing paced the chat.
   }
   return sent;
 }
