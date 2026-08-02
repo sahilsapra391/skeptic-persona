@@ -1,0 +1,29 @@
+-- A lifetime failure counter, so an INTERMITTENT source stops being invisible.
+--
+-- consecutive_failures answers "is it broken right now" and resets to 0 on the
+-- next success. last_ok_at is overwritten by every success. Between them, a
+-- source that fails two polls in three leaves NO trace: a week of one-in-three
+-- landing looks identical in D1 to a week of perfect polls.
+--
+-- Not hypothetical. senate_ptr polls once a day against an endpoint measured
+-- 503ing twice in three samples on 2026-08-02, and "were our polls failing, or
+-- does eFD index late" could not be answered retroactively at all -- the
+-- evidence had already been overwritten. The two readings imply different
+-- fixes (a retry, versus a freshness allowance), so the flagship's other half
+-- stayed untouched for want of one integer.
+--
+-- ONE integer, not two. The obvious companion, total_polls, cannot be
+-- collected here: putSourceState is called SEVERAL TIMES PER POLL by bls.ts
+-- (lines 89/98/105/122/126/290/360) and halts.ts (292/300/309/324/327), so it
+-- would count state writes and be wrong for precisely the sources with the
+-- most complex flows. A failure count plus a known cadence gives the rate
+-- anyway: five failures in a week on a daily poll is five of seven.
+--
+-- Monotonic, so it says nothing about "now" and everything about shape over
+-- time. Reading it as current health is the mistake it exists to prevent,
+-- which is why it is named total_.
+ALTER TABLE source_state ADD COLUMN total_failures INTEGER NOT NULL DEFAULT 0;
+
+-- Existing rows start at 0 rather than being back-filled from
+-- consecutive_failures. A back-fill would invent a history that was never
+-- recorded, and the whole point of this migration is that it was not.
