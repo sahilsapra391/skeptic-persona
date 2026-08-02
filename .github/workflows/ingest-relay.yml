@@ -156,10 +156,20 @@ jobs:
             --data "start=0&length=25&report_types=[11]&filer_types=[]&submitted_start_date=&submitted_end_date=&candidate_state=&senator_state=&office_id=&first_name=&last_name=" \
             -o search.json -w "%{http_code}")
 
-          # Diagnostics BEFORE parsing: eFD 403s Cloudflare egress by IP class,
-          # and whether it also blocks Azure-hosted runners was never verified
-          # (the schedule shipped disabled). A non-JSON body here must fail
-          # with the status trail, not a bare jq parse error downstream.
+          # Diagnostics BEFORE parsing. RE-TESTED 2026-08-02 from a
+          # RESIDENTIAL connection with the same declared UA: byte-for-byte
+          # the same failure, so this is NOT the Azure IP class and the
+          # "owner-run residential courier" unlock would not have worked.
+          #
+          # The 411 above is a curl artifact -- following the 302 as a POST
+          # with no body. Without -L the agreement returns 302 with a valid
+          # sessionid, and GET /search/ then answers 200. Only the XHR data
+          # endpoint 503s, and its body is the Senate's OWN maintenance
+          # notice, not a bot-mitigation page: no Ray ID, no vendor markers.
+          #
+          # So the lane is parked on UNVERIFIED, not on IP-blocked. The test
+          # is a weekday retry of this same dispatch.
+          # See docs/verification/2026-08-02-senate-efd-retest.md.
           echo "senate: home=$HOME_CODE agree=$AGREE_CODE search=$SEARCH_CODE bytes=$(wc -c < search.json)" >> "$GITHUB_STEP_SUMMARY"
           if ! jq -e '.result' search.json >/dev/null 2>&1; then
             echo "::error::senate search returned non-JSON (home=$HOME_CODE agree=$AGREE_CODE search=$SEARCH_CODE); first bytes: $(head -c 300 search.json | tr -cd '[:print:]')"

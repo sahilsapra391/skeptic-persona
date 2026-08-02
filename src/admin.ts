@@ -53,6 +53,13 @@ export async function handleSeedTest(request: Request, env: Env): Promise<Respon
     },
     "https://www.example.gov/smoke-test",
     now,
+    undefined,
+    // The smoke test exists to prove the pipeline end to end, so it must
+    // reach Telegram whatever the salience settings are. Without this it is
+    // curated by the very layer it is meant to verify: a T1 halt scores 70,
+    // which clears the floor but not a tightened one, so the endpoint would
+    // start returning queueId 0 and look broken.
+    { bypassSalience: true },
   );
   return Response.json({ ok: true, queueId });
 }

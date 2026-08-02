@@ -27,6 +27,7 @@ import { runVoiceDigest } from "./rag/digest";
 import { deliverCards } from "./rag/deliver";
 import { newTickBudget, type TickBudget } from "./lib/budget";
 import { expirePendingBefore } from "./lib/db";
+import { pushDigests } from "./digest";
 import { editMessageText } from "./lib/telegram";
 import { iso } from "./lib/time";
 import { log } from "./lib/log";
@@ -158,9 +159,31 @@ export function registerJobs(): void {
   registry["voice_digest"] = runVoiceDigest;
   // One tick: generate, then deliver any undelivered terminal rows —
   // including rows a previous crashed run generated but never delivered.
+  registry["digest_push"] = pushDigests;
   registry["generation"] = async (env, now, budget) => {
-    await runGeneration(env, now, budget);
+    // DECOUPLED, deliberately. These were awaited in sequence, so anything
+    // thrown by runGeneration skipped deliverCards entirely — and
+    // deliverCards is not generation's downstream step, it delivers every
+    // terminal row that has no live card, including ones generated on
+    // PREVIOUS ticks. A persistent throw therefore stranded already-generated
+    // commentary indefinitely: the work was done, the owner just never saw it.
+    //
+    // The throw is reachable: validateVariant is not wrapped anywhere in the
+    // variant loop and it makes D1 calls (collisionCheck, corpusEchoCheck),
+    // so a database hiccup is enough. Any future LLM-judge validator would
+    // widen that surface considerably.
+    //
+    // Delivery runs regardless, and the generation failure is still surfaced
+    // to the dispatcher so job health records it.
+    let generationError: unknown = null;
+    try {
+      await runGeneration(env, now, budget);
+    } catch (e) {
+      generationError = e;
+      log("error", "generation failed; delivering existing terminal rows anyway", { error: String(e) });
+    }
     await deliverCards(env, now, budget);
+    if (generationError !== null) throw generationError;
   };
   // 'poster' and 'threads_token_refresh' are UNREGISTERED as of 2026-07-28:
   // the Threads account is banned and both job rows are disabled in migration

@@ -75,6 +75,33 @@ function canon(n: number): string {
 
 const ISO_DATETIME_RE = /\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?Z?)?/g;
 
+/**
+ * US slash dates — "7/30/2026", "06/29/2026".
+ *
+ * BYPASS #4 WAS ONLY HALF-CLOSED, and this is the other half. Dates are
+ * consumed structurally so their components never enter the numeric set as
+ * free integers; that fix matched ISO only, on the assumption stated in
+ * CLAUDE.md that "all times stored as ISO-8601 UTC". Live `house_ptr` payloads
+ * do not: they carry `filedDate: "7/30/2026"` and `tradeDate: "06/29/2026"`
+ * verbatim from the Clerk.
+ *
+ * Measured against a real production payload (Morrison, MN03), the licensed
+ * small integers were 3, 6, 7, 29, 30, 31 — and 6, 7, 29, 30 are nothing but
+ * month and day digits. Every one of these passed numberCheck:
+ *
+ *     "Seven filings cleared today."     "30 transactions in one PDF."
+ *     "Six insiders moved."              "29 separate purchases."
+ *
+ * Fabricated quantities, licensed by a calendar, on our highest-engagement
+ * source. The guarantee the whole gauntlet exists to provide was holding only
+ * for sources that happened to normalise their dates.
+ *
+ * MM/DD is assumed because every source reaching this shape is a US filing
+ * agent. Ambiguity is not a risk here: both readings are date COMPONENTS, and
+ * the point is to consume them, not to interpret them.
+ */
+const US_DATE_RE = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g;
+
 export interface PayloadFacts {
   /** Canonical numeric values the payload actually states. */
   readonly numbers: Set<string>;
@@ -114,7 +141,15 @@ export function payloadFacts(payload: Payload): PayloadFacts {
       dates.add(`${y}-${mo}-${d}`);
       addNumber(y!, false); // the year alone is a legitimate standalone claim
     }
-    const stripped = v.replace(ISO_DATETIME_RE, " ");
+    // Slash dates are consumed the same way, for the same reason (bypass #4's
+    // other half): components must never survive as free integers.
+    for (const m of v.matchAll(US_DATE_RE)) {
+      const [mo, d, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
+      dates.add(`${mo}-${d}`);
+      dates.add(`${y}-${mo}-${d}`);
+      addNumber(y, false); // the year alone is a legitimate standalone claim
+    }
+    const stripped = v.replace(ISO_DATETIME_RE, " ").replace(US_DATE_RE, " ");
     for (const m of stripped.matchAll(/\d[\d,]*\.?\d*/g)) {
       addNumber(Number(m[0].replace(/,/g, "")), percentContext);
     }
@@ -165,18 +200,22 @@ export function groundingFacts(grounding: string): PayloadFacts {
   // the draft-side DATE_PHRASE_RE: month-name and ISO forms only. Free prose
   // is full of slash tokens that are not dates ("a 3/4 majority", "24/7"),
   // and each would otherwise license a fabricated month-day (review finding).
-  const afterDates = grounding.replace(GROUNDING_DATE_RE, (_, mn1, d1, y1, d2, mn2, y2, yIso, mIso, dIso) => {
+  const afterDates = grounding.replace(
+    GROUNDING_DATE_RE,
+    (_, mn1, d1, y1, d2, mn2, y2, yIso, mIso, dIso, mSlash, dSlash, ySlash) => {
     let m: number | undefined, d: number | undefined, y: number | undefined;
     if (mn1) [m, d, y] = [MONTHS[String(mn1).toLowerCase()], Number(d1), y1 ? Number(y1) : undefined];
     else if (mn2) [m, d, y] = [MONTHS[String(mn2).toLowerCase()], Number(d2), y2 ? Number(y2) : undefined];
-    else [y, m, d] = [Number(yIso), Number(mIso), Number(dIso)];
+    else if (yIso) [y, m, d] = [Number(yIso), Number(mIso), Number(dIso)];
+    else [m, d, y] = [Number(mSlash), Number(dSlash), Number(ySlash)];
     dates.add(`${m}-${d}`);
     if (y !== undefined) {
       dates.add(`${y}-${m}-${d}`);
       addNumber(y);
     }
     return " ";
-  });
+  },
+  );
 
   // Clock times consumed next, mirroring numberCheck's own time pass: "9:30
   // a.m." must not hand 9 and 30 to the licensed set (review finding — the
@@ -581,13 +620,32 @@ const DATE_PHRASE_RE = new RegExp(
   "gi",
 );
 
-/** Grounding-side date grammar: month-name and ISO forms ONLY. The slash
- *  form stays draft-side (DATE_PHRASE_RE) where it validates a claim; over
- *  free source prose it would mint dates from fractions and dockets. */
+/**
+ * Grounding-side date grammar: month-name, ISO, and the STRICT slash form.
+ *
+ * The slash form was excluded here on the stated ground that "over free source
+ * prose it would mint dates from fractions and dockets". That risk is real for
+ * a loose pattern and does not survive the strict one: `\d{1,2}/\d{1,2}/\d{4}`
+ * requires a four-digit year, which "1/2 of holders" and docket "3-12345" do
+ * not have.
+ *
+ * Excluding it had a measured cost. `groundingFacts("...submitted 7/30/2026
+ * by the member.")` licensed 7 and 30 as free integers, which mergeFacts then
+ * hands to the draft — the same date-component leak just closed on the payload
+ * side, through the p4-01 widening instead. US filing agents print slash dates
+ * constantly, so this fires on ordinary source documents rather than
+ * adversarial ones.
+ *
+ * Changing a documented decision, so the reasoning is here rather than in a
+ * commit message: the original concern was about a pattern loose enough to
+ * match fragments, and the fix is to keep the pattern tight, not to leave the
+ * components licensed.
+ */
 const GROUNDING_DATE_RE = new RegExp(
   `\\b(?:(${MONTH_NAME})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?` +
     `|(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTH_NAME})\\.?(?:,?\\s+(\\d{4}))?` +
-    `|(\\d{4})-(\\d{2})-(\\d{2}))\\b`,
+    `|(\\d{4})-(\\d{2})-(\\d{2})` +
+    `|(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4}))\\b`,
   "gi",
 );
 
@@ -750,6 +808,22 @@ function furnitureSet(): Set<string> {
 
 const FURNITURE = furnitureSet();
 
+/**
+ * All-caps tokens that name a FORMAT or a medium, not an entity.
+ *
+ * The all-caps rule exists to stop invented tickers and invented institutions.
+ * A file format is neither: it identifies nothing that could be fabricated,
+ * and "one PDF" says nothing about the world that needs sourcing. Measured
+ * 2026-08-01 — owner exemplar E4 ends "Three months of trading, one PDF, zero
+ * consequences" and was rejected on `all-caps token "PDF"`, against the very
+ * archetype whose exemplars teach that line.
+ *
+ * Kept deliberately tiny and formats-only. Anything that could name a market,
+ * an issuer or a regulator stays checked, so ETF, CEO and SEC are absent on
+ * purpose: those carry claims about the world, and PDF does not.
+ */
+const FORMAT_ACRONYMS = new Set(["PDF", "CSV", "XML", "JSON", "HTML", "URL", "PNG", "JPG"]);
+
 /** Token-bounded existence check against the payload JSON — substring
  *  containment let $ROE pass via "Jane Roe" (bypass #16). Tickers and CAPS
  *  match case-SENSITIVELY: "Roe" in the payload never licenses "ROE". */
@@ -769,6 +843,7 @@ export function entityCheck(text: string, payload: Payload, precomputed?: Payloa
   const withoutTickers = text.replace(/\$[A-Z]{1,5}\b/g, "");
   for (const m of withoutTickers.matchAll(/\b([A-Z]{2,})\b/g)) {
     if (FURNITURE.has(m[1]!)) continue;
+    if (FORMAT_ACRONYMS.has(m[1]!)) continue; // a format names no entity
     if (!inPayload(json, m[1]!, true)) {
       issues.push({ rule: "entity", detail: `all-caps token "${m[1]}" does not appear in the payload` });
     }
@@ -780,11 +855,87 @@ export function entityCheck(text: string, payload: Payload, precomputed?: Payloa
     // Exact furniture phrases only — a PREFIX skip exempted "Senate Ethics
     // Committee" wholesale (bypass #6).
     if (FURNITURE.has(name.toUpperCase())) continue;
+    // The following characters decide whether a trailing month is a date.
+    if (!isNameShaped(name, text.slice(m.index! + name.length, m.index! + name.length + 8))) continue;
     if (!inPayload(json, name, false)) {
       issues.push({ rule: "entity", detail: `name "${name}" does not appear in the payload` });
     }
   }
   return issues;
+}
+
+/**
+ * Is this capitalised run actually a NAME, or a phrase another validator owns?
+ *
+ * The two-capitalised-token pattern is satisfied by ordinary copy, and it was
+ * rejecting the owner's own exemplars in production. Measured 2026-08-01:
+ * exemplar E1's second line, "Filed July 18.", produced `name "Filed July"
+ * does not appear in the payload` against the very payload that carries
+ * disclosedDate 2026-07-18. E4's "One House PTR filed today" produced `One
+ * House`. Two of seven CONGRESS_PTR exemplars — our deepest archetype — failed
+ * the floor their own imitations must pass.
+ *
+ * The rule is a BOUNDARY BETWEEN VALIDATORS rather than a list of excuses. A
+ * month is a date component and dateCheck owns it; a spelled-out numeral is a
+ * quantity and wordNumberCheck owns it. Neither is a name token, and a name
+ * built only out of tokens another validator already governs is not a name.
+ * Both lexicons are the ones those validators already use, so the boundary
+ * cannot drift out of agreement with them.
+ *
+ * Deliberately NOT a sentence-initial exemption, which was the obvious fix and
+ * the wrong one: a fabricated name can open a sentence, and exempting position
+ * would blind the check exactly where a model most often puts a subject.
+ */
+function isNameShaped(name: string, following: string): boolean {
+  const parts = name.split(/[-\s]/);
+  const lower = parts.map((p) => p.toLowerCase());
+
+  // A LEADING numeral is a quantity ONLY when what follows it is furniture.
+  //
+  // The first version stripped any leading numeral and re-tested the rest,
+  // which exempted a class of REAL ISSUERS: "Six Flags", "One Medical", "Two
+  // Sigma", "Nine West" all returned [] where main rejected them. Naming the
+  // wrong issuer in a filing post breaks the no-fabrication and
+  // primary-sources rules at once, so the exemption now has to earn itself
+  // against FURNITURE — "House" qualifies through the House Clerk attribution,
+  // "Flags" and "Medical" do not.
+  //
+  // It also retracts a claim I made defending the first version: that "Four
+  // Seasons" was an inherited single-token hole. It was not. The PHRASE was
+  // checked on main and my relaxation stopped checking it. New hole, and the
+  // justification was wrong before the code was.
+  if ((lower[0]! in WORD_UNITS || lower[0]! in WORD_SCALES) && parts.length >= 2) {
+    if (FURNITURE.has(parts.slice(1).join(" ").toUpperCase())) return false;
+  }
+
+  // A trailing MONTH is a date component ONLY when dateCheck would actually
+  // claim the phrase — tested with dateCheck's OWN regex, not a reading of it.
+  //
+  // Three rounds on this one rule, and each fix was closer to the last:
+  //   1. Borrowed the MONTHS lexicon with no adjacency at all, so "Theresa
+  //      May" and "Analyst Dec" went unchecked entirely.
+  //   2. Added adjacency, but wrote `[\s.,]*\d{1,2}` — which admits a COMMA
+  //      that DATE_PHRASE_RE's `\s+` does not. On a comma entityCheck stood
+  //      down believing dateCheck owned the phrase, and dateCheck never
+  //      claimed it, so "Senator May, 2 days after the trade." was checked by
+  //      NOTHING. A complete, correctly-sourced, postable draft naming a
+  //      member who exists in no payload field.
+  //      The same predicate also REJECTED "July 4th", which dateCheck accepts
+  //      — wrong in both directions from one near-miss.
+  //   3. This: reuse the regex.
+  //
+  // The rule that ends the family: IF THE ARGUMENT IS "THE OTHER VALIDATOR
+  // OWNS THIS", THE PREDICATE MUST BE THAT VALIDATOR'S PREDICATE. Not its
+  // vocabulary, and not a careful reading of its shape. Anchoring
+  // DATE_PHRASE_RE at the month and running it over `month + following` asks
+  // dateCheck the question directly, so the two cannot disagree about any
+  // separator, ordinal or year form that either of them ever learns.
+  if (parts.length === 2 && lower[1]! in MONTHS) {
+    const anchored = new RegExp(`^(?:${DATE_PHRASE_RE.source})`, "i");
+    if (anchored.test(`${parts[1]!}${following}`)) return false;
+  }
+
+  return true;
 }
 
 // --- sourcing, urls, structure, length -------------------------------------
@@ -1067,17 +1218,45 @@ export interface ValidateOptions {
  * failure when both fire — an audit row saying rejected:cadence when the
  * draft also fabricated a number would bury the finding that matters.
  */
+/**
+ * THE FABRICATION FLOOR, as ONE list.
+ *
+ * These are the gates that are variant-INDEPENDENT: every one runs identically
+ * for dry, sharp and commentary. (What differs by variant is only
+ * `structuralCheck`'s segment cap and `lengthCheck`'s 200-char minimum, which
+ * is why neither is here.)
+ *
+ * It is a list rather than eleven inline calls so that the exemplar-parity
+ * test can enumerate the SAME gates instead of a hand-maintained copy of them.
+ * That gap is what produced the defect this exists to prevent: the owner's
+ * exemplars were tested against `checkRegister` and `fitsInPost` and never
+ * against the floor, so the pack taught `Filed July 18.` while `entityCheck`
+ * rejected it, and the pipeline generated drafts it was obliged to discard.
+ *
+ * The rule, generalised: **any artefact that teaches the model must pass every
+ * gate the model's output must pass** — and the assertion has to read its gates
+ * from the same place the pipeline does, or the two drift apart again the next
+ * time somebody adds a check.
+ */
+export const FLOOR_GATES: ReadonlyArray<{
+  readonly name: string;
+  readonly run: (text: string, payload: Payload, facts: PayloadFacts) => ValidationIssue[];
+}> = [
+  { name: "numberCheck", run: (t, p, f) => numberCheck(t, p, f) },
+  { name: "entityCheck", run: (t, p, f) => entityCheck(t, p, f) },
+  { name: "sourcingCheck", run: (t) => sourcingCheck(t) },
+  { name: "urlCheck", run: (t) => urlCheck(t) },
+  { name: "motiveCheck", run: (t) => motiveCheck(t) },
+];
+
 export async function validateVariant(db: D1Database, text: string, opts: ValidateOptions): Promise<ValidationIssue[]> {
   const facts = opts.grounding
     ? mergeFacts(payloadFacts(opts.payload), groundingFacts(opts.grounding))
     : payloadFacts(opts.payload);
   const issues: ValidationIssue[] = [
-    // Group 1 — the floor.
-    ...numberCheck(text, opts.payload, facts),
-    ...entityCheck(text, opts.payload, facts),
-    ...sourcingCheck(text),
-    ...urlCheck(text),
-    ...motiveCheck(text),
+    // Group 1 — the floor, enumerated from FLOOR_GATES so the exemplar-parity
+    // test cannot fall out of step with what actually runs here.
+    ...FLOOR_GATES.flatMap((g) => g.run(text, opts.payload, facts)),
     ...structuralCheck(text, opts.variant),
     // Payload arg (PR #53): resolves the single correct attribution for
     // chamber-mapped archetypes — the wrong-chamber check comes free.

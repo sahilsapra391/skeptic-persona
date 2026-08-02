@@ -1,10 +1,13 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { putSourceState } from "../src/lib/db";
+import { iso } from "../src/lib/time";
 import {
   formatHealth,
   healthReport,
   PROBE_AFTER_HOURS,
   QUARANTINE_AFTER,
+  MIN_DEAD_AGE_HOURS,
   runSourceHealth,
   shouldQuarantine,
 } from "../src/sourceHealth";
@@ -279,5 +282,166 @@ describe("the probe leaves no tombstone", () => {
     const text = formatHealth(await healthReport(env as never, later), later);
     expect(text).toContain("disabled (manual)");
     expect(text).not.toContain("recovers_then_parked: QUARANTINED");
+  });
+});
+
+describe("a young source is not a dead one", () => {
+  it("does not quarantine a source that has only just started failing", () => {
+    // source_state's row is created on the FIRST failure, so before
+    // first_failure_at existed, a source deployed into a transient 503 on an
+    // every_1m cadence hit twelve failures twelve minutes later and was
+    // quarantined before anyone had looked at it. The streak was real; the
+    // inference was not.
+    const justDeployed = {
+      name: "brand_new",
+      fails: 12,
+      lastOkAt: null,
+      firstFailureAt: "2026-08-01T19:48:00.000Z",
+    };
+    expect(shouldQuarantine(justDeployed, new Date("2026-08-01T20:00:00.000Z"))).toBe(false);
+
+    // A day later, still nothing but failures: now the streak means something.
+    expect(shouldQuarantine(justDeployed, new Date("2026-08-02T20:00:00.000Z"))).toBe(true);
+  });
+
+  it("still catches a legacy row, where absence of a start time means OLD", () => {
+    // Every row that exists when the column lands has NULL here, and those
+    // are exactly the long-running failures this was built for.
+    // treasury_auction had been failing for days before it shipped.
+    expect(
+      shouldQuarantine({ name: "treasury_auction", fails: 16, lastOkAt: null, firstFailureAt: null }, NOW),
+    ).toBe(true);
+    // Same when the field is simply absent from the row shape.
+    expect(shouldQuarantine({ name: "legacy", fails: 16, lastOkAt: null }, NOW)).toBe(true);
+  });
+
+  it("stamps, preserves and clears first_failure_at without any caller doing so", async () => {
+    // Maintained in SQL inside putSourceState, because 'also stamp a
+    // timestamp' is a rule one of thirty ingesters eventually forgets.
+    const t0 = new Date("2026-08-01T10:00:00.000Z");
+    const base = {
+      source: "stamp_test",
+      etag: null,
+      lastModified: null,
+      cursor: null,
+      lastPolledAt: iso(t0),
+      lastOkAt: null,
+    };
+    await putSourceState(env.DB, { ...base, consecutiveFailures: 1 }, t0);
+    const read = async () =>
+      (await env.DB.prepare(`SELECT first_failure_at AS f FROM source_state WHERE source = 'stamp_test'`)
+        .first<{ f: string | null }>())!.f;
+    expect(await read()).toBe(iso(t0));
+
+    // A later failure in the same run must NOT move the start.
+    const t1 = new Date("2026-08-01T14:00:00.000Z");
+    await putSourceState(env.DB, { ...base, consecutiveFailures: 5 }, t1);
+    expect(await read()).toBe(iso(t0));
+
+    // Success clears it, so the next run starts its own clock.
+    await putSourceState(env.DB, { ...base, consecutiveFailures: 0, lastOkAt: iso(t1) }, t1);
+    expect(await read()).toBeNull();
+
+    const t2 = new Date("2026-08-02T09:00:00.000Z");
+    await putSourceState(env.DB, { ...base, consecutiveFailures: 1 }, t2);
+    expect(await read()).toBe(iso(t2));
+  });
+});
+
+describe("a legacy row stays catchable", () => {
+  it("quarantines a pre-column row seeded straight into D1, not just in the pure function", async () => {
+    // Requested during review, and it is the assertion that fails loudly if
+    // someone later "tidies up" the null handling. Every row that existed
+    // when first_failure_at landed has NULL there, and those are exactly the
+    // long-running failures this chunk was built for. Read the other way --
+    // null as "brand new" -- and the whole quarantine silently stops working
+    // for precisely the sources it exists to catch.
+    await env.DB.prepare("DELETE FROM jobs").run();
+    await env.DB.prepare("DELETE FROM source_state").run();
+    await env.DB.prepare(
+      `INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority)
+       VALUES ('legacy_dead', '2026-08-01T00:00:00.000Z', 'hourly', 1, 50)`,
+    ).run();
+    // Written WITHOUT first_failure_at, exactly as a pre-migration row reads.
+    await env.DB.prepare(
+      `INSERT INTO source_state (source, consecutive_failures, last_ok_at)
+       VALUES ('legacy_dead', 16, NULL)`,
+    ).run();
+    const before = await env.DB.prepare(
+      `SELECT first_failure_at AS f FROM source_state WHERE source = 'legacy_dead'`,
+    ).first<{ f: string | null }>();
+    expect(before?.f).toBeNull();
+
+    await runSourceHealth(env as never, NOW);
+
+    const row = await env.DB.prepare(`SELECT enabled, quarantine_reason FROM jobs WHERE name = 'legacy_dead'`)
+      .first<{ enabled: number; quarantine_reason: string | null }>();
+    expect(row?.enabled).toBe(0);
+    expect(row?.quarantine_reason).toContain("never");
+  });
+});
+
+describe("a legacy row keeps its NULL through further failures", () => {
+  it("does not hand the longest-dead source a fresh clock", async () => {
+    // The defect: putSourceState stamped whenever first_failure_at was NULL
+    // and failures were non-zero, which caught a LEGACY row mid-streak and
+    // dated it today. Those rows are exactly the long-dead sources the
+    // quarantine exists for, so the effect was a day of immunity for the
+    // worst offender in the fleet. Reproduced against a production-shaped
+    // treasury_auction row.
+    await env.DB.prepare("DELETE FROM source_state").run();
+    await env.DB.prepare(
+      `INSERT INTO source_state (source, consecutive_failures, last_ok_at)
+       VALUES ('treasury_auction', 16, NULL)`,
+    ).run();
+
+    const read = async () =>
+      (await env.DB.prepare(
+        `SELECT first_failure_at AS f, consecutive_failures AS n FROM source_state WHERE source = 'treasury_auction'`,
+      ).first<{ f: string | null; n: number }>())!;
+    expect((await read()).f).toBeNull();
+
+    // One more failing poll, exactly as the ingester writes it.
+    const later = new Date("2026-08-02T13:30:00.000Z");
+    await putSourceState(
+      env.DB,
+      {
+        source: "treasury_auction",
+        etag: null,
+        lastModified: null,
+        cursor: null,
+        lastPolledAt: iso(later),
+        lastOkAt: null,
+        consecutiveFailures: 17,
+      },
+      later,
+    );
+
+    const after = await read();
+    expect(after.n).toBe(17);
+    // Still NULL: absence continues to mean OLD, which is what 0048 claims.
+    expect(after.f).toBeNull();
+    expect(shouldQuarantine({ name: "treasury_auction", fails: 17, lastOkAt: null, firstFailureAt: after.f }, later)).toBe(true);
+  });
+
+  it("still starts the clock when a HEALTHY source begins failing", async () => {
+    // The guard must not break the case it was built for.
+    await env.DB.prepare("DELETE FROM source_state").run();
+    const t0 = new Date("2026-08-02T09:00:00.000Z");
+    const base = {
+      source: "was_healthy",
+      etag: null,
+      lastModified: null,
+      cursor: null,
+      lastPolledAt: iso(t0),
+      lastOkAt: iso(t0),
+    };
+    await putSourceState(env.DB, { ...base, consecutiveFailures: 0 }, t0);
+    const t1 = new Date("2026-08-02T10:00:00.000Z");
+    await putSourceState(env.DB, { ...base, consecutiveFailures: 1, lastOkAt: null }, t1);
+
+    const f = (await env.DB.prepare(`SELECT first_failure_at AS f FROM source_state WHERE source = 'was_healthy'`)
+      .first<{ f: string | null }>())!.f;
+    expect(f).toBe(iso(t1));
   });
 });
