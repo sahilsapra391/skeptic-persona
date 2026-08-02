@@ -58,10 +58,16 @@ real generations rather than against fact-block arithmetic:
 | commentary | rejected:length | ~290 (too LONG) |
 | commentary | rejected:entity | — |
 
-**Not one commentary generation has ever been rejected for being too short.**
-Two comfortably exceed 200; one was rejected for exceeding the *ceiling*. The
-model is not straining upward to reach a floor, which is what the
-forcing-function hypothesis predicts.
+**Not one of these four was rejected for being too short.** Two comfortably
+exceed 200; one was rejected for exceeding the *ceiling*.
+
+**n=4, and the conclusion is stated to that limit:** in these four, the model
+did not strain upward to reach a floor, which is what the forcing-function
+hypothesis predicts it would do. Four is not enough to establish model
+behaviour, and it is not what killed the chunk — the register error does that
+on its own. It is enough to say the premise found no support where it should
+have been easiest to find, and a reader rebuilding this should treat it as an
+absence of evidence rather than evidence of absence.
 
 The arithmetic that motivated the fix assumed the gap between a 115-character
 fact block and a 200-character floor must be filled with **facts**. It need not
@@ -148,8 +154,14 @@ That reasoning survives the withdrawal and should be reused if this is rebuilt.
 
 ## Method note
 
-The register error was found by a reviewer who recomputed the distribution,
-reproduced every number, and **then asked which population it came from**. The
-arithmetic was confirmed and the premise was not — the same shape as every
-defect in `2026-08-01-silent-success-retrospective.md`: the check ran, reported
-success, and answered a different question than the one that mattered.
+Found by an adversarial review lens that recomputed the distribution and
+**then asked which population it came from**. A prior reviewer had already
+reproduced every figure correctly *without* asking — confirming the arithmetic
+and missing the premise, which is the same defect one layer up.
+
+That distinction is the point, and the first draft of this note got it wrong by
+crediting the reviewer who missed it. **Reproducing a number confirms the
+arithmetic and says nothing about the population.** The review layer repeated
+the author's error; a third check caught it. In a document whose thesis is that
+checks report success while answering a different question, crediting the check
+that failed would have been the wrong lesson to leave behind.
