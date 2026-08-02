@@ -200,6 +200,59 @@ describe("house_ptr extraction relay", () => {
     expect((await payloadOf("20260103")).transactions).not.toBeNull();
   });
 
+  it("applies the docs before a malformed one, so 422 does not mean nothing landed", async () => {
+    // The relay is NOT atomic, and this is the test that says so. A bundle
+    // whose third doc is malformed returns 422, but the first doc has already
+    // been applied and committed by then -- the throw happens mid-loop, not
+    // before it.
+    //
+    // That is survivable only because of the two properties asserted below:
+    // the un-applied doc is still listed by /pending, so the courier's next
+    // run picks it up, and re-applying is idempotent. If either ever stops
+    // being true, a partial bundle silently drops filings and the only
+    // symptom is a 422 the courier already expects to retry.
+    //
+    // This behaviour was investigated on 2026-07-28 in a scratch file that
+    // logged it and asserted nothing (test/zzRefuteScratch.test.ts, on main
+    // until 2026-08-01). Two tests, zero expects, counted green the whole
+    // time. The findings were right; they just were not pinned.
+    await seedIndexRow("30000200", NOW);
+    await seedIndexRow("30000201", NOW);
+
+    const res = await post({
+      source: HOUSE_SOURCE,
+      body: JSON.stringify({
+        docs: [
+          { docId: "30000200", text: SINGLE },
+          { docId: 12345, text: SINGLE }, // number, not string -> throws
+          { docId: "30000201", text: SINGLE },
+        ],
+      }),
+    });
+    expect(res.status).toBe(422);
+
+    // Applied despite the 422: it was processed before the bad doc.
+    expect((await payloadOf("30000200")).transactions).not.toBeNull();
+    // Never reached.
+    expect((await payloadOf("30000201")).transactions).toBeNull();
+
+    // The recovery path: /pending still offers ONLY the un-applied one.
+    const offered = (await (await pending()).json()) as { docs: { docId: string }[] };
+    expect(offered.docs.map((d) => d.docId)).toContain("30000201");
+    expect(offered.docs.map((d) => d.docId)).not.toContain("30000200");
+
+    // The courier's next run drains it with a well-formed bundle.
+    const res2 = await post({
+      source: HOUSE_SOURCE,
+      body: JSON.stringify({ docs: [{ docId: "30000201", text: SINGLE }] }),
+    });
+    expect(res2.status).toBe(200);
+    expect((await payloadOf("30000201")).transactions).not.toBeNull();
+
+    const after = (await (await pending()).json()) as { docs: { docId: string }[] };
+    expect(after.docs.map((d) => d.docId)).not.toContain("30000201");
+  });
+
   it("rejects a malformed bundle loudly rather than accepting nothing", async () => {
     expect((await post({ source: HOUSE_SOURCE, body: JSON.stringify({}) })).status).toBe(422);
     expect((await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: 1 }] }) })).status).toBe(422);
