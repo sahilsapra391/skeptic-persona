@@ -6,10 +6,19 @@ coverage/
 .DS_Store
 *.log
 
-# Review/design subagents write scratch tests into test/ and `git add -A` has
-# no opinion about intent — three such files reached commits on 2026-08-01,
-# and test/zzRefuteScratch.test.ts has been on main since 07-28. A test count
-# is the evidence a change is safe; it must not include files nobody read.
+# Scratch tests written by review/design subagents. `git add -A` has no
+# opinion about intent: four such files reached commits on 2026-08-01, and
+# test/zzRefuteScratch.test.ts sat on main from 07-28 with two tests and ZERO
+# expect() calls — it could never fail, and it was counted green in every test
+# total all three sessions quoted for four days. A test count is the evidence
+# a change is safe; it must not include files nobody read.
+#
+# The patterns are a naming convention made unstageable, which is the cheap
+# 90% and not a guarantee. Worth stating the hole rather than implying there
+# isn't one: zzcoverage.probe.test.ts was caught only because the agent
+# happened to prefix it, and a file named coverage.probe.test.ts would have
+# walked straight through the guard written in response to it.
 test/zz*
 test/_scratch*
 test/*.probe.test.ts
+test/*.scratch.ts
