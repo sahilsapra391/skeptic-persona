@@ -159,6 +159,91 @@ Three worked examples from the evening:
   Quoting its number afterwards extends a real check past its evidence — which
   is this document committing a variant of its own subject, twice.
 
+## The property underneath, named 2026-08-02
+
+*Added a day later, after the same shape appeared six more times across three
+sessions in a single night. "Assert the outcome, not the edit" is a special
+case of it.*
+
+> **The reporter and the worker are different processes, and the reporter's
+> success is evidence about the reporter.**
+
+Every defect in this document, and every one below, is an instance. Filed as
+separate lessons, the next arrives and gets filed as another separate lesson.
+Filed as one property, it is recognised on sight.
+
+### The surfaces, 2026-08-01 into 2026-08-02
+
+| surface | reported | true |
+|---|---|---|
+| A shell pipeline printed `typecheck OK` | exit 0 from `echo` | `tsc` had failed; the exit code belonged to the last command in the pipe |
+| A test count of 770 | vitest's summary | included three subagent scratch files swept in by `git add -A`, none of them read |
+| `zzRefuteScratch.test.ts`, on main four days | two passing tests | **zero `expect()` calls** — it could not fail, and was counted green in every total three sessions quoted |
+| A test named "commentary has a 200 weighted floor" | green | the 200 floor had been deleted; the fixture still failed the new 75, so a correct assertion outlived its own premise |
+| A PR check | green | measured against a base that no longer existed; green about a tree nobody would merge |
+| A heredoc commit message | exit 0 | backtick expansion silently deleted three identifiers mid-sentence |
+| A CPSC source probe | clean JSON, rich record | `Manufacturers` empty on 33 of 55; the unit count absent from **all** 55 |
+| A press-source probe | "usable" | three were URLs already being polled — it answered *is this reachable*, not *is this new* |
+
+The last two are the ingestion session's; the assertion-free test file and its
+four-day green are theirs too, found by auditing their own history rather than
+by anything failing.
+
+**Provenance, since this document's own subject demands it.** Rows 1–6 are
+this session's and each was reproduced here. Rows 7–8 are the ingestion
+session's, reported by them and **not** independently re-run — the CPSC and
+press-probe numbers are theirs, marked rather than laundered. Row 3 is theirs
+but was verified here before being written down: `git show d089bab` gives **0
+`expect(` and 2 `it(` blocks**, added 2026-07-28 and removed 2026-08-01 in #97,
+which is four days on main.
+
+### Why knowing about it does not help
+
+The clearest evidence is the sixth surface, which was produced **while writing
+about the property**: a shell variable interpolating to nothing inside a
+heredoc that exited 0, caught only by re-reading the commit, and then needing a
+second re-read to confirm the amendment had landed.
+
+So the conclusion is not vigilance. It is structural:
+
+**The only defence is a check performed by something other than the reporter.**
+
+Worked instances from the same night, each cheap:
+
+- **Mutation testing** rather than a green suite — it answers *is this test
+  load-bearing*. With the caveat that it answers only that: one mutation here
+  passed because it had been aimed at the wrong line, and the guarantee was
+  real but living somewhere else. **When a mutation passes, "I mutated the
+  wrong line" is a hypothesis before "the guarantee is missing"** — they have
+  opposite fixes, and stopping at the first gives a false all-clear.
+- **Reading the figure out of the run log into a variable** rather than
+  recalling it. Two commit messages carried a count from the wrong branch
+  before this was adopted.
+- **Reviewing a pinned SHA**, stated explicitly, with the author freezing the
+  branch until a verdict returns. `#106` moved under a running review three
+  times; each move produced a confident report about code that no longer
+  existed. A review is a measurement of a tree, and the tree is a variable the
+  author controls.
+- **Enumerating the class, not the instance** — but only where the change makes
+  a validator *accept* something it used to reject. Everywhere else it is a tax
+  nobody pays, and an unaffordable discipline is one that quietly stops.
+
+### A related rule, from the same evidence
+
+**When a new test fails, the code is not the leading hypothesis.**
+
+Four of five times on 2026-08-02, a red new test meant the *assertion* was
+wrong: a matrix asserting one validator must catch every separator when
+another legitimately owns three of them; a count of every message sent rather
+than the one under test; two fixtures too weak to license their own inputs.
+
+A new test encodes a fresh belief about the system, and a fresh belief is more
+likely to be wrong than code that has been running. The danger is not the
+frequency but the reflex: the natural response to a red new test is to change
+the code until it goes green, **which is how a correct implementation gets bent
+to match a wrong assertion** — after which the wrongness is documented as
+intentional by a passing test.
+
 ## How they were found
 
 **Four of the six were found by measuring something we already believed, not by
