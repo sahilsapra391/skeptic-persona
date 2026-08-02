@@ -121,7 +121,7 @@ describe("stylePackFor", () => {
     for (const phrase of [
       "zero connective tissue",
       "names the RECORD",
-      "never shrinks the take below the owner's shortest signed take",
+      "never shrinks commentary below its 200-280 contract",
     ]) {
       expect(pack).toContain(phrase);
     }

@@ -1,163 +1,124 @@
-# The commentary floor was the forcing function
+# The commentary floor: a fix withdrawn, and what the measurements found
 
 **Date:** 2026-08-02
-**Chunk:** p4-18
-**Claim under test:** that a flat 200-weighted-character minimum on the
-commentary variant is what pushes the model outside the record.
+**Chunk:** p4-18 — **code withdrawn.** This document is the residue, which is
+the part worth keeping.
 
-## Why a floor at all
+## What was built, and why it is gone
 
-`validateVariant` runs an **identical** fabrication floor for every variant.
-Exactly two things differ:
+The claim: a flat 200-weighted minimum on the commentary variant is the
+forcing function behind unsourced world-knowledge, because live fact blocks
+run 36–277 and a flat 200 demands characters the record cannot fund. The fix
+made the floor record-relative — the fact block plus 75, the owner's shortest
+signed take.
 
-| | dry / sharp | commentary |
-| --- | --- | --- |
-| `structuralCheck` max segments | 2 | 3 |
-| `lengthCheck` minimum | none | **200 weighted** |
+**The 75 came from the wrong population, and review caught it.**
 
-Nothing stops a `dry` variant carrying world-knowledge. What stops it is that
-nothing pressures it to keep talking. From the same 5-field CFTC payload that
-produced *"Event contracts face identical manipulation scrutiny to
-cash-settled derivatives"*, `dry` produced **"Order entered."** and stopped.
+`lengthCheck` applies the floor only when `variant === "commentary"`. Measured
+from `OWNER_EXEMPLARS`, split by register:
 
-## Measurement 1 — what the record can actually say
+| register | n | take min | take median | take max | totals under 200 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| wire | 20 | 75 | 111 | 144 | **11** |
+| commentary | 7 | **192** | 251 | 271 | **0** |
 
-400 most recent `queue` rows joined to their items, weighted length of the
-rendered wire draft's fact block:
+Three consequences, each fatal to a stated justification:
 
-| archetype | n | median | min | max |
-| --- | ---: | ---: | ---: | ---: |
-| HALT | 102 | 86 | 36 | 204 |
-| INSIDER_NOTICE | 75 | 174 | 109 | 252 |
-| FILING_FORM4 | 62 | 142 | 92 | 202 |
-| FILING_8K | 62 | 190 | 76 | 277 |
-| OWNERSHIP_STAKE | 50 | 122 | 56 | 196 |
-| REGULATORY_NEWS | 22 | 148 | 86 | 239 |
-| INSIDER_CLUSTER | 3 | 263 | 259 | 264 |
+1. **`MIN_TAKE_WEIGHTED = 75` is a wire exemplar's beat line.** The owner's
+   shortest signed *commentary* take is **192**. The docstring's defence —
+   "anything higher rejects text he has written" — was false for the register
+   the constant governs.
+2. **`TARGET_TAKE_WEIGHTED = 124` sat below the shortest real commentary
+   take.** The target given to the model was under the floor of the actual
+   distribution.
+3. **"11 of 27 exemplars under 200; the flat floor rejected 41% of the voice"
+   was wrong.** All eleven are wire. **Zero commentary exemplars fall under
+   200** — they run 296 to 354. The flat commentary floor rejected none of his
+   commentary voice, because it never applied to wire at all.
 
-**Only 17% of rows can fund a 200-character commentary from their own record.**
-For the rest the model must find a median of **74** characters elsewhere, up to
-164.
+And under the codebase's own segment splitter — `structuralCheck`'s `/\n\n+/`
+and `render.ts`'s `BEAT_SEPARATOR` — **all twenty wire exemplars have no take
+segment at all.** The 75–144 figures existed only because the calibration
+re-split them on `/\n+/`. The parity tests pinned the constants to the same
+wrong population, so they could not catch it.
 
-## Measurement 2 — what the owner's own voice costs
+This is the tautology problem one level deeper. Anchoring on the observed
+minimum guaranteed "0 of 27 fail"; anchoring on the **wrong 27** guaranteed a
+floor that means nothing for the variant it governs.
 
-Across all 27 `OWNER_EXEMPLARS`:
+## The premise did not survive either
 
-| | min | median | max |
-| --- | ---: | ---: | ---: |
-| fact block | 47 | 86 | 123 |
-| **take** | **75** | 124 | 271 |
-| total | 126 | 215 | 354 |
+With the register error found, the forcing-function claim was re-tested against
+real generations rather than against fact-block arithmetic:
 
-Two things fall out.
+| variant | status | chars |
+| --- | --- | ---: |
+| commentary | valid | 214 |
+| commentary | rejected:template_echo | 233 |
+| commentary | rejected:length | ~290 (too LONG) |
+| commentary | rejected:entity | — |
 
-**His fact blocks are 47–123 — the same range as our live wire drafts.** Record
-thinness is not unusual; it is the material he writes from.
+**Not one commentary generation has ever been rejected for being too short.**
+Two comfortably exceed 200; one was rejected for exceeding the *ceiling*. The
+model is not straining upward to reach a floor, which is what the
+forcing-function hypothesis predicts.
 
-**11 of his 27 exemplars are UNDER 200 weighted.** The flat floor was rejecting
-41% of the voice it exists to enforce.
+The arithmetic that motivated the fix assumed the gap between a 115-character
+fact block and a 200-character floor must be filled with **facts**. It need not
+be: a take is opinion, and 85 characters of opinion require no record at all.
 
-## The rule
+## The finding worth keeping
 
-```
-commentaryFloor(templateDraft) = weighted(factBlockOf(templateDraft)) + 75
-```
-
-75 is not a chosen threshold. It is the shortest take the owner has ever
-signed off, so any higher number rejects text he has written.
-
-The floor reads the **template draft**, not the model's own fact block, so a
-model cannot lower its own bar by writing less. Pinned by a test.
-
-### And one genuine withholding, which is arithmetic
-
-When `factBlock + 75 > 280`, no commentary can exist inside the platform limit.
-Asking for one can only produce something that fails, or something that made
-room by cutting the record. Those items get `dry` and `sharp` — no minimum, and
-the archetype's own default.
-
-## Measurement 3 — the effect
-
-Against the same 400 live rows:
-
-| | rows | share |
-| --- | ---: | ---: |
-| commentary withheld (arithmetically impossible) | 6 | **1%** |
-| floor lowered to what the record supports | 245 | **61%** |
-| unchanged (record already funds 200) | 149 | 38% |
-
-And the owner's exemplars against the floor they would be judged by:
-
-| | fails |
-| --- | ---: |
-| flat 200 floor | **11 of 27** |
-| record-relative floor | **0 of 27** |
-
-**The 0 is TAUTOLOGICAL and should not be read as validation.** `total = fact +
-take + separators`, so `total >= fact + 75` holds whenever `take >= 75`, and
-anchoring on the observed minimum guarantees the result. Stating it plainly
-because the number looks like a finding and is arithmetic. Raised in review;
-the argument below is what replaces it.
-
-### What actually defends the anchor
-
-The sorted takes:
+**Zero of the seven commentary exemplars fit the platform limit.**
 
 ```
-75, 78, 86, 92, 97, 105, 106, 108, 108, 109, 111, 117, 122, ...
+296, 318, 320, 320, 347, 350, 354      (limit: 280)
 ```
 
-**The bottom of the distribution is dense.** The next value after 75 is 78 and
-the one after is 86, so the minimum and the 10th percentile are 11 characters
-apart and the choice between them barely matters. Had the takes been
-`[75, 120, 124, ...]`, anchoring on 75 would be fitting to a single freak
-sample and the percentile argument would win. They are not, so this is an
-empirical defence rather than a preference.
+The model has never been shown a commentary that fits in a post. His commentary
+voice is fact block 64–117 plus take 192–271, and that sum does not fit
+alongside most of our fact blocks.
 
-**The drift risk is the real hazard, and it is guarded.** `MIN_TAKE_WEIGHTED`
-is a literal that happens to equal the data today. A future exemplar with a
-60-character take makes the parity test fail — correctly — and the tempting fix
-is to lower the constant, which ratchets the floor down permanently, one
-exemplar at a time. `test/takeAnchors.test.ts` asserts the constant IS the
-computed minimum, so lowering it is a decision someone makes on purpose.
+That is a product question, not a validator question, and it belongs to the
+owner:
 
-### And the floor is a boundary, not a target
+- a postable commentary in his voice needs the take compressed to roughly
+  160–215, and there is no example of him doing that;
+- if a real take is ~192, commentary only fits when the fact block is under
+  about 88 weighted — which is roughly halts and nothing else;
+- calibrating any floor from **seven over-budget samples** is anchoring on a
+  statistic too small and too unrepresentative to carry a rule.
 
-Models satisfice. Told a range starting at 75, output converges just past 75,
-and the median draft lands ~40% below the median of the voice it imitates —
-every one of them passing, the validator working perfectly, and the posts
-thinner than his. That is the original complaint arriving through a new door.
+**The honest ask: more commentary exemplars that fit 280.** Until those exist,
+no floor derived from the exemplar bank can be defended, and the flat 200
+stands — not because it is right, but because nothing measured here shows it
+wrong for the variant it governs.
 
-Raising the floor is the wrong answer, since 124 would reject 11 signed
-exemplars. So the prompt states **two different quantities**: the CONTRACT
-(`commentaryFloor()`, what gets rejected) and the TARGET
-(`TARGET_TAKE_WEIGHTED = 124`, his median, what good looks like), labelled so
-the target can never be read as the boundary.
+## Two real bugs the withdrawn code contained
 
-This does not contradict "a number stated to the model and a number enforced
-against it must come from one function" — that rule is about the contract
-boundary, and it still holds. One contract plus one target is a different shape
-from three statements of one contract.
+Recorded because they will recur if the idea is rebuilt:
 
-## What else had to change
+- **`factBlockOf` measured line 1, not the fact block.** `render.ts` joins
+  fact-block lines with `\n` and attaches the beat with `\n\n`, so a
+  multi-line skeleton splits wrong. Measured on live drafts: a Baker Hughes
+  8-K whose fact block is 115 weighted reported 20, giving a floor of 95
+  instead of 190; a four-line 4.02 draft reported 44 against a real 232, so
+  `no_room` never fired where it should have. Multi-line skeletons exist in
+  `8k.items` (62 live rows), `INSIDER_CLUSTER` and `CONGRESS_PTR`.
+- **The prompt could state an impossible contract.** With no clamp, a
+  400-character fact block yields a floor of 475 and the model is told
+  `"The CONTRACT is 475-280 weighted chars TOTAL"`.
 
-The style pack told the model *"never shrinks commentary below its 200-280
-contract"* and `buildPrompt` stated `200-280` directly. Both now read the same
-`commentaryFloor()` the validator applies.
+## What was right
 
-That mismatch is the defect class this whole track keeps finding: the first
-live OpenRouter call died five times because the prompt taught one attribution
-and the archetype declared another. **A number stated to the model and a
-number enforced against it must come from one function**, or they drift and the
-drift is invisible until something fails five times.
+The `no_room` / `unmeasurable` split — a product outcome and a defect signal
+must not share a status, and the defect signal must alert rather than log.
+That reasoning survives the withdrawal and should be reused if this is rebuilt.
 
-## What this does NOT do
+## Method note
 
-It does not stop unsourced world-knowledge. It removes the *pressure* that
-produced it. A model with room to write a short take can still choose to write
-a wrong one, and the p4-17 spec covers that as a separate, narrower backstop —
-one whose own measurement said 10 of 11 attacks survive.
-
-**Re-measure trigger:** when `items.raw_text` covers more than 25% of items
-queued in the trailing 7 days. Grounding raises what the record can fund, so
-the fact-block table above is the binding input only while bodies are rare.
+The register error was found by a reviewer who recomputed the distribution,
+reproduced every number, and **then asked which population it came from**. The
+arithmetic was confirmed and the premise was not — the same shape as every
+defect in `2026-08-01-silent-success-retrospective.md`: the check ran, reported
+success, and answered a different question than the one that mattered.
