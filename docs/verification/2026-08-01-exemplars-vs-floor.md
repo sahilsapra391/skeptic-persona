@@ -1,0 +1,213 @@
+# The voice authority and the fabrication floor have never been checked against each other
+
+**Date:** 2026-08-01
+**Severity:** live, in production, today. Independent of the chunk that found it.
+**Found:** while verifying a design workflow's claims about `entityCheck`
+rather than relaying them.
+
+## The finding, in one line
+
+**The owner's own exemplars teach the model a construction that `entityCheck`
+rejects**, so the pipeline is generating drafts it is then obliged to throw
+away.
+
+## Reproduction
+
+Exemplar E1 (`CONGRESS_PTR`, `src/rag/stylepack.ts`) line 2 is `Filed July 18.`
+Run a draft written in that taught style against `entityCheck`, with the
+matching PTR payload — the payload that *contains* `disclosedDate:
+"2026-07-18"`:
+
+```
+REJECT  "Senate PTR: $1,000,001 - $5,000,000 purchase in a defense prime, trade date
+         June 3, per Senate eFD.\nFiled July 18.\nLegal, disclosed, and six weeks stale."
+        -> name "Filed July" does not appear in the payload
+
+REJECT  "Filed July 18."       -> name "Filed July"
+REJECT  "Disclosed July 18."   -> name "Disclosed July"
+REJECT  "Reported June 3."     -> name "Reported June"
+REJECT  "Sold March 12."       -> name "Sold March"
+pass    "filed July 18."       (lowercase control)
+```
+
+## Cause
+
+`entityCheck`'s name pattern requires two capitalised tokens:
+
+```
+/\b([A-Z][a-z]+(?:[-\s][A-Z][a-z]+)+)\b/
+```
+
+A sentence-initial capitalised verb followed by a month satisfies it.
+`Filed July` is read as a proper name, and proper names must appear in the
+payload. The date *is* in the payload; the phantom person is not.
+
+Same shape hits `One House`, `Four Form`, `All Code` — numeral-word plus
+capitalised noun — which also appear in owner exemplars.
+
+## Why nobody caught it
+
+`test/stylepack.test.ts` runs the exemplars through `checkRegister` and
+`fitsInPost`. It does **not** run them through `entityCheck` or `numberCheck` —
+the fabrication floor that actually judges their imitations. Nothing anywhere in
+`test/` does.
+
+Its own comment states the correct principle and then applies it to one gate
+of two:
+
+> The pack's examples are the model's imitation targets. An example that fails
+> the register would teach the model to fail it too.
+
+Exactly right, and the same sentence is true with "the floor" substituted for
+"the register". **The voice authority and the fabrication floor are two
+independently-maintained specifications of the same output, and no test has
+ever compared them.**
+
+## Consequence
+
+A self-inflicted rejection loop. The exemplar teaches `Filed July 18.`; the
+model obliges; `entityCheck` rejects it as a fabricated entity; the row
+regenerates with feedback; the feedback cannot resolve the conflict because
+the prompt is still holding up the exemplar as the voice to match. Attempts
+burn toward `MAX_ATTEMPTS` and the row lands on the template fallback.
+
+That failure is invisible in the metrics as they stand — and until the fix in
+p4-09a, a template fallback that shipped was booked as a **zero-edit win**, so
+this defect would have *raised* the headline number.
+
+## The fix, and why it is its own PR
+
+Two changes, neither of which belongs inside a feature chunk:
+
+1. **Tighten the name pattern** so a sentence-initial capitalised verb followed
+   by a month is not a name. Needs its own false-positive corpus; a bare
+   sentence-initial exemption is too broad, because a fabricated name genuinely
+   can open a sentence.
+2. **Add the missing cross-check**: every owner exemplar must pass the same
+   floor its imitations face, against its own archetype's payload shape. This
+   is the test that would have caught it, and it is worth more than the regex
+   fix, because it makes the two specifications answer to each other from now
+   on.
+
+## A SECOND, DEEPER CONFLICT the parity test surfaced — not a regex bug
+
+Once the test enumerated the whole floor rather than `entityCheck` alone, a
+different class appeared, and it is a doctrine conflict rather than a defect
+in any function.
+
+**The owner's exemplars do arithmetic the floor bans.**
+
+```
+E1  "Legal, disclosed, and six weeks stale."   <- 6, from lagDays 45
+E2  "Sixty-one days from trade to public."     <- 61, from two dates
+E5  "eighty-seven days"        E6  "thirty-nine days"
+```
+
+`numberCheck` rejects each with `spelled-out "six" (6) does not appear in the
+payload`, and it is **right to**. The arithmetic ban is a stated
+non-negotiable — "the model never does arithmetic" — and it exists because a
+model that computes is a model that can compute wrongly and confidently.
+
+So this is not a case where either side is broken. The voice needs a figure the
+payload does not carry, and the prompt already names the correct resolution:
+
+> derived figures are already computed as fields — never do arithmetic
+
+**The payloads do not carry those fields.** `lagDays` is present; `lagWeeks` is
+not. The exemplar teaches "six weeks stale" and no payload in the system can
+license it, so a draft imitating the flagship exemplar is rejected however well
+it is written.
+
+**This is an enrichment gap, not a validator gap**, and the fix belongs in the
+ingestion lane: compute and persist the derived figures the voice actually
+uses (`lagWeeks`, `daysToPublic`), so the floor can license them. Flagging it
+rather than fixing it here, because widening `numberCheck` to permit
+computation would delete the guarantee the whole gauntlet exists to provide.
+
+The parity test licenses these figures explicitly so that it measures LANGUAGE
+CONSTRUCTIONS rather than re-reporting this gap on every run. That exemption is
+named in the test, not silent.
+
+## TWO CLAIMS IN THIS DOCUMENT WERE WRONG — corrected after review
+
+Recorded rather than edited away, because a document about specifications
+disagreeing is the last one that should quietly revise itself.
+
+**1. "Four Seasons is the pre-existing single-token hole, not a new one."**
+False. Main checked the PHRASE `Four Seasons`; the first version of my fix
+stopped checking it. The relaxation also exempted **`Six Flags`, `One
+Medical`, `Two Sigma`, `Nine West`** — all real listed issuers — which main
+rejected and my branch returned `[]` for. Naming the wrong issuer in a filing
+post breaks the no-fabrication and primary-sources rules at once. **New hole,
+and the justification was wrong before the code was.**
+
+Narrowed: a leading numeral is stripped only when the remainder is entirely
+FURNITURE, so `One House` still passes through the House Clerk attribution
+while `One Medical` does not.
+
+**2. "`All Code` is the same shape as `One House`."** False. `all` is in no
+lexicon, so `isNameShaped("All Code")` returns true and the check still runs.
+It is a genuine floor conflict, not an instance of the numeral rule.
+
+**A third direction was disclosed nowhere.** The trailing-token rule skipped
+any capitalised phrase whose tokens after the first were months — and MONTHS
+holds the abbreviations, so `Dec`, `Sept`, `Nov`, `Mar` and `Aug` were all
+name-killers:
+
+```
+"Theresa May signed the order."   "Senator May filed it."
+"Congressman June filed it."      "Analyst Dec called it."
+```
+
+All returned `[]`; all reject on main. The PR body said "adversarially checked
+that it opened nothing" and surrendered only the leading-numeral case.
+
+The reasoning error underneath is the one worth keeping: **reusing another
+validator's lexicon is not by itself a safety argument.** `dateCheck` owns a
+month only when a day number follows it; my exemption had no adjacency
+requirement, so the two were never the same predicate. Fixed by requiring the
+adjacency the borrowed rule actually has.
+
+## A FOURTH instance of the exemplar/pipeline mismatch, in the rates lane
+
+Expanding the parity test from one archetype to all eight surfaced two more,
+and they are the same bug that killed the first live generation:
+
+- **`per ECB`** — `RATE_ATTRIBUTION` declares `"per European Central Bank"`;
+  the exemplar teaches the abbreviation. `sourcingCheck` allows only the
+  declared string.
+- **`per MPC statement`** — India is absent from `RATE_ATTRIBUTION` entirely,
+  so an RBI decision resolves to null and, per that module's own comment,
+  "the renderer refuses to post".
+
+`PRESS_ATTRIBUTION` fixed exactly this for regulatory press in #66 — exemplars
+taught `per CFTC` while the archetype declared `per the issuing authority`.
+**The same fix was never applied to rates.** Flagged to the ingestion session
+rather than fixed here; `src/ingesters/rateAttribution.ts` is their lane.
+
+## A second, unrelated hole in the same function
+
+`entityCheck` only matches **multi-token** proper nouns, so single-token
+venue and institution names are unchecked entirely. Against the live 5-field
+CFTC payload:
+
+```
+"The contract traded on Polymarket until the order landed."  -> []
+"Kalshi listed the contract and kept listing it."            -> []
+"Nasdaq had nothing to do with it."                          -> []
+```
+
+Naming a real venue is what makes a fabricated causal claim concrete, so this
+is the more dangerous direction of the same regex. Fixing it needs a common-caps
+allowlist and the FURNITURE set, which is why it is scoped with the above rather
+than bolted onto a validator chunk.
+
+## Note on provenance
+
+Both `entityCheck` claims originated in a design-workflow agent's report. I
+reproduced each one against the real exported function before recording it
+here, and corrected one of my own reproductions along the way: an initial run
+reported 9 of 27 exemplars flagged, but most of those were placeholder tickers
+(`$XYZ`) tested against a mismatched payload — my harness error, not a product
+defect. The numbers above are the ones that survive testing an exemplar
+against its own archetype's payload.

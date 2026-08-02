@@ -1,7 +1,15 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { KILL_SWITCH_KEY, MAX_JOBS_PER_TICK, registry, tick } from "../src/dispatch";
-import { fetchPool, MAX_CONCURRENT_FETCHES, newTickBudget } from "../src/lib/budget";
+import {
+  KILL_SWITCH_KEY,
+  MAX_JOBS_PER_TICK,
+  MAX_TICK_JOB_CONCURRENCY,
+  registry,
+  resolveConcurrency,
+  TICK_JOB_CONCURRENCY,
+  tick,
+} from "../src/dispatch";
+import { fetchPool, MAX_CONCURRENT_FETCHES, newTickBudget, SEC_POOL_CONCURRENCY } from "../src/lib/budget";
 
 // These tests own the jobs table; clear migration-seeded jobs (queue_expiry)
 // so synthetic fixtures alone determine what each tick sees.
@@ -10,6 +18,19 @@ beforeEach(async () => {
 });
 
 const NOW = new Date("2026-07-22T14:00:00Z"); // Wed 10:00 EDT
+
+/** p4-20: due_at now carries a per-job PHASE inside the interval, so a job of
+ *  cadence `every_5m` reschedules near now+5m rather than to a round now+5m.
+ *  Asserting the exact instant would pin the hash rather than the cadence, so
+ *  assert the CONTRACT: advanced, and inside the one-time transition bound of
+ *  [interval/2, 1.5*interval). The dispersion and the bound are pinned
+ *  directly in test/cadence.test.ts. */
+function expectRescheduledWithin(actual: string, now: Date, intervalMs: number) {
+  const t = new Date(actual).getTime();
+  expect(t).toBeGreaterThanOrEqual(now.getTime() + intervalMs / 2);
+  expect(t).toBeLessThan(now.getTime() + intervalMs * 1.5);
+}
+
 
 async function seedJob(name: string, dueAt: string, profile = "every_5m", enabled = 1) {
   await env.DB.prepare("INSERT INTO jobs (name, due_at, cadence_profile, enabled) VALUES (?1, ?2, ?3, ?4)")
@@ -42,7 +63,7 @@ describe("tick", () => {
     await tick(env, NOW);
 
     expect(ran).toEqual(["a"]);
-    expect(await dueAtOf("a")).toBe("2026-07-22T14:05:00.000Z");
+    expectRescheduledWithin(await dueAtOf("a"), NOW, 5 * 60_000);
     expect(await dueAtOf("future")).toBe("2026-07-22T15:00:00.000Z");
   });
 
@@ -61,7 +82,7 @@ describe("tick", () => {
 
     expect(ran).toEqual(["ok"]);
     // Rescheduled BEFORE running: no every-minute retry hammering a source.
-    expect(await dueAtOf("boom")).toBe("2026-07-22T14:05:00.000Z");
+    expectRescheduledWithin(await dueAtOf("boom"), NOW, 5 * 60_000);
   });
 
   it("caps work per tick at MAX_JOBS_PER_TICK, oldest due first", async () => {
@@ -114,7 +135,7 @@ describe("tick", () => {
     await tick(env, NOW);
     expect(await dueAtOf("disabled")).toBe("2026-07-22T13:00:00.000Z");
     // Orphan still gets rescheduled (so a bad deploy can't hot-loop it).
-    expect(await dueAtOf("orphan")).toBe("2026-07-22T14:05:00.000Z");
+    expectRescheduledWithin(await dueAtOf("orphan"), NOW, 5 * 60_000);
   });
 
   it("a job due exactly at now runs (due_at <= now, not <)", async () => {
@@ -125,7 +146,7 @@ describe("tick", () => {
     await seedJob("exact", "2026-07-22T14:00:00.000Z"); // == NOW
     await tick(env, NOW);
     expect(ran).toEqual(["exact"]);
-    expect(await dueAtOf("exact")).toBe("2026-07-22T14:05:00.000Z");
+    expectRescheduledWithin(await dueAtOf("exact"), NOW, 5 * 60_000);
   });
 
   it("overlapping invocations cannot double-run a job (atomic claim)", async () => {
@@ -169,10 +190,36 @@ describe("tick", () => {
   });
 });
 
+describe("the dispatcher must actually pass the job name to nextDue (p4-20)", () => {
+  it("two same-cadence jobs rescheduled by one tick do not land on the same due_at", async () => {
+    // WIRING, not arithmetic. test/cadence.test.ts proves nextDue disperses
+    // when handed a key — and every one of those tests passes the key itself,
+    // so all of them stay green if the DISPATCHER stops passing row.name.
+    // Deleting that argument was a mutation nothing caught, which is the same
+    // "fixed the call site, never pinned the wiring" hole this repo produced
+    // four times in one night. This is the test that fails when the wiring goes.
+    for (const n of ["twinjob_a", "twinjob_b", "twinjob_c"]) {
+      registry[n] = async () => {};
+      await seedJob(n, "2026-07-22T13:50:00.000Z"); // same cadence, same due_at
+    }
+    await tick(env, NOW);
+    const due = await Promise.all(["twinjob_a", "twinjob_b", "twinjob_c"].map((n) => dueAtOf(n)));
+    expect(new Set(due).size).toBe(3);
+  });
+});
+
 describe("tick time budget", () => {
-  it("stops starting new jobs once the budget is spent, but always runs at least one", async () => {
+  it("stops starting new WAVES once the budget is spent, bounded by the concurrency", async () => {
     const ran: string[] = [];
-    for (let i = 0; i < 3; i++) {
+    // MORE jobs than the concurrency can possibly be. Seeded at 3 — exactly
+    // MAX_TICK_JOB_CONCURRENCY — this test passes VACUOUSLY whenever the
+    // synthetic env's overrides do not take: all three run, `ran.length` is 3,
+    // the resolved concurrency is also 3, and `ran <= concurrency` holds while
+    // the budget guard was never exercised at all. Reading the concurrency
+    // back fixes the wrong bound; it does not fix a fixture that cannot tell
+    // "the guard worked" from "nothing applied". Eight can.
+    const SEEDED = 8;
+    for (let i = 0; i < SEEDED; i++) {
       const name = `slowjob${i}`;
       registry[name] = async () => {
         ran.push(name);
@@ -181,11 +228,75 @@ describe("tick time budget", () => {
       };
       await seedJob(name, `2026-07-22T13:0${i}:00.000Z`);
     }
-    const tiny = Object.assign(Object.create(Object.getPrototypeOf(env)), env, { TICK_TIME_BUDGET_MS: "10" });
+    // CONTRACT CHANGE, stated rather than relaxed. Jobs now run concurrently
+    // (p4-12), so the guard can only stop the NEXT wave: up to `concurrency`
+    // jobs dispatch before any wall time has elapsed to measure. The bound
+    // that matters is preserved — the tick cannot keep starting work
+    // indefinitely — and the exposure is capped at the concurrency rather
+    // than at one. That is tolerable here only because every handler is
+    // idempotent via dedup, which is the same property the atomic claim
+    // already relies on.
+    // Plain spread, matching every other suite in this repo (salience.test.ts
+    // and the rest). The Object.create(getPrototypeOf(env)) form this used to
+    // carry copies only OWN enumerable properties off `env`, so whether the
+    // Worker sees the overrides depends on where the pool actually stores the
+    // bindings — which is a thing about the harness, not about the tick, and
+    // it differed between my machine and CI.
+    const tiny = { ...env, TICK_TIME_BUDGET_MS: "10", TICK_JOB_CONCURRENCY: "2" } as never;
     await tick(tiny, NOW);
-    // First job always runs (otherwise nothing would ever progress); the rest
-    // defer rather than risk being killed mid-flight.
-    expect(ran.length).toBe(1);
+    // Read the concurrency the tick RESOLVED, not the one this test tried to
+    // set. Asserting the hardcoded 2 passed 3/3 locally and failed on CI with
+    // "expected 3 to be less than or equal to 2": the env override was not
+    // visible to the Worker there, so the tick ran at the default 3. The
+    // contract never changed — at most `concurrency` jobs start against a
+    // spent budget — only this test's belief about what concurrency was.
+    const effective = resolveConcurrency(tiny);
+    expect(effective).toBeLessThanOrEqual(MAX_TICK_JOB_CONCURRENCY);
+    expect(ran.length).toBeGreaterThanOrEqual(1); // something always progresses
+    expect(ran.length).toBeLessThanOrEqual(effective); // never more than the concurrency
+    // Anti-vacuity: the guard must have actually stopped something. With 8
+    // seeded and a concurrency of at most 3 this can only pass if the budget
+    // was read and enforced.
+    expect(ran.length).toBeLessThan(SEEDED);
+  });
+
+  it("runs jobs CONCURRENTLY, not one after another", async () => {
+    // The whole point of p4-12: tick time was the SUM of network waits.
+    let inFlight = 0;
+    let peak = 0;
+    for (let i = 0; i < 6; i++) {
+      const name = `parjob${i}`;
+      registry[name] = async () => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 20));
+        inFlight -= 1;
+      };
+      await seedJob(name, `2026-07-22T13:1${i}:00.000Z`);
+    }
+    const env3 = { ...env, TICK_JOB_CONCURRENCY: "3" } as never;
+    await tick(env3, NOW);
+    expect(peak).toBeGreaterThan(1); // serial execution would peak at 1
+    expect(peak).toBeLessThanOrEqual(3); // and never exceed the configured bound
+  });
+
+  it("one failing job does not void the rest of the tick", async () => {
+    const ok: string[] = [];
+    registry["boomjob"] = async () => {
+      throw new Error("boom");
+    };
+    await seedJob("boomjob", "2026-07-22T13:20:00.000Z");
+    for (let i = 0; i < 3; i++) {
+      const name = `survivor${i}`;
+      registry[name] = async () => {
+        ok.push(name);
+      };
+      await seedJob(name, `2026-07-22T13:2${i + 1}:00.000Z`);
+    }
+    await tick(env, NOW);
+    expect(ok.length).toBe(3);
+    const row = await env.DB.prepare(`SELECT consecutive_failures AS f FROM jobs WHERE name = 'boomjob'`).first<{ f: number }>();
+    expect(row?.f).toBe(1);
   });
 
   it("a generous budget lets the full tick run", async () => {
@@ -223,13 +334,17 @@ describe("paid-tier budget", () => {
     let inFlight = 0;
     let peak = 0;
     const items = Array.from({ length: 20 }, (_, i) => i);
-    const { results: out, errors } = await fetchPool(items, async (n) => {
-      inFlight += 1;
-      peak = Math.max(peak, inFlight);
-      await new Promise((r) => setTimeout(r, 5));
-      inFlight -= 1;
-      return n * 2;
-    });
+    const { results: out, errors } = await fetchPool(
+      items,
+      async (n) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight -= 1;
+        return n * 2;
+      },
+      MAX_CONCURRENT_FETCHES,
+    );
     expect(peak).toBeLessThanOrEqual(MAX_CONCURRENT_FETCHES);
     // Order preserved despite out-of-order completion.
     expect(out).toEqual(items.map((n) => n * 2));
@@ -239,12 +354,112 @@ describe("paid-tier budget", () => {
   it("one throwing worker does not void the batch", async () => {
     // Each item is an independent filing; a single 503 must not discard the
     // other five results or abandon undispatched work.
-    const { results, errors } = await fetchPool([0, 1, 2, 3, 4], async (n) => {
-      if (n === 2) throw new Error("boom");
-      return n * 10;
-    });
+    const { results, errors } = await fetchPool(
+      [0, 1, 2, 3, 4],
+      async (n) => {
+        if (n === 2) throw new Error("boom");
+        return n * 10;
+      },
+      MAX_CONCURRENT_FETCHES,
+    );
     expect(results).toEqual([0, 10, undefined, 30, 40]);
     expect(errors.map((e) => e.index)).toEqual([2]);
+  });
+
+  it("nested pools cannot exceed the platform's 6 connections to one host", () => {
+    // Concurrency MULTIPLIES. The dispatcher runs jobs in a pool, and the three
+    // SEC-hosted fan-out ingesters (13D/G, Form 144, Form 25) each open their
+    // own pool inside their job. Left at fetchPool's default width that is
+    // 3 x 6 = 18 simultaneous connections to www.sec.gov, against a source that
+    // asks for <= 10 req/s and can block a User-Agent for ignoring it.
+    //
+    // The overlap is structural, not unlucky: all three carry cadence
+    // `every_5m_us_0600_2200` and priority 50 (migrations 0012/0021/0035), so
+    // they sort adjacently under the dispatcher's ORDER BY and land in the
+    // same wave by construction.
+    //
+    // This asserts the PRODUCT, which is the only number that bounds the
+    // connection count. Raising either constant alone turns it red.
+    expect(MAX_TICK_JOB_CONCURRENCY * SEC_POOL_CONCURRENCY).toBeLessThanOrEqual(MAX_CONCURRENT_FETCHES);
+  });
+});
+
+describe("time-budget exposure is bounded by the concurrency", () => {
+  it("an already-spent budget lets at most `concurrency` jobs start", async () => {
+    // The trade this design accepts, stated as an assertion rather than prose.
+    //
+    // Serially, the budget check ran between every job, so exactly one job
+    // could overrun it. Concurrently, a whole wave passes the check before any
+    // of them increments `ran`, so up to `concurrency` jobs can start against a
+    // spent budget. That is the accepted cost of the rewrite — bounded, and
+    // safe because ingesters are idempotent via dedup — but "bounded" is only
+    // true while something pins the bound.
+    //
+    // Without the `ran > 0 && elapsed >= budget` guard, all 8 run.
+    const started: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      const name = `budgetjob${i}`;
+      registry[name] = async () => {
+        started.push(name);
+        await new Promise((r) => setTimeout(r, 15));
+      };
+      await seedJob(name, "2026-07-22T13:30:00.000Z");
+    }
+    const tight = { ...env, TICK_TIME_BUDGET_MS: "1", TICK_JOB_CONCURRENCY: "2" } as never;
+    await tick(tight, NOW);
+    // Same reason: the bound is what the tick resolved, not what was asked for.
+    expect(started.length).toBeGreaterThan(0); // the first job is unconditional
+    expect(started.length).toBeLessThanOrEqual(resolveConcurrency(tight)); // the wave is the bound
+  });
+});
+
+describe("a claim failure must not be silent", () => {
+  it("re-raises when the atomic claim throws, after the other jobs finish", async () => {
+    // The claim UPDATE is the one statement in the worker body OUTSIDE the
+    // handler's try/catch, so a D1 error there is not a job failing — it is D1
+    // failing. fetchPool deliberately swallows worker rejections into `errors`
+    // so one bad item cannot void the batch, which meant this class of failure
+    // became invisible: `ran` stays 0, consecutive_failures is never
+    // incremented (that bump lives in the handler catch, never reached), and
+    // the `ran > 0` gate suppresses even the "tick complete" line. A tick that
+    // claimed nothing reported nothing.
+    //
+    // src/index.ts depends on the opposite: "failures then land in the
+    // dashboard's Past Events".
+    const ok: string[] = [];
+    registry["claimok"] = async () => {
+      ok.push("claimok");
+    };
+    registry["claimboom"] = async () => {
+      ok.push("claimboom");
+    };
+    await seedJob("claimok", "2026-07-22T13:40:00.000Z");
+    await seedJob("claimboom", "2026-07-22T13:41:00.000Z");
+
+    const realPrepare = env.DB.prepare.bind(env.DB);
+    const brokenDb = {
+      prepare(sql: string) {
+        const stmt = realPrepare(sql);
+        if (!sql.includes("UPDATE jobs SET due_at")) return stmt;
+        return {
+          bind(...args: unknown[]) {
+            const bound = stmt.bind(...args);
+            return {
+              async run() {
+                if (args[1] === "claimboom") throw new Error("D1_ERROR: no such table");
+                return bound.run();
+              },
+            };
+          },
+        };
+      },
+    };
+    const brokenEnv = { ...env, DB: brokenDb } as never;
+
+    await expect(tick(brokenEnv, NOW)).rejects.toThrow(/failed outside the handler/);
+    // The healthy job still ran: the throw happens after the pool drains, so
+    // one broken claim does not abandon work that had already been claimed.
+    expect(ok).toContain("claimok");
   });
 });
 
@@ -266,22 +481,37 @@ describe("starvation guard", () => {
     // due every minute cycled ahead of it forever.
     const now = new Date("2026-07-28T16:00:00.000Z");
     await env.DB.prepare("DELETE FROM jobs").run();
+
+    // The fixture MUST exceed MAX_JOBS_PER_TICK or this test proves nothing:
+    // below the limit every seeded job runs whatever the ordering does, so the
+    // guard is never the reason "starved" appears. That is not hypothetical —
+    // it was seeded at a hardcoded 12 fresh jobs when the limit was 12, and
+    // raising the limit to 24 silently disarmed it. Neutering the guard
+    // (`WHEN due_at <= ?3 AND 0 THEN 1`) still left the suite green.
+    //
+    // So derive the count from the constant. If MAX_JOBS_PER_TICK moves again,
+    // this fixture moves with it and the guard stays under test.
+    const freshCount = MAX_JOBS_PER_TICK; // + the starved row = MAX + 1 total
     await seedJob("starved", 90, "2026-07-28T00:00:00.000Z"); // 16h overdue
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < freshCount; i++) {
       await seedJob(`fresh_${i}`, 50, "2026-07-28T15:59:59.000Z"); // due this second
     }
 
     const ran: string[] = [];
-    for (const name of ["starved", ...Array.from({ length: 12 }, (_, i) => `fresh_${i}`)]) {
+    for (const name of ["starved", ...Array.from({ length: freshCount }, (_, i) => `fresh_${i}`)]) {
       registry[name] = async () => {
         ran.push(name);
       };
     }
 
     await tick(env as never, now);
-    // Without the guard the starved job sorts 13th of 13 and is cut by the
-    // LIMIT before the time budget even matters.
+    // Without the guard the starved job sorts last of MAX_JOBS_PER_TICK + 1
+    // and is cut by the LIMIT before the time budget even matters.
     expect(ran).toContain("starved");
+    // Anti-vacuity: prove the LIMIT actually bit. If everything ran, the
+    // assertion above passes for a reason that has nothing to do with the
+    // guard, which is exactly the failure this fixture just had.
+    expect(ran.length).toBe(MAX_JOBS_PER_TICK);
   });
 
   it("leaves normal ordering alone when nothing is starving", async () => {
@@ -333,5 +563,54 @@ describe("the starvation guard never delays latency-critical work", () => {
     expect(ran[0]).toBe("poster");
     // And the starving work still gets its turn in the same tick.
     expect(ran.length).toBeGreaterThan(1);
+  });
+});
+
+describe("resolveConcurrency is a fallback, not a clamp (p4-23 follow-up)", () => {
+  // The integration tests above READ this value back, which is what makes them
+  // portable across machines — and it means nothing exercises the resolver
+  // itself. Hardcoding resolveConcurrency to ignore env leaves all 22 of them
+  // green. The ingestion session caught that gap in my own fix.
+  //
+  // Right split: unit-test the resolver where no harness can interfere,
+  // integration-test the contract. The old test did both through one path and
+  // neither reliably.
+  const R = (v?: string) => resolveConcurrency({ ...env, TICK_JOB_CONCURRENCY: v } as never);
+
+  it("takes a value inside the allowed range", () => {
+    expect(R("1")).toBe(1);
+    expect(R("2")).toBe(2);
+    expect(R("3")).toBe(3);
+  });
+
+  it("FALLS BACK rather than clamping when the value is too high", () => {
+    // The operationally important case. 8 does not become MAX_TICK_JOB_CONCURRENCY,
+    // it becomes the DEFAULT — which is lower than the operator asked for and
+    // lower than the number suggests. Pinned because it is surprising, and it
+    // now logs rather than doing it silently.
+    expect(R("8")).toBe(TICK_JOB_CONCURRENCY);
+    expect(R("6")).toBe(TICK_JOB_CONCURRENCY);
+    expect(MAX_TICK_JOB_CONCURRENCY).toBeLessThan(8);
+  });
+
+  it("falls back on junk, zero, negatives and absence", () => {
+    for (const v of ["0", "-1", "abc", "", " ", "NaN", "Infinity"]) {
+      expect(R(v), `TICK_JOB_CONCURRENCY=${JSON.stringify(v)}`).toBe(TICK_JOB_CONCURRENCY);
+    }
+    expect(resolveConcurrency({ ...env, TICK_JOB_CONCURRENCY: undefined } as never)).toBe(TICK_JOB_CONCURRENCY);
+  });
+
+  it("floors a fractional value inside the range instead of falling back", () => {
+    expect(R("2.7")).toBe(2);
+    // 3.7 is OUT of range (> MAX), so it falls back rather than flooring to 3.
+    expect(R("3.7")).toBe(TICK_JOB_CONCURRENCY);
+  });
+
+  it("never returns something the connection budget cannot fund", () => {
+    // The invariant that made SEC_POOL_CONCURRENCY necessary: whatever the
+    // resolver returns, times the nested pool width, must fit the platform cap.
+    for (const v of ["1", "2", "3", "8", "abc", undefined]) {
+      expect(R(v) * SEC_POOL_CONCURRENCY).toBeLessThanOrEqual(MAX_CONCURRENT_FETCHES);
+    }
   });
 });

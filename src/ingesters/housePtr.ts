@@ -7,6 +7,7 @@ import { iso } from "../lib/time";
 import { log } from "../lib/log";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { bandSpan, bandWidth, isFreshDateOnly, lagDays, mdyToIso } from "./shared";
+import { scrubUrls } from "../lib/html";
 
 // House Clerk PTR discovery (live-verified 2026-07-26; ZIP fixture captured
 // 2026-07-27T04:52Z). The bulk index rebuilds ~once per weekday ~13:00 UTC;
@@ -17,6 +18,13 @@ import { bandSpan, bandWidth, isFreshDateOnly, lagDays, mdyToIso } from "./share
 // current at discovery level: member, filing date, document link.
 
 export const SOURCE = "house_ptr";
+
+/**
+ * Ceiling for a filing body stored as grounding text. Matches the generation
+ * path's official-host cap so a PTR body cannot crowd a prompt that other
+ * sources are already sized against.
+ */
+export const HOUSE_RAW_TEXT_CAP = 24_000;
 
 export function houseZipUrl(year: number): string {
   return `https://disclosures-clerk.house.gov/public_disc/financial-pdfs/${year}FD.zip`;
@@ -440,8 +448,49 @@ export async function applyHousePtrText(
   // A filing whose PDF arrives days after the index row still belongs in the
   // lake; it just does not interrupt anyone.
   const status = fresh ? "new" : "logged";
-  await env.DB.prepare(`UPDATE items SET payload = ?1, score = ?2, status = ?3 WHERE id = ?4`)
-    .bind(JSON.stringify(merged), SCORE_POSTABLE, status, row.id)
+  // CAPTURE THE FILING'S OWN TEXT AS GROUNDING.
+  //
+  // The courier already extracted this to parse transactions out of it, and
+  // until now it was discarded the moment parsing finished. Storing it costs
+  // NO extra fetch -- the bytes are already in this request -- and CONGRESS_PTR
+  // is both the signature archetype and the deepest-exemplared one, so it is
+  // the highest-value grounding text available anywhere in the pipeline.
+  //
+  // Trimmed to the same 24k ceiling the generation path uses for official
+  // hosts, and NULs are stripped: House PDFs carry them from a font-encoding
+  // quirk, and a NUL reaching a prompt is invisible junk at best.
+  // scrubUrls, for the same reason every other raw_text writer does it
+  // (edgarBody, sourceText, regulatoryPress): the generation prompt is
+  // URL-free by contract. Not hypothetical here -- EVERY House PTR carries
+  // the asset-type footnote https://fd.house.gov/reference/... beneath its
+  // transaction table, all seven fixtures included. Without this the SOURCE
+  // DOCUMENT block would hold a URL in the same prompt that says "No URLs or
+  // links of any kind". Nothing bad ships, since urlCheck is fail-closed at
+  // publish, but every variant echoing it is rejected -- which burns the
+  // retries and pushes CONGRESS_PTR, the deepest-exemplared archetype,
+  // toward the template fallback this capture exists to avoid.
+  const cleaned = scrubUrls(text.replace(/\u0000/g, "")).trim();
+  const rawText = cleaned.slice(0, HOUSE_RAW_TEXT_CAP) || null;
+  const rawMeta = rawText
+    ? JSON.stringify({
+        mode: "full",
+        host: "disclosures-clerk.house.gov",
+        fetchedAt: iso(now),
+        bytes: text.length,
+        // Measured POST-strip, matching edgarBody and sourceText. Against the
+        // raw courier text a filing between ~24,000 and ~24,500 characters
+        // would store a complete body and stamp truncated: true.
+        truncated: cleaned.length > HOUSE_RAW_TEXT_CAP,
+        // Provenance: this is the courier's pypdf extraction of the filing
+        // itself, not a page fetched at generation time.
+        document: `${docId}.pdf`,
+      })
+    : null;
+
+  await env.DB.prepare(
+    `UPDATE items SET payload = ?1, score = ?2, status = ?3, raw_text = ?5, raw_meta = ?6 WHERE id = ?4`,
+  )
+    .bind(JSON.stringify(merged), SCORE_POSTABLE, status, row.id, rawText, rawMeta)
     .run();
   if (!fresh) {
     log("info", "house_ptr stale-at-ingest suppressed", { docId, filedDate });

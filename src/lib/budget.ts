@@ -64,16 +64,43 @@ export function newTickBudget(
  */
 export const MAX_CONCURRENT_FETCHES = 6;
 
+/**
+ * Inner-pool width for the SEC-hosted fan-out ingesters (13D/G, Form 144,
+ * Form 25). These pools nest INSIDE the dispatcher's job pool, and concurrency
+ * multiplies: three SEC jobs running together, each opening its own default
+ * 6-wide pool, is 18 simultaneous connections to www.sec.gov against a source
+ * that asks for <= 10 req/s.
+ *
+ * It is not a hypothetical overlap. All three carry cadence
+ * `every_5m_us_0600_2200` and priority 50 (migrations 0012/0021/0035), so they
+ * sort adjacently under the dispatcher's `ORDER BY ... priority, due_at` and
+ * land in the same wave by construction, not by chance.
+ *
+ * The invariant is the PRODUCT, pinned by a test in test/dispatch.test.ts:
+ *   MAX_TICK_JOB_CONCURRENCY (3) * SEC_POOL_CONCURRENCY (2) <= MAX_CONCURRENT_FETCHES (6)
+ * Raising either constant without the other going down turns that test red.
+ */
+export const SEC_POOL_CONCURRENCY = 2;
+
 export interface PoolResult<R> {
   /** Per item, by index: the worker's value, or undefined if it threw. */
   results: Array<R | undefined>;
   errors: Array<{ index: number; error: unknown }>;
 }
 
+/**
+ * `concurrency` is REQUIRED, deliberately. It defaulted to
+ * MAX_CONCURRENT_FETCHES, and three SEC-hosted ingesters silently took that
+ * default while nesting inside the dispatcher's own pool — 18 simultaneous
+ * connections to one host that nothing in the code stated and no test could
+ * see. A required argument makes the omission a type error instead of a
+ * number you have to go looking for. Pass MAX_CONCURRENT_FETCHES explicitly
+ * for a top-level pool; pass a narrower width for anything nested.
+ */
 export async function fetchPool<T, R>(
   items: readonly T[],
   worker: (item: T, index: number) => Promise<R>,
-  concurrency: number = MAX_CONCURRENT_FETCHES,
+  concurrency: number,
 ): Promise<PoolResult<R>> {
   const results: Array<R | undefined> = new Array(items.length);
   const errors: Array<{ index: number; error: unknown }> = [];

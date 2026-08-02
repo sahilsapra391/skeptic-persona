@@ -25,7 +25,14 @@ describe("worker scheduled handler", () => {
     const row = await env.DB.prepare("SELECT due_at FROM jobs WHERE name = 'sched_probe'").first<{
       due_at: string;
     }>();
-    expect(row?.due_at).toBe("2026-07-22T14:05:00.000Z");
+    // p4-20: rescheduled to a per-job phase inside the 5-minute interval, not
+    // to a round 14:05. The cadence contract is "advanced by at most one
+    // interval"; the exact instant is a hash of the job name and is pinned in
+    // test/cadence.test.ts instead.
+    const due = new Date(row!.due_at).getTime();
+    const base = new Date("2026-07-22T14:00:00Z").getTime();
+    expect(due).toBeGreaterThanOrEqual(base + 150_000); // >= interval/2
+    expect(due).toBeLessThan(base + 450_000); // <  1.5 * interval
   });
 });
 

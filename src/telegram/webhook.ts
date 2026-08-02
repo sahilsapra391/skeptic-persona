@@ -17,6 +17,7 @@ import { CODE_VARIANT, postedButtons, resolveVariantText, type CardVariant } fro
 import { editDistance, normalisePost, pairContext, promotionStatement } from "../rag/learn";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
+import { promoteHeldItem } from "../digest";
 
 export const WEBHOOK_PATH = "/tg/webhook";
 export const SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token";
@@ -145,6 +146,8 @@ const CALLBACK_RE = /^([are]):(\d{1,10})$/;
 // the text of the prompt actually tapped. callback_data is capped at 64
 // BYTES, hence single-letter codes.
 const CARD_COPY_RE = /^c:([csdt]):(\d{1,10}):(\d{1,12})$/;
+/** Digest promote: pull one held item out of a roll-up as a full card. */
+const DIGEST_PROMOTE_RE = /^dg:(\d{1,10})$/;
 const CARD_POSTED_RE = /^p:([ymk]):(\d{1,10}):(\d{1,12}):([csdt])$/;
 const CARD_REGEN_RE = /^g:(\d{1,10}):(\d{1,12})$/;
 const CARD_EDIT_RE = /^ce:(\d{1,10}):(\d{1,12})$/;
@@ -166,6 +169,8 @@ async function handleCallback(env: ConfiguredEnv, cb: TgCallbackQuery): Promise<
   if (regen) return handleCardRegenerate(env, cb, Number(regen[1]), Number(regen[2]));
   const cardEdit = cb.data ? CARD_EDIT_RE.exec(cb.data) : null;
   if (cardEdit) return handleCardEdit(env, cb, Number(cardEdit[1]), Number(cardEdit[2]));
+  const promote = cb.data ? DIGEST_PROMOTE_RE.exec(cb.data) : null;
+  if (promote) return handleDigestPromote(env, cb, Number(promote[1]));
   const m = cb.data ? CALLBACK_RE.exec(cb.data) : null;
   if (!m) {
     await answerCallbackQuery(token, cb.id);
@@ -494,6 +499,18 @@ async function handleCardRegenerate(env: ConfiguredEnv, cb: TgCallbackQuery, que
       log("warn", "regen badge failed", { queueId, error: String(e) });
     }
   }
+}
+
+/** ↑ on a digest line: promote that held item into the approval queue as a
+ *  full card. Idempotent — a second tap on the same line answers "already
+ *  promoted" rather than creating a duplicate card. */
+async function handleDigestPromote(env: ConfiguredEnv, cb: TgCallbackQuery, itemId: number): Promise<void> {
+  const promoted = await promoteHeldItem(env, itemId, new Date());
+  if (!promoted) {
+    await answerCallbackQuery(env.TELEGRAM_BOT_TOKEN, cb.id, "That item is already promoted, or can no longer be rendered.");
+    return;
+  }
+  await answerCallbackQuery(env.TELEGRAM_BOT_TOKEN, cb.id, `#${promoted.queueId} ${promoted.archetype} promoted to a full card.`);
 }
 
 async function handleCardEdit(env: ConfiguredEnv, cb: TgCallbackQuery, queueId: number, cycle: number): Promise<void> {

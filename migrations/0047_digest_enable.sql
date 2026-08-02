@@ -1,0 +1,21 @@
+-- p4-03 follow-through: enable the digest in an ALREADY-MIGRATED database.
+--
+-- 0044 shipped `digest_push` seeded enabled=0, which review found to be a
+-- CRITICAL defect: the salience gate runs on code defaults from the instant
+-- of merge and marks roughly 80% of items 'digested', removing them from all
+-- 15 ingester drains, while the digest is the only path back. Suppression on,
+-- recovery off.
+--
+-- 0044 was corrected to seed enabled=1, but that only helps a FRESH database.
+-- Production applied 0044 at 2026-08-01 20:58Z and the row was additionally
+-- disabled by hand while the handler was undeployed, so the corrected seed
+-- can never reach it — wrangler will not re-run an applied migration.
+--
+-- Hence this file rather than a note telling someone to run an UPDATE. The
+-- whole lesson of this chunk is that a recovery path guarded by human memory
+-- is not a recovery path. Idempotent, so it is correct on both fresh and
+-- existing databases.
+--
+-- Number 0047 was released by the ingestion session and left unclaimed;
+-- claimed here by cross-session message before writing the file.
+UPDATE jobs SET enabled = 1 WHERE name = 'digest_push';
