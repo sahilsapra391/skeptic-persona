@@ -309,10 +309,23 @@ export async function pollFdaEnforcement(
     return;
   }
 
+  // src.id, NOT the SOURCE constant. SOURCE is "fda_drug_recall"; this
+  // function is the per-source fan-out, so binding the constant made EVERY
+  // lane drain the drug lane.
+  //
+  // fda_food_recall has therefore never drained its own items since it
+  // shipped (4ac245f, migration 0041). Class I food recalls insert with
+  // status='new', the food poll enqueues drug rows instead, and the food
+  // rows are never selected again -- they sit at 'new' permanently, and the
+  // dedup key stops re-ingest from creating a second chance.
+  //
+  // Nothing surfaced it: the poll succeeds, items land in the lake, the
+  // source-health counters stay green, and the only symptom is cards that
+  // never appear for a lane nobody was watching.
   const pending = await env.DB.prepare(
     `SELECT id, source_url, payload FROM items WHERE source = ?1 AND status = 'new' AND score >= ?2 ORDER BY id LIMIT 3`,
   )
-    .bind(SOURCE, SCORE_POSTABLE)
+    .bind(src.id, SCORE_POSTABLE)
     .all<{ id: number; source_url: string; payload: string }>();
   for (const row of pending.results) {
     if (!budget.take(1)) break;
