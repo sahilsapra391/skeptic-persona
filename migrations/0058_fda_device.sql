@@ -1,0 +1,38 @@
+-- FDA device enforcement: the third openFDA recall dataset, after drug
+-- (0018) and food (0041). Same API, same field names, same grouping problem,
+-- so it is a row in FDA_SOURCES rather than an ingester.
+--
+-- Endpoint live-verified 2026-08-01:
+--   https://api.fda.gov/device/enforcement.json?limit=30&sort=report_date:desc
+--
+-- Class I ONLY, decided by counting rather than by analogy to food.
+-- Over 2026-05-01..08-01:
+--
+--   Class I    151 rows ->  38 events  (~13/month)
+--   Class II   640 rows -> 200 events  (~67/month)
+--   Class III    2 rows
+--
+-- Class II is double the food Class II rate that got food capped, and one
+-- firm (Medline) is 189 of its 640 rows.
+--
+-- Why device is worth a lane at all: unlike CPSC consumer recalls, which were
+-- probed the same night and rejected, the recalling firm here is routinely a
+-- listed device maker -- Abiomed, Becton Dickinson, Boston Scientific, GE
+-- Medical Systems, Arrow International. The recall names the company whose
+-- stock it moves. See docs/verification/2026-08-01-recall-sources.md.
+--
+-- Cadence: hourly at priority 55, matching fda_food_recall.
+--
+-- CORRECTION to an earlier draft of this comment, which said "most polls are
+-- a 304". No poll of this lane can ever be a 304: pollFdaEnforcement calls
+-- politeFetch WITHOUT validators, and lib/http only sends If-None-Match /
+-- If-Modified-Since when they are supplied. The whole FDA family omits them,
+-- and openFDA answers cache-control: no-cache, no-store, must-revalidate.
+--
+-- That matters more than the wording. The device endpoint returns ~226 KB
+-- against 57 KB for drug and 38 KB for food -- the largest single response
+-- in the fleet, fetched hourly, with conditional GET available and unused.
+-- Not fixed here; it is a change to the shared FDA fetch path, not to a
+-- source registration.
+INSERT OR IGNORE INTO jobs (name, due_at, cadence_profile, enabled, priority) VALUES
+  ('fda_device_recall', '2026-08-02T00:00:00.000Z', 'hourly', 1, 55);
