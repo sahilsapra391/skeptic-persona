@@ -452,8 +452,8 @@ export async function putSourceState(db: D1Database, s: SourceState, now: Date =
       // that one of them eventually forgets, silently. Stamped when the run
       // starts, preserved while it continues, cleared the moment the source
       // succeeds.
-      `INSERT INTO source_state (source, etag, last_modified, cursor, last_polled_at, last_ok_at, consecutive_failures, first_failure_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, CASE WHEN ?7 = 0 THEN NULL ELSE ?8 END)
+      `INSERT INTO source_state (source, etag, last_modified, cursor, last_polled_at, last_ok_at, consecutive_failures, first_failure_at, total_failures)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, CASE WHEN ?7 = 0 THEN NULL ELSE ?8 END, CASE WHEN ?7 = 0 THEN 0 ELSE 1 END)
        ON CONFLICT(source) DO UPDATE SET
          etag = excluded.etag,
          last_modified = excluded.last_modified,
@@ -473,7 +473,15 @@ export async function putSourceState(db: D1Database, s: SourceState, now: Date =
            WHEN source_state.first_failure_at IS NULL
             AND source_state.consecutive_failures = 0 THEN ?8
            ELSE source_state.first_failure_at
-         END`,
+         END,
+         -- Counts each FAILED POLL once, on the transition -- not each write.
+         -- Several ingesters call putSourceState repeatedly within one poll
+         -- (bls, halts), so "+1 whenever this row is failing" would multiply
+         -- by however many times the handler happened to save state. The
+         -- ingester increments consecutiveFailures exactly once per failed
+         -- poll, so a STRICT INCREASE is the poll boundary.
+         total_failures = source_state.total_failures
+           + CASE WHEN excluded.consecutive_failures > source_state.consecutive_failures THEN 1 ELSE 0 END`,
     )
     .bind(s.source, s.etag, s.lastModified, s.cursor, s.lastPolledAt, s.lastOkAt, s.consecutiveFailures, iso(now))
     .run();

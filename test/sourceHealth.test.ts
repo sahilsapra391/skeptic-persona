@@ -489,3 +489,64 @@ describe("a job that polls no source can still be failing", () => {
     expect(line).not.toContain("never succeeded");
   });
 });
+
+describe("total_failures counts failed POLLS, not state writes", () => {
+  // WHY THIS EXISTS. consecutive_failures resets on the next success and
+  // last_ok_at is overwritten, so a source failing two polls in three leaves
+  // no trace at all -- a week of one-in-three landing is byte-identical in D1
+  // to a perfect week. That is why "were the senate polls failing, or does
+  // eFD index late" could not be answered retroactively: both readings imply
+  // different fixes and the evidence was already gone.
+  const put = (source: string, fails: number, okAt: string | null) =>
+    putSourceState(env.DB as never, {
+      source,
+      etag: null,
+      lastModified: null,
+      cursor: null,
+      lastPolledAt: "2026-08-02T12:00:00.000Z",
+      lastOkAt: okAt,
+      consecutiveFailures: fails,
+    } as never);
+
+  const total = async (source: string) =>
+    (
+      await env.DB.prepare(`SELECT total_failures AS n FROM source_state WHERE source = ?1`)
+        .bind(source)
+        .first<{ n: number }>()
+    )!.n;
+
+  it("counts one per failed poll across a streak and a recovery", async () => {
+    await put("ctr_a", 1, null); // first poll, failed
+    expect(await total("ctr_a")).toBe(1);
+    await put("ctr_a", 2, null);
+    await put("ctr_a", 3, null);
+    expect(await total("ctr_a")).toBe(3);
+
+    await put("ctr_a", 0, "2026-08-02T12:00:00.000Z"); // recovered
+    expect(await total("ctr_a"), "a success must not decrement or reset it").toBe(3);
+
+    await put("ctr_a", 1, "2026-08-02T12:00:00.000Z"); // fails again later
+    expect(await total("ctr_a")).toBe(4);
+  });
+
+  it("does NOT multiply by how many times a handler saves state mid-poll", async () => {
+    // bls.ts calls putSourceState up to seven times in one poll and halts.ts
+    // five. Counting "+1 while failing" would make those sources report
+    // several failures for one bad fetch, which is the exact wrong number
+    // this column exists to provide.
+    await put("ctr_b", 1, null); // the poll failed: one increment
+    await put("ctr_b", 1, null); // same poll, handler saves a cursor
+    await put("ctr_b", 1, null); // and again
+    expect(await total("ctr_b")).toBe(1);
+  });
+
+  it("starts a pre-existing row at zero rather than inventing history", async () => {
+    await env.DB.prepare(
+      `INSERT INTO source_state (source, last_polled_at, consecutive_failures)
+       VALUES ('ctr_legacy', '2026-08-01T00:00:00.000Z', 6)`,
+    ).run();
+    expect(await total("ctr_legacy"), "a back-fill would invent a history nobody recorded").toBe(0);
+    await put("ctr_legacy", 7, null);
+    expect(await total("ctr_legacy"), "and counting starts from the next real failure").toBe(1);
+  });
+});
