@@ -35,26 +35,98 @@ function offWindow(now: Date, offMs: number, openHour: number): Date {
   return off.getTime() < open.getTime() ? off : open;
 }
 
-export function nextDue(profile: string, now: Date): Date {
+/**
+ * Deterministic 32-bit hash (FNV-1a) of a job name.
+ *
+ * Deliberately NOT Math.random(): a random phase would make nextDue
+ * non-deterministic, untestable, and different on every isolate, so the same
+ * job would wander instead of holding a slot. A name hash gives each job a
+ * fixed phase that is stable across deploys and reproducible in a test.
+ */
+function hashKey(key: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/**
+ * Interval reschedule with a per-job PHASE, so same-cadence jobs stop running
+ * in lockstep.
+ *
+ * THE DEFECT: nextDue was called with the tick's single shared `now`, so any
+ * two jobs of the same cadence that ran in one tick rescheduled to a
+ * byte-identical due_at — and stayed phase-locked forever after. That is why
+ * sec_form144, sec_schedule13 and sec_form25 (all every_5m_us_0600_2200,
+ * all priority 50) land in the same wave "by construction, not by luck", which
+ * is exactly what made the nested-pool connection count 3x rather than 1x.
+ * Raising MAX_JOBS_PER_TICK made the herd bigger, not smaller.
+ *
+ * PHASE, NOT JITTER. Adding a few seconds each time would slow every job by
+ * the jitter (a 1-minute job polling every 1m05s is a permanent 8% loss) and
+ * would let jobs drift back into convergence at different rates. Snapping to
+ * `grid + phase` instead gives each job a stable offset inside the interval
+ * and an average interval of EXACTLY the interval. Once a job is on its
+ * phase, every later reschedule is exact.
+ *
+ * THE TRANSITION IS BOUNDED IN BOTH DIRECTIONS, at [interval/2, 1.5*interval).
+ * The obvious "next grid point after now" gives a gap in (0, interval], which
+ * sounds strictly safer and is not: a job whose phase sits just past `now`
+ * gets rescheduled milliseconds out and polls again on the very next tick. Do
+ * that to ~55 jobs on one deploy and the change intended to REDUCE herding
+ * opens with a thundering herd of double-polls against SEC. Requiring at least
+ * half an interval costs a one-time delay of up to half an interval on the
+ * other side, which no cadence in this repo is tight enough to care about.
+ * After the first hop every reschedule is exact.
+ *
+ * Applied to the interval cadences only. The off-window branches clamp to the
+ * window open on purpose — "the first minutes of a trading day are never
+ * covered at the slow rate" — and the daily profiles are wall-clock slots
+ * where alignment is the point. NOTE the consequence honestly rather than
+ * implying this fixes everything: every off-window job still converges on
+ * 06:00 ET, so window open remains a herd point this does not address.
+ */
+function phased(now: Date, intervalMs: number, key: string | undefined): Date {
+  const t = now.getTime();
+  if (!key) return new Date(t + intervalMs);
+  const phase = hashKey(key) % intervalMs;
+  // The first grid point `k * interval + phase` at or after now + interval/2.
+  // Grid spacing is one interval, so a half-interval window is not guaranteed
+  // to contain a point — hence the 1.5x upper bound rather than 1x. Both ends
+  // are one-time; once a job sits on its phase, k advances by exactly one and
+  // the gap is exactly `interval` forever.
+  const earliest = t + intervalMs / 2;
+  const k = Math.ceil((earliest - phase) / intervalMs);
+  return new Date(k * intervalMs + phase);
+}
+
+/**
+ * @param key Job name. Optional for callers that only want the profile's
+ *        shape (tests, tooling). The dispatcher always passes it — without it
+ *        every job of a cadence shares one due_at and the herd re-forms.
+ */
+export function nextDue(profile: string, now: Date, key?: string): Date {
   switch (profile as CadenceProfile) {
     case "every_2m_us_0600_2200":
       return inWeekdayWindow(now, ET, 6 * 60, 22 * 60)
-        ? new Date(now.getTime() + 2 * MIN)
+        ? phased(now, 2 * MIN, key)
         : offWindow(now, 10 * MIN, 6);
     case "every_1m_us_0400_2000": {
-      if (inWeekdayWindow(now, ET, 4 * 60, 20 * 60)) return new Date(now.getTime() + 1 * MIN);
+      if (inWeekdayWindow(now, ET, 4 * 60, 20 * 60)) return phased(now, 1 * MIN, key);
       return nextLocalTime(now, ET, 4, 0, true);
     }
     case "every_5m_us_0600_2200":
       return inWeekdayWindow(now, ET, 6 * 60, 22 * 60)
-        ? new Date(now.getTime() + 5 * MIN)
+        ? phased(now, 5 * MIN, key)
         : offWindow(now, 30 * MIN, 6);
     case "every_5m":
-      return new Date(now.getTime() + 5 * MIN);
+      return phased(now, 5 * MIN, key);
     case "every_30m":
-      return new Date(now.getTime() + 30 * MIN);
+      return phased(now, 30 * MIN, key);
     case "hourly":
-      return new Date(now.getTime() + 60 * MIN);
+      return phased(now, 60 * MIN, key);
     case "daily_1330_utc": {
       const next = new Date(now.getTime());
       next.setUTCHours(13, 30, 0, 0);

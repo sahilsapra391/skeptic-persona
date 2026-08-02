@@ -111,10 +111,23 @@ interface JobRow {
  * whatever the env override does.
  */
 export function resolveConcurrency(env: Env): number {
-  const raw = Number(env.TICK_JOB_CONCURRENCY ?? TICK_JOB_CONCURRENCY);
-  return Number.isFinite(raw) && raw >= 1 && raw <= MAX_TICK_JOB_CONCURRENCY
-    ? Math.floor(raw)
-    : TICK_JOB_CONCURRENCY;
+  const configured = env.TICK_JOB_CONCURRENCY;
+  const raw = Number(configured ?? TICK_JOB_CONCURRENCY);
+  if (Number.isFinite(raw) && raw >= 1 && raw <= MAX_TICK_JOB_CONCURRENCY) return Math.floor(raw);
+  // FALLBACK, NOT A CLAMP, and the difference is operational. An operator
+  // raising TICK_JOB_CONCURRENCY to 8 during a backlog gets 3 — the DEFAULT,
+  // lower than the 6 the number implies and lower than they asked for — so the
+  // lever appears to do nothing, or the wrong thing, in exactly the incident
+  // where somebody is reaching for it. Silence there is the worst property it
+  // could have, so say so.
+  if (configured !== undefined) {
+    log("warn", "TICK_JOB_CONCURRENCY out of range; falling back to the default", {
+      configured,
+      allowed: `1..${MAX_TICK_JOB_CONCURRENCY}`,
+      using: TICK_JOB_CONCURRENCY,
+    });
+  }
+  return TICK_JOB_CONCURRENCY;
 }
 
 export async function tick(env: Env, now: Date = new Date()): Promise<void> {
@@ -224,7 +237,7 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
       // are idempotent via dedup anyway). Concurrency does not weaken this:
       // the CAS is a single D1 statement and the loser sees changes === 0.
       const claim = await env.DB.prepare(`UPDATE jobs SET due_at = ?1 WHERE name = ?2 AND due_at = ?3`)
-        .bind(iso(nextDue(row.cadence_profile, now)), row.name, row.due_at)
+        .bind(iso(nextDue(row.cadence_profile, now, row.name)), row.name, row.due_at)
         .run();
       if (claim.meta.changes === 0) return; // another invocation owns it
 
