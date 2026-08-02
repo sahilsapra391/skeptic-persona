@@ -127,7 +127,23 @@ const COVERED_ARCHETYPES = new Set(OWNER_EXEMPLARS.map((e) => e.archetype));
  * why all four are named here rather than patched into the lexicons alongside
  * a fabrication-gate change.
  */
-const KNOWN_FLOOR_CONFLICTS = ["All Code", "BUYING", "per ECB", "per MPC statement"] as const;
+const KNOWN_FLOOR_CONFLICTS = [
+  { archetype: "INSIDER_CLUSTER", detail: 'entity: name "All Code" does not appear in the payload' },
+  { archetype: "FILING_FORM4", detail: 'entity: all-caps token "BUYING" does not appear in the payload' },
+  { archetype: "RATE_DECISION", detail: 'sourcing: attribution "per ECB" is not one of our records' },
+  { archetype: "RATE_DECISION", detail: 'sourcing: attribution "per MPC statement" is not one of our records' },
+] as const;
+
+/** Exact match on BOTH archetype and the whole detail string.
+ *
+ *  The first version matched with `detail.includes(k)` on a bare substring,
+ *  which meant the admission could still absorb a NEW failure: a fabricated
+ *  exemplar reading "All Code Red Capital filed it." is a genuine entityCheck
+ *  rejection, and it was swallowed by the "All Code" entry with the suite
+ *  staying green. The list existed to stop exactly that, and matched loosely
+ *  enough to do the opposite. */
+const isKnownConflict = (archetype: string, rule: string, detail: string): boolean =>
+  KNOWN_FLOOR_CONFLICTS.some((k) => k.archetype === archetype && k.detail === `${rule}: ${detail}`);
 
 describe("owner exemplars vs the fabrication floor", () => {
   const covered = OWNER_EXEMPLARS.filter((e) => COVERED_ARCHETYPES.has(e.archetype));
@@ -158,8 +174,9 @@ describe("owner exemplars vs the fabrication floor", () => {
       const payload = payloadLicensingFactsOf(ex.text);
       const facts = payloadFacts(payload);
       for (const issue of FLOOR_GATES.flatMap((g) => g.run(ex.text, payload, facts))) {
-        const known = KNOWN_FLOOR_CONFLICTS.find((k) => issue.detail.includes(k));
-        tripped.add(known ?? `UNKNOWN: ${issue.rule}: ${issue.detail}`);
+        tripped.add(isKnownConflict(ex.archetype, issue.rule, issue.detail)
+          ? `${ex.archetype}: ${issue.rule}: ${issue.detail}`
+          : `UNKNOWN: ${ex.archetype}: ${issue.rule}: ${issue.detail}`);
       }
     }
     expect([...tripped].filter((t) => t.startsWith("UNKNOWN"))).toEqual([]);
@@ -176,11 +193,12 @@ describe("owner exemplars vs the fabrication floor", () => {
       const payload = payloadLicensingFactsOf(ex.text);
       const facts = payloadFacts(payload);
       for (const issue of FLOOR_GATES.flatMap((g) => g.run(ex.text, payload, facts))) {
-        const known = KNOWN_FLOOR_CONFLICTS.find((k) => issue.detail.includes(k));
-        if (known) stillTripping.add(known);
+        if (isKnownConflict(ex.archetype, issue.rule, issue.detail)) {
+          stillTripping.add(`${ex.archetype}|${issue.rule}: ${issue.detail}`);
+        }
       }
     }
-    const stale = KNOWN_FLOOR_CONFLICTS.filter((k) => !stillTripping.has(k));
+    const stale = KNOWN_FLOOR_CONFLICTS.filter((k) => !stillTripping.has(`${k.archetype}|${k.detail}`));
     expect(stale, "remove these from KNOWN_FLOOR_CONFLICTS — they no longer trip").toEqual([]);
   });
 
@@ -189,7 +207,7 @@ describe("owner exemplars vs the fabrication floor", () => {
       const payload = payloadLicensingFactsOf(ex.text);
       const facts = payloadFacts(payload);
       const issues = FLOOR_GATES.flatMap((g) => g.run(ex.text, payload, facts))
-        .filter((x) => !KNOWN_FLOOR_CONFLICTS.some((k) => x.detail.includes(k)));
+        .filter((x) => !isKnownConflict(ex.archetype, x.rule, x.detail));
       expect(issues.map((x) => `${x.rule}: ${x.detail}`)).toEqual([]);
     });
   }
@@ -210,5 +228,56 @@ describe("owner exemplars vs the fabrication floor", () => {
     const payload = payloadLicensingFactsOf("Josh Gottheimer reported it");
     const facts = payloadFacts(payload);
     expect(FLOOR_GATES.flatMap((g) => g.run("Josh Gottheimer reported it", payload, facts)).length).toBeGreaterThan(0);
+  });
+});
+
+describe("the name/date boundary is dateCheck's predicate, not a reading of it", () => {
+  const F4 = {
+    issuer: "Lockheed Martin", issuerCik: "0000936468", ticker: "LMT",
+    insiderName: "Jane Roe", shares: 25000, filedAt: "2026-07-18T19:50:00Z",
+    tradeDate: "2026-06-03",
+  };
+  const floor = (t: string) => {
+    const facts = payloadFacts(F4);
+    return FLOOR_GATES.flatMap((g) => g.run(t, F4, facts));
+  };
+
+  it("HIGH: a comma let a fabricated member through BOTH gates", () => {
+    // isNameShaped used `[\s.,]*\d{1,2}` while DATE_PHRASE_RE uses `\s+`. On a
+    // comma entityCheck stood down believing dateCheck owned the phrase, and
+    // dateCheck never claimed it — so this complete, correctly-sourced,
+    // postable draft named a member present in no payload field, and NOTHING
+    // objected.
+    const poison = 'Form 4: Jane Roe (CFO) bought 25,000 shares of $LMT at $14.20, open market, Code P, per SEC.\nSenator May, 2 days after the trade.\nA grant is a paycheck. A P is a decision.';
+    expect(floor(poison).length).toBeGreaterThan(0);
+  });
+
+  it("EVERY separator is caught, whichever gate owns it", () => {
+    // The division of labour is the point: dateCheck claims the space, period
+    // and newline forms (it reads "May. 2" as an abbreviated date); entityCheck
+    // claims the rest. Asserting on the FLOOR rather than on entityCheck alone,
+    // because which gate catches it is an implementation detail and whether
+    // anything catches it is not.
+    for (const sep of [", ", "; ", " (", " - ", ". ", "\n", " "]) {
+      expect(floor(`Senator May${sep}2 days after the trade.`).length, JSON.stringify(sep)).toBeGreaterThan(0);
+    }
+  });
+
+  it("all 24 name+month combinations are caught", () => {
+    const MONTHS_LIST = ["January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"];
+    for (const m of MONTHS_LIST) {
+      for (const title of ["Senator", "Congressman"]) {
+        expect(floor(`${title} ${m}, 2 days after the trade.`).length, `${title} ${m}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("MEDIUM, the opposite direction: the ordinal form dateCheck accepts", () => {
+    // The near-miss predicate rejected "July 4th", which DATE_PHRASE_RE
+    // accepts — wrong in BOTH directions from one careful reading.
+    for (const t of ["Filed July 4th.", "Filed July 4th, 2026.", "Filed July 18.", "Reported June 3."]) {
+      expect(floor(t).filter((i) => i.rule === "entity").map((i) => i.detail), t).toEqual([]);
+    }
   });
 });
