@@ -370,6 +370,39 @@ function firstOf(block: string, tags: readonly string[]): string {
 const MIN_DESCRIPTION_CHARS = 40;
 const MAX_DESCRIPTION_CHARS = 2_000;
 
+/**
+ * Cap at the last WORD BOUNDARY inside the limit, never mid-token.
+ *
+ * A hard slice is a fabrication vector, and the gauntlet is structurally blind
+ * to it. items.raw_text is merged into the licensed fact set at
+ * validateVariant, so whatever this function stores is what a draft is allowed
+ * to say. Cutting mid-number invents a number that the source never printed
+ * and then licenses it.
+ *
+ * Reproduced on the shipped press-rbi fixture, item 1: the real text reads
+ * "...issued on July 01, 2026", the 2,000-char slice lands inside the year and
+ * stores "...issued on July 01, 20", and comparing groundingFacts over the
+ * truncated and untruncated text gives exactly one number licensed by the cut
+ * and by nothing else: "20". Every validator passes a draft using it, because
+ * the parse artefact IS the licensed field — the same class as a date-only
+ * stamp anchored to the wrong midnight printing the previous day.
+ *
+ * Four of the 60 items in the adopted fixtures reach the cap today (rbi#1,
+ * gao#0, gao#1, gao#2), and where the cut lands is data-dependent: RBI's body
+ * is a flattened auction table, so the same slice can just as easily sever a
+ * money figure from its scale word.
+ *
+ * If the window holds no whitespace at all — one enormous token — the hard cut
+ * stands, because there is no boundary to prefer and a partial token is what
+ * the input actually is. No adopted feed does this.
+ */
+function capAtWordBoundary(text: string, cap: number): string {
+  if (text.length <= cap) return text.trim();
+  const window = text.slice(0, cap);
+  const lastBreak = Math.max(window.lastIndexOf(" "), window.lastIndexOf("\n"), window.lastIndexOf("\t"));
+  return (lastBreak > 0 ? window.slice(0, lastBreak) : window).trim();
+}
+
 function parseDescription(item: string, title: string): string | null {
   // FOUR DIALECTS, same as the date field. RSS says <description>; Atom says
   // <summary> or <content>; some RSS feeds put the full body in
@@ -388,7 +421,7 @@ function parseDescription(item: string, title: string): string | null {
   const unwrapped = raw.replace(/^\s*<!\[CDATA\[/, "").replace(/\]\]>\s*$/, "");
   // Feeds embed HTML inside descriptions (CFTC, FCA); strip to text. URLs are
   // scrubbed because this text feeds the URL-free generation prompt.
-  const text = scrubUrls(htmlToText(decodeEntities(unwrapped))).slice(0, MAX_DESCRIPTION_CHARS).trim();
+  const text = capAtWordBoundary(scrubUrls(htmlToText(decodeEntities(unwrapped))), MAX_DESCRIPTION_CHARS);
   if (text.length < MIN_DESCRIPTION_CHARS) return null;
   if (text.toLowerCase() === title.toLowerCase()) return null;
   return text;
