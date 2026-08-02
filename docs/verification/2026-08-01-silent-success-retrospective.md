@@ -182,8 +182,8 @@ Filed as one property, it is recognised on sight.
 | A test named "commentary has a 200 weighted floor" | green | the 200 floor had been deleted; the fixture still failed the new 75, so a correct assertion outlived its own premise |
 | A PR check | green | measured against a base that no longer existed; green about a tree nobody would merge |
 | A heredoc commit message | exit 0 | backtick expansion silently deleted three identifiers mid-sentence |
-| A CPSC source probe | clean JSON, rich record | `Manufacturers` empty on 33 of 55; the unit count absent from **all** 55 |
-| A press-source probe | "usable" | three were URLs already being polled — it answered *is this reachable*, not *is this new* |
+| A CPSC source probe | clean JSON, rich record | `Manufacturers` empty on **31 of 40**; the unit count absent from **all 40** — and the word "units" absent entirely |
+| A press-source probe | "usable" | three were endpoints already being polled — **two under identical URLs, one differing only by a query parameter** — it answered *is this reachable*, not *is this new* |
 
 The last two are the ingestion session's; the assertion-free test file and its
 four-day green are theirs too, found by auditing their own history rather than
@@ -222,6 +222,11 @@ what makes the run's output mean anything at all.** Without it, green is not a
 weak signal — it is not a signal. Put each mutation's diff in the commit
 message, including the one expected to stay green.
 
+Which places it precisely: a no-op mutation is not a new species, it is **row 1
+one level up.** The corpus-echo check silently declined to run; a mutation that
+never mutated is the check-on-the-check silently declining to run. Same defect,
+same invisibility, different altitude.
+
 **All three are the defence failing**, which is why they are separated rather
 than appended. The conclusion below is *"the only defence is a check performed
 by something other than the reporter"* — and these are three checks-on-checks
@@ -233,6 +238,12 @@ what it was computed over; a mutation run confirmed an **exit code** and never
 asked what it was applied to. **Both verified the operation and not the
 operand.**
 
+The cleanest instance has no second party at all. The CPSC row's author
+confirmed a **count** and never asked what it was counted over — no reviewer,
+no cross-session hand-off, no tooling between the claim and the claimant, just
+a date filter never written. Where the other two need someone to hand the
+operand over, this one only needs you to stop looking at it.
+
 **The cross-session row is the coordination form**, and it is the one with no
 technical fix. Everything three sessions sent each other all night was a
 *summary*, and a summary is a number produced by a process the reader did not
@@ -243,8 +254,24 @@ than asking everyone to be careful.
 
 **Provenance, since this document's own subject demands it.** Rows 1–6 are
 this session's and each was reproduced here. Rows 7–8 are the ingestion
-session's, reported by them and **not** independently re-run — the CPSC and
-press-probe numbers are theirs, marked rather than laundered. Row 3 is theirs
+session's. They were first written as *reported, not re-run* — and marking them
+that way is the only reason they were checked, because the author then went and
+re-measured both.
+
+**Both were wrong, in opposite directions.** The CPSC denominator was 55, drawn
+from "July onward with no end date", which swept in August items under a July
+label — a real count of the wrong set. Corrected to 40, which moves the empty-
+manufacturer share from 60% to **78%** and makes the row stronger than claimed.
+The press row said "identical URLs"; one of the three differed by a query
+parameter.
+
+**And correcting the second found a live defect.** The duplicate-URL guard
+written in response to that probe used exact string equality, so it would have
+caught two of the three cases it existed for. The author had found three
+sources by eye, described them as "identical URLs", and encoded **the
+description** rather than the class — and it stayed green because the config
+happened to be correct. Fixed to compare host and path with the query
+discarded. Row 3 is theirs
 but was verified here before being written down: `git show d089bab` gives **0
 `expect(` and 2 `it(` blocks**, added 2026-07-28 and removed 2026-08-01 in #97,
 which is four days on main.
