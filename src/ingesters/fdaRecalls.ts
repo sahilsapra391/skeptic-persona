@@ -69,6 +69,30 @@ export const FDA_SOURCES: readonly FdaEnforcementSource[] = [
     pageUrl: FDA_PAGE,
     postableGrades: ["Class I"],
   },
+  {
+    id: "fda_device_recall",
+    kind: "device",
+    url: "https://api.fda.gov/device/enforcement.json?limit=30&sort=report_date:desc",
+    pageUrl: "https://www.fda.gov/medical-devices/medical-device-recalls",
+    /**
+     * Class I ONLY, and the measurement says so rather than the analogy to
+     * food. Counted 2026-08-01 over 2026-05-01..08-01:
+     *
+     *   Class I    151 rows ->  38 events  (~13/month)
+     *   Class II   640 rows -> 200 events  (~67/month)
+     *   Class III    2 rows
+     *
+     * 67 events a month is DOUBLE the food Class II rate that got food
+     * capped, and the queue already expires more cards than it approves.
+     *
+     * The severity split lines up with the firms. Class I over that window
+     * is Arrow International, Abiomed, Becton Dickinson, Medline, Argon --
+     * device makers whose recalls move the maker. Class II is dominated by
+     * one firm (Medline, 189 of 640 rows) and runs to calibration drift and
+     * labelling, which is a real safety notice and not market intelligence.
+     */
+    postableGrades: ["Class I"],
+  },
 ];
 
 export interface FdaRecall {
