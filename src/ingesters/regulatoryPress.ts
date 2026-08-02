@@ -371,7 +371,20 @@ const MIN_DESCRIPTION_CHARS = 40;
 const MAX_DESCRIPTION_CHARS = 2_000;
 
 function parseDescription(item: string, title: string): string | null {
-  const raw = extractFirst(item, "description") ?? "";
+  // FOUR DIALECTS, same as the date field. RSS says <description>; Atom says
+  // <summary> or <content>; some RSS feeds put the full body in
+  // <content:encoded> and leave <description> as a one-line teaser.
+  //
+  // Reading only <description> silently dropped the grounding text for every
+  // Atom source. Measured 2026-08-01 across the 20 adopted feeds: 21 of 60
+  // items had no description, and NINE of those were OFSI, CMA and HM
+  // Treasury -- all three Atom, all three carrying <summary> the whole time.
+  //
+  // This is the batch-1 date bug a second time. Atom was taught to the item
+  // reader, the link reader and the date reader, and the body was left
+  // behind, because nothing fails when grounding text goes missing: the item
+  // still parses, still queues, still posts. It just posts thinner.
+  const raw = firstOf(item, ["description", "summary", "content:encoded", "content", "dc:description"]);
   const unwrapped = raw.replace(/^\s*<!\[CDATA\[/, "").replace(/\]\]>\s*$/, "");
   // Feeds embed HTML inside descriptions (CFTC, FCA); strip to text. URLs are
   // scrubbed because this text feeds the URL-free generation prompt.
