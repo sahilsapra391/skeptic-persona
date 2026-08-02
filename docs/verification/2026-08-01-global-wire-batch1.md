@@ -255,3 +255,75 @@ parked.
 
 The 403s remain parked rather than worked around. Doctrine #4: the client
 declares itself, and a host that refuses a declared UA has answered.
+
+---
+
+# Payload depth, measured across all 20 adopted feeds (2026-08-01)
+
+Prompted by the RAG session's observation that **reachable, parseable and
+useful are three different things, and the probe only tests the first two.**
+Worth checking, because this batch took press from 6 sources to 26 — the
+majority of the desk — and a press payload is the thinnest thing we ingest.
+
+A press payload carries five fields: `authority`, `title`, `categories`,
+`publishedIso`, `factLine`. The last is derived from the other four. Zero
+parsed numbers, by design and by the module's own header comment.
+
+Measured over the 60 items in the adopted fixtures:
+
+| | count | share |
+|---|---|---|
+| title carries a money figure | 1 | **2%** |
+| title carries any non-date number | 3 | 5% |
+| description carries a money figure | 5 | 8% |
+| description carries any non-date number | 16 | 27% |
+| **description EMPTY** | **21** | **35%** |
+
+So for roughly a third of press items the whole record is an authority, a
+headline, a date and a link. The commentary floor is 200 weighted characters.
+There is no honest way to fill that from a headline, which is precisely the
+pressure that makes a model reach outside the record.
+
+## Nine of the 21 empties were a parser bug, and it is the batch-1 bug again
+
+`parseDescription` read `extractFirst(item, "description")` and nothing else.
+OFSI, CMA and HM Treasury are Atom and carry `<summary>`; none of them has a
+`<description>` element at all.
+
+Before and after, per source, measured rather than inferred:
+
+```
+BEFORE  cma=0/3  hmt=0/3  ofsi=0/3      (17 other sources unchanged)
+AFTER   cma=3/3  hmt=3/3  ofsi=3/3
+```
+
+Empty descriptions: **21 of 60 (35%) → 12 of 60 (20%)**.
+
+Batch 1 taught the parser Atom's item element, Atom's link attribute and
+Atom's date fields. The body was left behind. **Nothing failed** — the items
+parsed, queued and posted, just thinner — which is why it survived a batch
+that was explicitly about dialect coverage.
+
+Worth recording that a first pass at this attributed the gain to five more
+sources as well. Re-measuring with the fix stashed showed only three changed.
+The extra four were already fine, and claiming them would have overstated the
+fix by half.
+
+## The remaining 12 are correct, each for its own reason
+
+- **ECB (3)** — no `<description>` element of any kind. Title-only feed.
+- **SEBI (3)** — description is a verbatim copy of the title. Refused by the
+  duplicate guard, which is right: storing it would look like grounding
+  coverage while teaching the model nothing. Now pinned by a test, because
+  widening the tag list could have opened a path around it.
+- **SEC speeches (3)** — 29 characters, below the 40-char floor.
+- **CFPB, DOJ, Riksbank (1 each)** — individual items.
+
+## What this does not fix
+
+The 2% money-figure rate is not a bug and cannot be parsed away. It is what a
+regulator press feed is. The consequence belongs to whoever owns the
+commentary floor: **26 of ~35 sources structurally cannot fund a 200-character
+commentary from their own record**, and that ratio is a result of this batch.
+Recorded here so the source count and the generation pressure are visible in
+the same place.
