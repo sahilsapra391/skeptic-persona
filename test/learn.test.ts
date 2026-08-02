@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   editDistance,
   editRatio,
+  normalisePost,
   ownerFinals,
   pairContext,
   promotionStatement,
@@ -483,5 +484,55 @@ describe("recentEditedPairs", () => {
     expect(pairs[0]!.final).toBe("the final text");
     expect(pairs[0]!.distance).toBe(4);
     expect(pairs[0]!.ratio).toBeCloseTo(4 / 14, 5);
+  });
+});
+
+describe("a whitespace-only reply is not an edit", () => {
+  // HIGH from re-review: promotionStatement stored finalText.trim() while
+  // editDistance measured the untrimmed pair, so replying with the draft plus
+  // one trailing space gave distance 1 and wrote a voice_finals row
+  // BYTE-IDENTICAL to post_log.draft_text — raw model output re-entering the
+  // prompt as the owner's signed voice.
+  const DRAFT = "Roe disclosed the sale 45 days after the trade date, per Senate eFD.";
+
+  it("normalisePost collapses the whole class, not just the reported instance", () => {
+    expect(normalisePost(DRAFT + " ")).toBe(DRAFT);
+    expect(normalisePost(" " + DRAFT)).toBe(DRAFT);
+    expect(normalisePost(DRAFT + "\n")).toBe(DRAFT);
+    expect(normalisePost(DRAFT.replace("the sale", "the  sale"))).toBe(DRAFT);
+    // Segment structure survives — it carries fact / beat / take.
+    expect(normalisePost("fact, per SEC.\n\nthe take.")).toBe("fact, per SEC.\n\nthe take.");
+    // A GENUINE edit is untouched.
+    expect(normalisePost(DRAFT.replace("45", "46"))).not.toBe(DRAFT);
+  });
+
+  it("HIGH: the trailing-space reply no longer promotes model output", async () => {
+    const { qid, cy } = await delivered("L-ws", DRAFT);
+    await tap(`c:c:${qid}:${cy}`);
+    await tap(`p:m:${qid}:${cy}:c`);
+    const promptId = 7000 + SEND.length;
+    await reply(promptId, DRAFT + " "); // the exact draft, one trailing space
+
+    const row = await logRow(qid);
+    expect(row!.edit_distance).toBe(0); // measured in the form it is stored in
+    const promoted = await env.DB.prepare(`SELECT COUNT(*) AS n FROM voice_finals WHERE queue_id = ?1`)
+      .bind(qid).first<{ n: number }>();
+    expect(promoted!.n).toBe(0);
+  });
+
+  it("but a REAL one-character edit still promotes", async () => {
+    const { qid, cy } = await delivered("L-real", DRAFT);
+    await tap(`c:c:${qid}:${cy}`);
+    await tap(`p:m:${qid}:${cy}:c`);
+    const promptId = 7000 + SEND.length;
+    await reply(promptId, DRAFT.replace("45 days", "46 days"));
+
+    const row = await logRow(qid);
+    expect(row!.edit_distance).toBeGreaterThan(0);
+    const promoted = await env.DB.prepare(`SELECT text FROM voice_finals WHERE queue_id = ?1`)
+      .bind(qid).first<{ text: string }>();
+    expect(promoted!.text).toContain("46 days");
+    // And what was stored is never byte-identical to the draft.
+    expect(promoted!.text).not.toBe(row!.draft_text);
   });
 });

@@ -14,7 +14,7 @@ import {
 } from "../lib/db";
 import { checkRegister } from "../templates/validate";
 import { CODE_VARIANT, postedButtons, resolveVariantText, type CardVariant } from "../rag/deliver";
-import { editDistance, pairContext, promotionStatement } from "../rag/learn";
+import { editDistance, normalisePost, pairContext, promotionStatement } from "../rag/learn";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -393,8 +393,11 @@ async function handleCardPosted(
   // book an EMPTY post as a perfect zero-edit success and quietly inflate the
   // headline metric, so a missing draft is captured as missing.
   const captured = finalText !== null && finalText !== "";
-  await recordManualPost(env, queueId, finalText ?? "", cb.id, {
-    draft: captured ? finalText : null,
+  // Same canonical form as the edited path, so post_log holds one shape of
+  // text however the row got there.
+  const canonical = captured ? normalisePost(finalText) : "";
+  await recordManualPost(env, queueId, canonical, cb.id, {
+    draft: captured ? canonical : null,
     variant: captured ? variant : null,
     distance: captured ? 0 : null,
   });
@@ -557,10 +560,16 @@ async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promis
         // by the time the reply arrives. A draft that was never pinned (a card
         // from before p4-09) leaves the pair NULL, which the metric counts as
         // uncaptured rather than as a perfect score.
-        const draft = postedTarget.posted_prompt_draft;
+        // ONE canonical form, used for the comparison AND for everything
+        // stored. A whitespace-only reply previously measured as distance 1
+        // while promoting a byte-identical string as the owner's voice.
+        const draft = postedTarget.posted_prompt_draft === null
+          ? null
+          : normalisePost(postedTarget.posted_prompt_draft);
+        const finalText = normalisePost(msg.text);
         const now = new Date();
         const ctx = await pairContext(env.DB, postedTarget.queue_id);
-        const distance = draft === null ? null : editDistance(draft, msg.text);
+        const distance = draft === null ? null : editDistance(draft, finalText);
         // Reaching this flow is not proof of an edit: an owner who retypes the
         // draft exactly has shipped it unedited, and saying otherwise would
         // make post_log.edit_distance (0) and voice_finals.was_edited (1)
@@ -571,7 +580,7 @@ async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promis
           queueId: postedTarget.queue_id,
           archetype: meta.archetype,
           variant: postedTarget.posted_prompt_variant,
-          finalText: msg.text,
+          finalText,
           wasEdited,
         });
         // What the owner ACTUALLY posted is ground truth — recorded verbatim,
@@ -586,7 +595,7 @@ async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promis
                                              payload_field_count, grounding_chars)
              VALUES (?1, NULL, ?2, ?3, ?4, 1, ?5, ?6, ?7, ?8, ?9, ?10)`,
           ).bind(
-            postedTarget.queue_id, iso(now), meta.archetype, meta.category, msg.text,
+            postedTarget.queue_id, iso(now), meta.archetype, meta.category, finalText,
             draft, postedTarget.posted_prompt_variant, distance,
             ctx.payloadFieldCount, ctx.groundingChars,
           ),
