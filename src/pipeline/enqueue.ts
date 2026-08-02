@@ -97,7 +97,69 @@ export interface EnqueueOptions {
  * If Telegram env isn't configured yet, the queue row is still created
  * (state pending) so nothing is lost — it will simply expire un-notified.
  */
-export async function enqueueForApproval(
+/**
+ * Per-archetype serialisation of the enqueue path.
+ *
+ * The daily category cap is check-then-act: `pushedTodayByCategory` reads,
+ * then roughly four awaits later `createQueueEntry` writes. That was safe only
+ * because jobs ran one after another. Several job families emit ONE archetype
+ * from MANY job rows — halts_nasdaq and halts_nyse both push HALT, the ten
+ * rate_* jobs all push RATE_DECISION, every FDA source pushes PRODUCT_RECALL —
+ * so concurrency puts two readers inside the same window and both see
+ * `pushed < cap`. Measured with CATEGORY_DAILY_CAPS='HALT:1': concurrency 1
+ * pushes 1 card, concurrency 3 pushes 3.
+ *
+ * The caps are small (HALT 2, SETTLEMENT_FAILURE 1, DELISTING 1,
+ * PRODUCT_RECALL 2, default 2), so an overshoot of concurrency-1 is a
+ * 100-200% breach of the very ceiling this stack ships to cut 153 cards/day
+ * down to 25.
+ *
+ * Keyed by archetype rather than global: two different archetypes cannot
+ * contend for the same counter, so they still enqueue in parallel and the
+ * latency the concurrency bought is kept where it is safe to keep.
+ *
+ * Isolate-scoped, like every in-process lock. Two overlapping cron invocations
+ * in different isolates can still interleave — but that was true before p4-12
+ * as well, and the atomic job claim makes it rare. This closes the window the
+ * rewrite opened, not one that predates it.
+ */
+const enqueueChains = new Map<ArchetypeId, Promise<void>>();
+
+function withArchetypeLock<T>(archetype: ArchetypeId, fn: () => Promise<T>): Promise<T> {
+  const prior = enqueueChains.get(archetype) ?? Promise.resolve();
+  // `then(fn, fn)` so a rejected predecessor cannot strand every later caller.
+  const run = prior.then(fn, fn);
+  enqueueChains.set(
+    archetype,
+    run.then(
+      () => {},
+      () => {},
+    ),
+  );
+  return run;
+}
+
+/** Test seam: drop lock state between suites. */
+export function resetEnqueueLocks(): void {
+  enqueueChains.clear();
+}
+
+export function enqueueForApproval(
+  env: Env,
+  itemId: number,
+  archetype: ArchetypeId,
+  payload: Payload,
+  sourceUrl: string,
+  now: Date = new Date(),
+  seed?: string,
+  opts: EnqueueOptions = {},
+): Promise<EnqueueResult> {
+  return withArchetypeLock(archetype, () =>
+    enqueueForApprovalInner(env, itemId, archetype, payload, sourceUrl, now, seed, opts),
+  );
+}
+
+async function enqueueForApprovalInner(
   env: Env,
   itemId: number,
   archetype: ArchetypeId,
@@ -157,8 +219,15 @@ export async function enqueueForApproval(
   }
 
   const text = `#${queueId} · ${archetype}\n\n${draftText}\n\nSource: ${sourceUrl}`;
+  // Per-CHAT pacing, applied here rather than in each caller's drain loop.
+  // The loops paced themselves, which was equivalent while jobs ran serially
+  // and stopped being equivalent the moment they ran concurrently: three
+  // draining jobs in one tick put three messages inside one 1100 ms window.
+  const spacingRaw = Number(env.QUEUE_NOTIFY_SPACING_MS ?? 1100);
+  const spacingMs = Number.isFinite(spacingRaw) && spacingRaw >= 0 ? spacingRaw : 1100;
   try {
     const msg = await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, text, {
+      spacingMs,
       buttons: [
         [
           { text: "✅ Approve", callback_data: `a:${queueId}` },

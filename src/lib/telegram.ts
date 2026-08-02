@@ -70,12 +70,70 @@ async function tgCall<T>(token: string, method: string, payload: Record<string, 
   return body.result as T;
 }
 
+/**
+ * Per-chat send pacing.
+ *
+ * Telegram allows roughly 1 message per second per chat
+ * (docs/verification/2026-07-26-telegram-bot-api.md). Until p4-12 that was
+ * enforced by a sleep inside each drain loop, which worked only because jobs
+ * ran one after another. Concurrent jobs made every loop pace itself against
+ * itself and nothing pace the chat: three notify-draining jobs in one tick
+ * turned AAABBBCCC into ABCABCABC — three messages inside one 1100 ms window,
+ * and TICK_JOB_CONCURRENCY=6 would make it six.
+ *
+ * So the gate belongs at the single choke point every caller already passes
+ * through, not in the loops. Same reasoning as fetchPool's required
+ * concurrency argument: put the guarantee where it cannot be forgotten. This
+ * also covers poster.ts, deliver.ts and generate.ts, which never paced at all.
+ *
+ * A promise chain, not a timestamp check, because the ordering matters as much
+ * as the gap — chaining makes waiters serialise in arrival order instead of
+ * all waking against the same stale `last`. Keyed by chat so an unrelated chat
+ * is never delayed. State is module-level and therefore per-isolate, which is
+ * the same scope the tick runs in; two overlapping cron invocations in
+ * different isolates can still interleave, exactly as they could before.
+ */
+const chatGates = new Map<string, Promise<void>>();
+
+export function paceChat(chatId: string, spacingMs: number): Promise<void> {
+  if (!(spacingMs > 0)) return Promise.resolve();
+  // Await the PREVIOUS sender's hold, then install our own for the next one.
+  // Returning `wait` rather than `hold` is what makes the first send on a
+  // quiet chat immediate: it pays only for the gap it must leave behind, not
+  // for a gap in front of it. Sleeping before every send would have cost a
+  // full spacing window per message, ~10 s across a nine-card tick, for
+  // nothing.
+  const wait = chatGates.get(chatId) ?? Promise.resolve();
+  const hold = wait.then(() => new Promise<void>((r) => setTimeout(r, spacingMs)));
+  // .catch so one rejected waiter cannot poison the chain for every later send.
+  chatGates.set(
+    chatId,
+    hold.catch(() => {}),
+  );
+  return wait;
+}
+
+/** Test seam: drop pacing state so one suite's sends cannot delay the next. */
+export function resetChatPacing(): void {
+  chatGates.clear();
+}
+
 export async function sendMessage(
   token: string,
   chatId: string,
   text: string,
-  opts?: { buttons?: TgInlineButton[][]; forceReply?: boolean; replyToMessageId?: number; monospace?: boolean },
+  opts?: {
+    buttons?: TgInlineButton[][];
+    forceReply?: boolean;
+    replyToMessageId?: number;
+    monospace?: boolean;
+    /** Milliseconds to hold the chat after this send. Callers pass
+     *  QUEUE_NOTIFY_SPACING_MS; omitted means unpaced (webhook replies, which
+     *  are user-triggered and one at a time). */
+    spacingMs?: number;
+  },
 ): Promise<TgMessageResult> {
+  if (opts?.spacingMs) await paceChat(chatId, opts.spacingMs);
   const clamped = clampText(text);
   const payload: Record<string, unknown> = {
     chat_id: chatId,

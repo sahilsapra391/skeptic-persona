@@ -249,7 +249,9 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
     ].join("\n");
 
     try {
+      const spacingRaw = Number(env.QUEUE_NOTIFY_SPACING_MS ?? 1100);
       const msg = await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, body, {
+        spacingMs: Number.isFinite(spacingRaw) && spacingRaw >= 0 ? spacingRaw : 1100,
         buttons: buttons.length > 0 ? chunkButtons(buttons) : undefined,
       });
       const sentIds = [...listedIds, ...skipped];
@@ -271,10 +273,9 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
           itemIds: held.results.filter((h) => skipped.includes(h.id)).map((h) => h.item_id),
         });
       }
-      // Telegram asks for <= 1 message/s per chat; every other sender in this
-      // repo paces, and a multi-category roll-up sends several in a row.
-      const spacing = Number(env.QUEUE_NOTIFY_SPACING_MS ?? 1100);
-      if (Number.isFinite(spacing) && spacing > 0) await new Promise((r) => setTimeout(r, spacing));
+      // Pacing is applied at the send (see sendMessage's spacingMs / paceChat),
+      // so the chat is held across concurrent jobs rather than only across
+      // this loop's own iterations.
     } catch (e) {
       // sent_at stays NULL: the next run retries this group unchanged.
       log("error", "digest send failed", { day: g.day, archetype: g.archetype, error: String(e) });
