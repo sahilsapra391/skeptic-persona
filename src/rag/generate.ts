@@ -16,7 +16,7 @@ import { ownerFinals } from "./learn";
 import { fetchSourceText, hasDedicatedCapture, isBlockedGroundingHost, type SourceText } from "./sourceText";
 import { lakeContext } from "./context";
 import { openerHash, skeletonHash } from "./echo";
-import { checkGroundingProvenance, corpusHasData, validateVariant, type ValidationIssue, type Variant } from "./validate";
+import { checkGroundingProvenance, type GroundingProvenance, corpusHasData, validateVariant, type ValidationIssue, type Variant } from "./validate";
 
 // The generation job (docs/p2r-plan.md Part D): approved queue rows become
 // three copy-ready variants. Runs AFTER the Approve tap, so the template
@@ -262,6 +262,27 @@ export interface GenerationDeps {
   exemplars?: ReadonlyArray<{ archetype: ArchetypeId; text: string; register?: "wire" | "commentary" }>;
 }
 
+/**
+ * Decide, in ONE place, whether a source document may license facts — and
+ * return both the verdict and the text that survives it.
+ *
+ * Takes the SourceText rather than a string SO THAT THE CALLER CANNOT FORGET
+ * THE MODE. The provenance answer depends on `source.mode`, and when the call
+ * site passed it explicitly, deleting that argument left all 946 tests green:
+ * a test can assert the two functions agree without asserting that the caller
+ * connects them. Reading the mode in here removes the argument, and with it
+ * the omission — the same move as making fetchPool's concurrency required.
+ * Fourth time in this repo a fix was wired at one call site with nothing
+ * pinning the wiring; this is the first one closed by construction.
+ */
+export function licensedGrounding(
+  source: { text: string; mode: string } | null | undefined,
+  payload: Payload,
+): { provenance: GroundingProvenance; licensed: string } {
+  const provenance = checkGroundingProvenance(source?.text ?? "", payload, source?.mode);
+  return { provenance, licensed: provenance.ok ? (source?.text ?? "") : "" };
+}
+
 export async function runGeneration(
   env: Env,
   now: Date,
@@ -425,7 +446,7 @@ export async function runGeneration(
     // part that can be the wrong document (a mis-fetched EDGAR index page, an
     // exhibit instead of the filing); lake context is built from our own rows
     // keyed to this item, so it is trusted separately.
-    const sourceProvenance = checkGroundingProvenance(source?.text ?? "", payload);
+    const { provenance: sourceProvenance, licensed: licensedSource } = licensedGrounding(source, payload);
     if (source?.text && sourceProvenance.ok && sourceProvenance.reason === "no_usable_anchor") {
       // Fail-open is correct here (we cannot prove the text wrong with no
       // anchor to test), but it must not be SILENT: this is the shape the FDA
@@ -451,7 +472,6 @@ export async function runGeneration(
         host: source.host,
       });
     }
-    const licensedSource = sourceProvenance.ok ? (source?.text ?? "") : "";
     const grounding = [licensedSource, ...context.lines].filter(Boolean).join("\n") || undefined;
 
     const valid = new Set<Variant>();
