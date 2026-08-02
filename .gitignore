@@ -5,3 +5,15 @@ dist/
 coverage/
 .DS_Store
 *.log
+
+# Subagent scratch tests. Four of these reached the repo by `git add -A` during
+# 2026-08-01, and one (test/zzRefuteScratch.test.ts) sat on main from 07-28 with
+# two tests and ZERO expect() calls — it could never fail, and it was counted
+# green in every test total all three sessions quoted for four days.
+#
+# Naming convention rather than a hook: agents that write throwaway probes name
+# them zz* so they sort last, and the cheapest guard is to make the convention
+# unstageable. A real test that starts with zz is a naming mistake, not a
+# casualty.
+test/zz*
+
