@@ -333,8 +333,24 @@ not at all"*.
 
 **So the pipeline offers the model a beat that cannot pass its own validator.**
 The model is not quoting a timestamp of its own accord; we are giving it one
-and then rejecting it. That reframes the fix: the tokenizer asymmetry is real,
-but the cheapest correct change may be the beat, not the validator.
+and then rejecting it.
+
+**And it can NEVER pass, for any press item, ever.** `publishedIso` is always a
+full ISO string — `regulatoryPress.ts` returns `d.toISOString()` on both paths
+(lines 341 and 344), so there is no shape in which that beat renders anything
+`numberCheck` can accept. `reg.dateStamped` has been offered to the model and
+rejected on **every REGULATORY_NEWS generation since it shipped**.
+
+That settles the fix. The tokenizer change widens what a draft may state and
+needs the #80 bar; **the beat change removes a slot that was never usable.**
+Cheaper, narrower, and it closes both exits at once — `"Published August 1."`
+passes and reads like something a person wrote, which the ISO never did.
+
+Worth noting how close this came to being seen already: `regulatoryPress.ts:332`
+carries the comment *"publishedIso is printed verbatim by the REGULATORY_NEWS
+date beat"* — written about a timezone-anchoring concern. The verbatim printing
+was known; its validator consequence was not, because the two live in different
+files and nobody asked the second question.
 
 **And there are two independent exits**, so fixing only the tokenizer leaves
 one live: the validator rejecting a true statement, *and* a copy-ready draft
