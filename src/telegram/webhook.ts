@@ -17,6 +17,7 @@ import { CODE_VARIANT, postedButtons, resolveVariantText, type CardVariant } fro
 import { editDistance, normalisePost, pairContext, promotionStatement } from "../rag/learn";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
+import { findSchemaGap } from "./schemaGuard";
 import { promoteHeldItem } from "../digest";
 
 export const WEBHOOK_PATH = "/tg/webhook";
@@ -112,6 +113,22 @@ export async function handleTelegramWebhook(request: Request, env: Env): Promise
     return new Response("bad request", { status: 400 });
   }
   if (typeof update.update_id !== "number") return new Response("bad request", { status: 400 });
+
+  // BEFORE the update_id is claimed, and that ordering is the entire fix.
+  //
+  // On 2026-08-02 a deployed write path referenced five post_log columns whose
+  // migration had not been applied. The batch threw, the callback branch
+  // returned 200, and processed_updates had already taken the update_id — so
+  // the owner's tap silently did nothing and could never be redelivered.
+  //
+  // Refusing here returns 500 with the missing object named, Telegram
+  // redelivers, and the tap lands unchanged the moment the migration is
+  // applied. A gap detected one line later would consume the update instead.
+  const gap = await findSchemaGap(env.DB);
+  if (gap !== null) {
+    log("error", "webhook refusing: schema is behind the deployed code", { missing: gap });
+    return new Response(`schema behind code: ${gap}`, { status: 500 });
+  }
 
   const seen = await env.DB.prepare(
     `INSERT OR IGNORE INTO processed_updates (update_id, received_at) VALUES (?1, ?2)`,
