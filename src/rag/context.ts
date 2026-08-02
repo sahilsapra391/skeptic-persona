@@ -55,23 +55,66 @@ function clip(s: string): string {
   return t.length <= MAX_TITLE_CHARS ? t : `${t.slice(0, MAX_TITLE_CHARS - 1).trimEnd()}…`;
 }
 
+/**
+ * A count may only be cited when OUR OWN continuous coverage of the source
+ * supports it. Two independent conditions, both required:
+ *
+ *  - coverage must be at least MIN_COVERAGE_DAYS long, and
+ *  - coverage must PREDATE the window the count is quoted over.
+ *
+ * Below either bar the count is omitted entirely. It is never rescued by
+ * shrinking the window to fit, because a shorter window is a smaller true
+ * statement about a shorter period and reads to a human as a stronger one.
+ */
+export const MIN_COVERAGE_DAYS = 30;
+
+function daysBetween(aIso: string, bIso: string): number {
+  return (Date.parse(bIso) - Date.parse(aIso)) / 86_400_000;
+}
+
 async function priorItems(
   db: D1Database,
-  opts: { source: string; excludeItemId: number; entityPath?: string; entityValue?: string },
+  opts: { source: string; excludeItemId: number; entityPath?: string; entityValue?: string; now: Date },
 ): Promise<{ count: number; since: string | null; recent: Array<{ title: string; date: string }> }> {
   const entityClause = opts.entityPath ? "AND json_extract(payload, ?3) = ?4" : "";
   const binds: unknown[] = [opts.source, opts.excludeItemId];
   if (opts.entityPath) binds.push(opts.entityPath, opts.entityValue);
 
+  // Two DIFFERENT dates, and conflating them is the defect this fixes.
+  //   window_start  = earliest EVENT we hold        -- what the count spans
+  //   coverage_from = earliest time we FETCHED any  -- what we actually watched
+  // The old query returned only the first and labelled it "since", so a feed's
+  // own backlog was reported as our observation window.
   const agg = await db
     .prepare(
-      `SELECT COUNT(*) AS n, MIN(COALESCE(event_at, fetched_at)) AS since FROM items
+      `SELECT COUNT(*) AS n,
+              MIN(COALESCE(event_at, fetched_at)) AS window_start,
+              MIN(fetched_at) AS coverage_from
+       FROM items
        WHERE source = ?1 AND id <> ?2 ${entityClause}`,
     )
     .bind(...binds)
-    .first<{ n: number; since: string | null }>();
+    .first<{ n: number; window_start: string | null; coverage_from: string | null }>();
   const count = agg?.n ?? 0;
   if (count === 0) return { count: 0, since: null, recent: [] };
+
+  // COVERAGE GUARD. Measured on production 2026-08-02: all ten
+  // press_cftc_enforcement items arrived in ONE poll at 2026-08-01T17:18, with
+  // event dates spanning 2026-04-23 to 2026-07-31. The lake context said
+  // "9 prior items since 2026-04-23" and a draft rendered it as
+  // "Nine CFTC items since 2026-04-23" -- a hundred-day claim built on one
+  // day of watching. Nothing was fabricated: every date is a parsed field and
+  // the count is exact. The sentence is still false, because it narrates the
+  // publisher's retention window as our observation of a market.
+  const windowStart = agg?.window_start ?? null;
+  const coverageFrom = agg?.coverage_from ?? null;
+  if (!windowStart || !coverageFrom) return { count: 0, since: null, recent: [] };
+
+  const coverageDays = daysBetween(coverageFrom, opts.now.toISOString());
+  const coveragePredatesWindow = Date.parse(coverageFrom) <= Date.parse(windowStart);
+  if (coverageDays < MIN_COVERAGE_DAYS || !coveragePredatesWindow) {
+    return { count: 0, since: null, recent: [] };
+  }
 
   const rows = await db
     .prepare(
@@ -85,7 +128,7 @@ async function priorItems(
     .all<{ t: string | null; d: string | null }>();
   return {
     count,
-    since: agg?.since?.slice(0, 10) ?? null,
+    since: windowStart.slice(0, 10),
     recent: rows.results
       .filter((r): r is { t: string; d: string } => typeof r.t === "string" && r.t.length > 0 && typeof r.d === "string")
       .map((r) => ({ title: clip(r.t), date: r.d })),
@@ -96,7 +139,12 @@ async function priorItems(
  * Build the LAKE CONTEXT block for one item. Read-only; a query failure
  * degrades to fewer lines, never blocks generation.
  */
-export async function lakeContext(db: D1Database, item: ItemRow, payload: Payload): Promise<LakeContext> {
+export async function lakeContext(
+  db: D1Database,
+  item: ItemRow,
+  payload: Payload,
+  now: Date = new Date(),
+): Promise<LakeContext> {
   const lines: string[] = [];
   try {
     // Entity-level first (the sharper context), source-level as the floor.
@@ -112,7 +160,7 @@ export async function lakeContext(db: D1Database, item: ItemRow, payload: Payloa
     }
 
     if (entityPath && entityValue) {
-      const ent = await priorItems(db, { source: item.source, excludeItemId: item.id, entityPath, entityValue });
+      const ent = await priorItems(db, { source: item.source, excludeItemId: item.id, entityPath, entityValue, now });
       if (ent.count > 0 && ent.since) {
         lines.push(`${ent.count} prior ${entityValue} item${ent.count === 1 ? "" : "s"} via ${item.source} in our lake since ${ent.since}.`);
         for (const r of ent.recent) lines.push(`Prior: "${r.title}" (${r.date}).`);
@@ -120,7 +168,7 @@ export async function lakeContext(db: D1Database, item: ItemRow, payload: Payloa
     }
 
     if (lines.length === 0) {
-      const src = await priorItems(db, { source: item.source, excludeItemId: item.id });
+      const src = await priorItems(db, { source: item.source, excludeItemId: item.id, now });
       if (src.count > 0 && src.since) {
         lines.push(`${src.count} prior ${item.source} items in our lake since ${src.since}.`);
         for (const r of src.recent) lines.push(`Prior: "${r.title}" (${r.date}).`);
