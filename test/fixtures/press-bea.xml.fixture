@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<rss version="2.0">
+  <channel>
+    <title>U.S. Bureau of Economic Analysis</title>
+    <link>https://www.bea.gov</link>
+    <description>U.S. Bureau of Economic Analysis</description>
+    <pubDate>Thu, 30 Jul 2026 08:30:00 EDT</pubDate>
+    <lastBuildDate>Thu, 30 Jul 2026 08:30:00 EDT</lastBuildDate>
+    <image>
+      <url>https://www.bea.gov/favicon.ico</url>
+      <title>BEA - Bureau of Economic Analysis</title>
+      <link>https://www.bea.gov</link>
+      <width>88</width>
+      <height>31</height>
+    </image>
+    <language>en-us</language>
+    <ttl>17</ttl>
+    <item name="GDP">
+      <dbId>101</dbId>
+      <title>GDP (Advance Estimate), 2nd Quarter 2026</title>
+      <link>https://www.bea.gov/news/2026/gdp-advance-estimate-2nd-quarter-2026</link>
+      <guid isPermaLink="true">https://www.bea.gov/news/2026/gdp-advance-estimate-2nd-quarter-2026</guid>
+      <description>Real gross domestic product (GDP) increased at an annual rate of 1.5 percent in the second quarter of 2026 (April, May, and June), according to the advance estimate released today by the U.S. Bureau of Economic Analysis (BEA). In the first quarter, real GDP increased 2.1 percent. The contributors to the increase in real GDP in the second quarter were increases in consumer spending, investment, and exports that were partly offset by a decrease in government spending. Imports, which are a subtraction in the calculation of GDP, increased.    &lt;!--Full Text Link--&gt;&lt;a href='https://www.bea.gov/news/2026/gdp-advance-estimate-2nd-quarter-2026'&gt;Full Text&lt;/a&gt;&lt;!--Full Text Link--&gt;</description>
+      <vintage>adv</vintage>
+      <data>
+        <main>
+          <current>
+            <infoDate>Q2 2026</infoDate>
+            <percentChange>+1.5</percentChange>
+            <rateChange>
+            </rateChange>
+          </current>
+          <previous>
+            <infoDate>Q1 2026</infoDate>
+            <percentChange>+2.1</percentChange>
+          </previous>
+        </main>
+      </data>
+      <NextReleaseDate>August 26, 2026</NextReleaseDate>
+      <unitsOfMeasure>BLN$</unitsOfMeasure>
+      <changeUnit>PCT</changeUnit>
+      <linkHistoric>https://apps.bea.gov/histdata/</linkHistoric>
+      <linkArchive>https://www.bea.gov/news/archive</linkArchive>
+      <pdf>https://www.bea.gov/sites/default/files/2026-07/gdp2q26-adv.pdf</pdf>
+      <pubDate>Thu, 30 Jul 2026 08:30:00 EDT</pubDate>
+    </item>
+    <item name="Personal Income and Outlays">
+      <dbId>100</dbId>
+      <title>Personal Income and Outlays, June 2026</title>
+      <link>https://www.bea.gov/news/2026/personal-income-and-outlays-june-2026</link>
+      <guid isPermaLink="true">https://www.bea.gov/news/2026/personal-income-and-outlays-june-2026</guid>
+      <description>Personal income increased $54.9 billion (0.2 percent at a monthly rate) in June, according to estimates released today by the U.S. Bureau of Economic Analysis (BEA). Disposable personal income (DPI)-personal income less personal current taxes-increased $48.3 billion (0.2 percent), and personal consumption expenditures (PCE) increased $65.2 billion (0.3 percent). Personal outlays-the sum of PCE, personal interest payments, and personal current transfer payments-increased $70.0 billion in June. Personal saving was $646.1 billion in June, and the personal saving rate-personal saving as a percentage of DPI-was 2.7 percent.&lt;!--Full Text Link--&gt;&lt;a href='https://www.bea.gov/news/2026/personal-income-and-outlays-june-2026'&gt;Full Text&lt;/a&gt;&lt;!--Full Text Link--&gt;</description>
+      <data>
+        <main>
+          <current>
+            <infoDate>June 2026</infoDate>
+            <percentChange>+0.2%</percentChange>
+            <rateChange>
+            </rateChange>
+          </current>
+          <previous>
+            <infoDate>May 2026</infoDate>
+            <percentChange>+0.7%</percentChange>
+          </previous>
+        </main>
+        <supplemental name="Personal Consumption Expenditures">
+          <current>
+            <percentChange>0.3</percentChange>
+            <rateChange>65.2</rateChange>
+          </current>
+        </supplemental>
+      </data>
+      <NextReleaseDate>August 26, 2026</NextReleaseDate>
+      <unitsOfMeasure>BLN$</unitsOfMeasure>
+      <changeUnit>PCT</changeUnit>
+      <linkHistoric>https://apps.bea.gov/histdata/</linkHistoric>
+      <linkArchive>https://www.bea.gov/news/archive</linkArchive>
+      <pdf>https://www.bea.gov/sites/default/files/2026-07/pi0626.pdf</pdf>
+      <pubDate>Thu, 30 Jul 2026 08:30:00 EDT</pubDate>
+    </item>
+    <item name="Direct Investment by Country and Industry">
+      <dbId>
+      </dbId>
+      <title>Direct Investment by Country and Industry, 2025</title>
+      <link>https://www.bea.gov/news/2026/direct-investment-country-and-industry-2025</link>
+      <guid isPermaLink="true">https://www.bea.gov/news/2026/direct-investment-country-and-industry-2025</guid>
+      <description>The U.S. direct investment abroad position, or cumulative level of investment, increased $438.1 billion to $7.14 trillion at the end of 2025, according to statistics released today by the U.S. Bureau of Economic Analysis. The increase was led by a $350.2 billion increase in the position in Europe, primarily in the United Kingdom and Luxembourg. By industry, manufacturing had the largest increase, led by chemical manufacturing. 
+                    
+                    The foreign direct investment in the United States position increased $266.0 billion to $5.86 trillion at the end of 2025. The increase was led by a $182.4 billion increase in the position from Europe. The largest increase in position was from German multinationals, with a $49.0 billion increase, and the second-largest increase in position was from Canadian multinationals, with a $39.2 billion increase. By industry, manufacturing increased the most, led by electrical equipment and components manufacturing.    &lt;!--Full Text Link--&gt;&lt;a href='https://www.bea.gov/news/2026/direct-investment-country-and-industry-2025'&gt;Full Text&lt;/a&gt;&lt;!--Full Text Link--&gt;</description>
+      <data>
+        <main>
+          <current>
+            <infoDate>2025</infoDate>
+            <percentChange>
+            </percentChange>
+            <rateChange>
+            </rateChange>
+          </current>
+          <previous>
+            <infoDate>2024</infoDate>
+            <percentChange>
+            </percentChange>
+          </previous>
+        </main>
+      </data>
+      <NextReleaseDate>July 21, 2027</NextReleaseDate>
+      <unitsOfMeasure>BLN$</unitsOfMeasure>
+      <changeUnit>PCT</changeUnit>
+      <linkHistoric>https://apps.bea.gov/histdata/</linkHistoric>
+      <linkArchive>https://www.bea.gov/news/archive</linkArchive>
+      <pdf>https://www.bea.gov/sites/default/files/2026-07/dici0726.pdf</pdf>
+      <pubDate>Tue, 21 Jul 2026 08:30:00 EDT</pubDate>
+    </item>
+    </channel></rss>
