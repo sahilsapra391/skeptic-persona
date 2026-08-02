@@ -1,7 +1,9 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { INGEST_PATH, PRESS_BODY_SOURCE, PRESS_PENDING_PATH } from "../src/ingestRelay";
-import { insertItem, SCORE_POSTABLE } from "../src/lib/db";
+import { insertItem, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../src/lib/db";
+import PRESS_SRC from "../src/ingesters/regulatoryPress.ts?raw";
+import RELAY_SRC from "../src/ingestRelay.ts?raw";
 
 const BASE = "https://worker.local";
 const SECRET = "test-ingest-secret";
@@ -113,5 +115,65 @@ describe("press PDF bodies: storing what the courier extracted", () => {
     expect((await post({ source: PRESS_BODY_SOURCE, body: JSON.stringify({}) })).status).toBe(422);
     expect((await post({ source: PRESS_BODY_SOURCE, body: JSON.stringify({ docs: [{ id: "x" }] }) })).status).toBe(422);
     expect((await post({ source: PRESS_BODY_SOURCE, body: "not json" })).status).toBe(422);
+  });
+});
+
+describe("rawText carries an explicit provenance claim", () => {
+  // WHY THIS IS NOT COSMETIC. checkGroundingProvenance short-circuits its
+  // anchor check for same-entry text: a document parsed out of the very entry
+  // that built the payload cannot be the wrong document. True for a feed
+  // <description>. False for anything fetched separately.
+  //
+  // insertItem used to INFER the mode -- any caller passing rawText got
+  // "ingest_rss" stamped for it. Both callers happened to be press paths, so
+  // nothing was wrong. But a future ingester passing a FETCHED body as
+  // rawText would have silently inherited the same-entry exemption and had a
+  // mis-fetched document licensed for it, with no diff to catch it in: the
+  // label described the population, not the mechanism.
+  it("stamps same_entry as ingest_rss and a fetched body as full", async () => {
+    const now = new Date("2026-08-02T12:00:00.000Z");
+    const base = {
+      category: "regulatory",
+      eventAt: now.toISOString(),
+      sourceUrl: "https://example.gov/x",
+      payload: { authority: "Example", title: "T" },
+      score: SCORE_LOG_ONLY,
+      status: "logged" as const,
+    };
+    await insertItem(
+      env.DB,
+      { ...base, source: "press_x", externalId: "same-1", rawText: "body", rawTextMode: "same_entry" },
+      now,
+    );
+    await insertItem(
+      env.DB,
+      { ...base, source: "press_x", externalId: "fetch-1", rawText: "body", rawTextMode: "fetched" },
+      now,
+    );
+
+    const rows = await env.DB.prepare(
+      `SELECT external_id AS id, json_extract(raw_meta,'$.mode') AS mode
+         FROM items WHERE source='press_x' ORDER BY external_id`,
+    ).all<{ id: string; mode: string }>();
+    const byId = Object.fromEntries(rows.results.map((r) => [r.id, r.mode]));
+    expect(byId["fetch-1"]).toBe("full");
+    expect(byId["same-1"]).toBe("ingest_rss");
+  });
+
+  it("every ingester that supplies rawText declares how it got it", () => {
+    // A grep test, deliberately. The property is about CALL SITES, and no
+    // runtime assertion can see a call site that does not exist yet. This one
+    // fails the moment someone adds a third rawText writer without saying
+    // which kind it is.
+    // ?raw, not readFileSync: the workers pool has no filesystem.
+    const files: Array<[string, string]> = [
+      ["regulatoryPress.ts", PRESS_SRC],
+      ["ingestRelay.ts", RELAY_SRC],
+    ];
+    for (const [f, src] of files) {
+      const writes = (src.match(/rawText:/g) ?? []).length;
+      const claims = (src.match(/rawTextMode:/g) ?? []).length;
+      expect(claims, `${f}: ${writes} rawText writes but ${claims} provenance claims`).toBe(writes);
+    }
   });
 });

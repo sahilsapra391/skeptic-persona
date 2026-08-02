@@ -29,6 +29,26 @@ export interface NewItem {
    * without it get a one-time cached fetch at generation (rag/sourceText).
    */
   rawText?: string | null;
+  /**
+   * How that text was obtained, and it is REQUIRED whenever rawText is set.
+   *
+   * This used to be inferred: any caller passing rawText got
+   * `mode: "ingest_rss"` stamped for it. Both callers happened to be press
+   * paths where it was true, so nothing was wrong -- but the label described
+   * the population, not the mechanism, and nothing enforced the match.
+   *
+   * That matters because a consumer now BRANCHES on it.
+   * checkGroundingProvenance short-circuits its anchor check for
+   * "same_entry" text, on the ground that a document parsed out of the very
+   * entry that built the payload cannot be the wrong document. Correct for a
+   * feed <description>. Wrong for anything fetched separately -- and a future
+   * ingester passing a fetched body as rawText would have silently inherited
+   * the exemption and had a mis-fetched document licensed for it.
+   *
+   * So the caller states it. "same_entry" is a claim the ingester is making
+   * about its own parse, and it should have to make it out loud.
+   */
+  rawTextMode?: "same_entry" | "fetched";
 }
 
 export function dedupKey(source: string, externalId: string): string {
@@ -63,7 +83,15 @@ export async function insertItem(
       item.score,
       item.status ?? "new",
       item.rawText ?? null,
-      item.rawText ? JSON.stringify({ mode: "ingest_rss", fetchedAt: iso(now) }) : null,
+      // "ingest_rss" is kept as the stored value for same_entry so existing
+      // rows and rag/sourceText's mode labels do not move; the type is what
+      // changed, not the wire format.
+      item.rawText
+        ? JSON.stringify({
+            mode: item.rawTextMode === "fetched" ? "full" : "ingest_rss",
+            fetchedAt: iso(now),
+          })
+        : null,
     )
     .run();
   if (res.meta.changes === 0) return { outcome: "duplicate", id: null };
