@@ -261,16 +261,41 @@ and demonstrably a slot that sometimes works.
 | item | evidence |
 |---|---|
 | **The publish loop has never completed** | `post_log.posted_manually = 0`; `chosen_variant` NULL on all live cards. All 18 posts are 07-27/28, Threads era. |
-| **#918 has valid commentary waiting** | dry/sharp/commentary all `valid` at 01:34, sitting untouched in Telegram. **Tapping Copy proves the publish path.** |
-| **#919 fell back to a template** | 6× `rejected:number` then `fallback_template` at **14:09Z**; the fix (#120) merged at **17:30Z**. Deployed and **unexercised**. **Tapping Regenerate proves the fix.** |
+| **#918 and #919 both have valid commentary waiting** | #918 dry/sharp/commentary all `valid` at 01:34; #919 commentary `valid` at 18:04. Both sitting untouched in Telegram. **Tapping Copy is now the ONLY unproven step in the whole pipeline.** |
+| ~~**#919 fell back to a template**~~ **RESOLVED 18:04Z** | It regenerated after #120 deployed and produced **valid commentary**: *"Forex inflows total 40,816 by July 31, 2026, per the Reserve Bank of India / Nine prior Reserve Bank of India items…"*. The figure rejected six times is now licensed, and the "nine prior items" beat comes from our own lake. **#120 is exercised and it works.** |
 | **BEA vs ONS** | blocks the press salience tier. A GDP advance estimate and a release-calendar entry are both "statistics" and only one is news. |
 | **Commentary exemplars** | all seven run **296–354 weighted** against a 280 limit. The model has never been shown a commentary that can ship. |
+
+### Correction to this document, 2026-08-02T18:0xZ
+
+Two rows above were written before #919 regenerated and are struck through
+rather than deleted, because the sequence is the point: the fix merged at
+17:30Z, the failure it fixed was at 14:09Z, and I recorded it as *"deployed
+and unexercised"* because at the time it was. It ran at 18:04Z and worked.
+
+**What this changes:** generation is no longer an open question. The pipeline
+now ingests, curates, grounds and writes end to end. **`copy_taps` and
+`posted_manually` are both still 0**, so the only unproven step left is a
+human pressing Copy.
+
+**One detail worth keeping**, because it sharpens an item below. At attempt 2
+the three variants split:
+
+```
+commentary  valid
+dry         rejected:entity
+sharp       rejected:number   <- "Published 2026-08-01T09:45:00.000Z."
+```
+
+The raw ISO timestamp is not merely ugly in copy-ready text — it is **failing
+the fabrication gate and costing variants.** That moves it from a cosmetic
+item to a functional one.
 
 ### Owned by the p4/ops session
 
 - **`REGULATORY_NEWS` salience tier.** No `case` in `salienceFor`: flat base 70, floor 45, and `CEILING_EXEMPT` — so all 26 sources score identically and none can be capped. Owner's decision says *"enforcement actions"*; the code says the whole archetype. With the original six those nearly coincided. Evidence: [`2026-08-02-press-volume-vs-ceiling.md`](verification/2026-08-02-press-volume-vs-ceiling.md).
 - **`PRODUCT_RECALL` window**, and reporting *which* bound was hit — a bound that is sometimes an under-bound is unreadable from a log.
-- **`"Announced by X, per X"`** and raw ISO timestamps in copy-ready drafts. Both visible in #919's fallback text.
+- **`"Announced by X, per X"`** and raw ISO timestamps in copy-ready drafts. Both visible in #919's fallback text — and per the correction above, the ISO timestamp **fails `numberCheck` and cost the `sharp` variant** on #919's successful regeneration. Functional, not cosmetic.
 
 ### Owned by the ingestion lane — nothing is in flight
 
