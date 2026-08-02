@@ -7,6 +7,7 @@ import {
   DEFAULT_SALIENCE_FLOOR,
   DEFAULT_CAP_BYPASS_SCORE,
   DEFAULT_CATEGORY_CAPS,
+  DEFAULT_CATEGORY_CAP,
 } from "../src/salience";
 import { etDay, etDayStartUtc, holdForDigest, promoteHeldItem, pushDigests, pushedTodayByCategory } from "../src/digest";
 import { insertItem, SCORE_POSTABLE } from "../src/lib/db";
@@ -127,6 +128,23 @@ describe("no category can be unreachable (review HIGH)", () => {
   it("the time-critical categories specifically reach the queue", () => {
     for (const id of ["MACRO_PRINT", "FED_PRESS", "TREASURY_AUCTION", "RATE_DECISION"] as const) {
       expect(salienceFor(id, {}).score).toBeGreaterThanOrEqual(DEFAULT_SALIENCE_FLOOR);
+    }
+  });
+
+  it("...and the DAILY CAP does not re-suppress what the floor deliberately let through", () => {
+    // The round-one HIGH fixed one suppression mechanism and left its sibling.
+    // The floor carve-out's own reasoning — "reachable only in a 21:00 ET
+    // roll-up, up to 12.5h after an 08:30 ET print, while the committed TTLs
+    // give MACRO_PRINT 12h precisely because it is time-critical" — applies
+    // word for word to the cap, which held the third print of a heavy morning
+    // to an evening roll-up arriving after its own TTL expired.
+    //
+    // None of the four can reach DEFAULT_CAP_BYPASS_SCORE, so the cap is the
+    // only thing standing between them and the digest.
+    for (const id of ["MACRO_PRINT", "FED_PRESS", "TREASURY_AUCTION", "RATE_DECISION"] as const) {
+      expect(salienceFor(id, {}).score).toBeLessThan(DEFAULT_CAP_BYPASS_SCORE);
+      const { caps } = parseCategoryCaps(undefined);
+      expect(caps[id] ?? DEFAULT_CATEGORY_CAP).toBeGreaterThan(DEFAULT_CATEGORY_CAP);
     }
   });
 
@@ -328,13 +346,44 @@ describe("the enqueue gate", () => {
   });
 
   it("a gate failure pushes the item — curation may cost noise, never silence", async () => {
+    // THIS TEST USED TO PROVE NOTHING. It built a circular payload so
+    // JSON.stringify would throw inside the gate, then asserted res.held was
+    // undefined. But {items:[{code:'4.02'}], self:<circular>} scores 95, so
+    // salienceHold took the `score >= bypass` branch and returned null BEFORE
+    // parseCategoryCaps, pushedTodayByCategory, holdForDigest or any log call
+    // that touches the payload. Nothing in the try block could throw, the
+    // catch was never entered, and the identical assertion passed for a plain
+    // non-circular payload. Third vacuous test found in this repo tonight.
+    //
+    // The gate can only fail where it touches D1, so break D1 — that is also
+    // the failure the fail-open rule exists for.
     const id = await seed("GATE-6");
-    // A payload that throws on JSON round-trip inside the gate's logging path
-    // must not swallow the item. Circular structure = JSON.stringify throws.
-    const circular: Record<string, unknown> = { items: [{ code: "4.02" }] };
-    circular["self"] = circular;
-    const res = await enqueueForApproval(CURATED, id, "FILING_8K", circular, "https://www.sec.gov/x", NOW);
-    // Either it rendered or it parked as unrenderable, but it was NOT held.
+    // Break ONLY the gate's own query. Poisoning the whole DB proves nothing
+    // useful: the gate would fail open correctly and then the render and the
+    // insert would throw anyway, so the assertion could not tell "the gate let
+    // it through" from "everything downstream also died".
+    const realPrepare = env.DB.prepare.bind(env.DB);
+    const brokenDb = {
+      prepare(sql: string) {
+        if (sql.includes("COUNT(*) AS n FROM queue")) throw new Error("D1_ERROR: gate query failed");
+        return realPrepare(sql);
+      },
+      batch: env.DB.batch.bind(env.DB),
+    };
+    // A score UNDER the bypass, so the gate must actually reach its D1 work
+    // rather than short-circuiting the way the old payload did.
+    const lowScore = { symbol: "AAPL", reasonCode: "T1", name: "Apple", reasonText: "News Pending", haltTimeEtShort: "09:30" };
+    expect(salienceFor("HALT", lowScore).score).toBeLessThan(DEFAULT_CAP_BYPASS_SCORE);
+
+    const res = await enqueueForApproval(
+      { ...CURATED, DB: brokenDb } as never,
+      id,
+      "HALT",
+      lowScore,
+      "https://www.nasdaqtrader.com/x",
+      NOW,
+    );
+    // Not held: a gate that cannot read D1 must let the item through.
     expect(res.held).toBeUndefined();
   });
 });

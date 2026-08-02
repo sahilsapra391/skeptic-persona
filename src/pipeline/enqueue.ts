@@ -119,7 +119,33 @@ export async function enqueueForApproval(
   // RENDER AT ENQUEUE TIME (persona.md: what Sahil approves is byte-identical
   // to what posts). Deterministic seed = the item's identity, so a re-render
   // produces the same text.
-  const rendered = await renderForQueue(env, archetype, payload, seed ?? `${archetype}:${itemId}`);
+  //
+  // Wrapped, because renderForQueue THROWS on a malformed payload rather than
+  // returning ok:false — round three found that, round four guarded
+  // promoteHeldItem for it, and this call stayed bare through both. It is
+  // byte-identical to main, so not a regression, but it is the third time the
+  // same helper has bitten a caller and the second time I fixed one path and
+  // left its neighbour.
+  //
+  // Concrete: payload {items:[{code:'4.02'}], cik:'1', company:'A Co'} scores
+  // 95, clears the floor, and throws TypeError out of firstClause because
+  // title is undefined. The item stays at status='new', so the drain's
+  // `WHERE status='new' ORDER BY id LIMIT 5` re-selects it every poll forever
+  // — a head-of-line block on the whole source, plus a markUnhealthy on each
+  // pass from the ingester's outer catch. Parking it as 'logged' is the same
+  // remedy the ok:false branch already applies, for the same reason.
+  let rendered: Awaited<ReturnType<typeof renderForQueue>>;
+  try {
+    rendered = await renderForQueue(env, archetype, payload, seed ?? `${archetype}:${itemId}`);
+  } catch (e) {
+    await env.DB.prepare(`UPDATE items SET status = 'logged' WHERE id = ?1`).bind(itemId).run().catch(() => {});
+    log("error", "render threw; item parked as logged so it cannot block its source", {
+      itemId,
+      archetype,
+      error: String(e),
+    });
+    return { queueId: 0, notified: false, retryAfter: null };
+  }
   if (!rendered.ok) {
     // Park it in the lake rather than leaving status='new': the drain query
     // is ORDER BY id LIMIT N, so an unrenderable row would head-of-line block

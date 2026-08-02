@@ -214,6 +214,18 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
             archetype: g.archetype,
             error: String(e),
           });
+          // Same flood-control backoff the renderable send path has. Review
+          // found this branch had neither the backoff nor the pacing, and the
+          // condition that makes MANY groups unrenderable at once is a
+          // template or payload regression — precisely when this runs for
+          // every category in turn. Measured: five unrenderable groups against
+          // a 429 produced five back-to-back sends, while three renderable
+          // groups against the same 429 produced one and returned.
+          //
+          // Returning, not continuing: the rows keep sent_at NULL and the next
+          // run retries them unchanged, which is what `told = false` already
+          // guarantees below.
+          if (e instanceof TelegramError && e.retryAfter !== null) return;
         }
         log("error", "digest group unrenderable", {
           day: g.day,

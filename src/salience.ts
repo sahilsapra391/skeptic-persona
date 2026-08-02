@@ -266,6 +266,25 @@ export const DEFAULT_CATEGORY_CAPS: Record<string, number> = {
   SETTLEMENT_FAILURE: 1,
   DELISTING: 1,
   PRODUCT_RECALL: 2,
+  // TIME-CRITICAL, and the same carve-out the FLOOR already gives them.
+  //
+  // Review found the round-one HIGH was fixed on one suppression mechanism and
+  // not its sibling. CATEGORY_BASE raises these four above the floor with the
+  // explicit reasoning that otherwise they are "reachable only in a 21:00 ET
+  // roll-up, up to 12.5h after an 08:30 ET print, while the committed TTLs give
+  // MACRO_PRINT 12h precisely because it is time-critical." Every word of that
+  // applies to the cap: they scored 50-70, all under DEFAULT_CAP_BYPASS_SCORE
+  // of 80, so the third print of a heavy morning was held to the evening
+  // roll-up — arriving after its own TTL had expired.
+  //
+  // A heavy macro morning is CPI plus jobless claims plus a Fed speaker, and
+  // there is no day on which the fourth of those is noise. Set to 4 rather than
+  // exempting the category outright: a stuck upstream feed re-emitting the same
+  // print should still hit a ceiling, which is what the cap is for.
+  MACRO_PRINT: 4,
+  FED_PRESS: 4,
+  TREASURY_AUCTION: 4,
+  RATE_DECISION: 4,
 };
 
 export const DEFAULT_CATEGORY_CAP = 2;
