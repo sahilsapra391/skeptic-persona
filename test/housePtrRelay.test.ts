@@ -273,8 +273,9 @@ describe("house_ptr items past the relay's drain limit still reach the queue", (
   // and pushed its heavy neighbour over. So CI is green while anyone running
   // the one file gets a red, and the red is real work rather than a flake.
   //
-  // 15000 ms leaves headroom without hiding a genuine regression: a change
-  // that triples this test's cost still fails.
+  // Covered by the suite-wide testTimeout in vitest.config.ts rather than a
+  // per-test override, since the same fragility reds db.test.ts and
+  // congressPtr.test.ts under load and a one-test fix would leave those.
   it("pollHousePtr drains the backlog the relay could not enqueue", async () => {
     // THE BUG: drain() enqueues at most 3 per relay request, and house_ptr
     // was the one congressional source with no second drain — pollHousePtr
@@ -309,7 +310,7 @@ describe("house_ptr items past the relay's drain limit still reach the queue", (
       .bind(HOUSE_SOURCE, ...docs)
       .first<{ n: number }>();
     expect(after!.n).toBeLessThan(stranded!.n);
-  }, 15_000);
+  });
 });
 
 describe("the filing's own text is kept as grounding", () => {
