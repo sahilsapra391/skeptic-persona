@@ -4,6 +4,26 @@
 **Owner:** RAG session. **Reviewer:** p4 session, before any code.
 **Migrations:** none. This is a validator.
 
+## Read this first: this chunk is NOT the fabrication fix
+
+Ten of eleven attacks against the proposed check survive. **It catches roughly
+one in eleven of what it targets**, against a non-zero false-positive rate on
+the owner's own signed voice — and that trade is the reason this document does
+not end in "ship it and note the residual".
+
+The mechanism that solves unsourced world-knowledge is **the commentary depth
+gate plus grounding**, both already plan-of-record. This chunk is a narrow
+backstop and should be scoped and priced as one. If it merges reading as
+"the problem is handled", the document has failed.
+
+**Recommended sequencing changed after review:** ship the depth gate, then
+RE-MEASURE the leak, and only then decide whether this is worth building. The
+false-positive rate measured today would be calibrated against drafts produced
+under the *old* contract — starved payloads reaching outside the record — which
+is precisely the population the gate removes. **The number would describe a
+distribution we are about to delete.** I applied that discipline to p4-14 and
+not to my own primary fix; the reviewer caught the asymmetry.
+
 ## The residual, first
 
 **A deterministic check catches the jargon-bearing cases and misses plain
@@ -151,6 +171,17 @@ or what this desk thinks about that record.
 The cheapest compliance with *delete* is deletion, not rewording. That is the
 gradient we want.
 
+**But the better answer is not to retry at all.** Under *"Fix exactly these and
+change nothing else"*, against a 200-character floor, "remove something, I
+won't say what" is close to unfollowable. The model will delete *something* —
+plausibly the licensed part — and the retry may then fail a different gate,
+burning an attempt to arrive somewhere worse.
+
+So this rule should **reject the variant outright and fall through** to the
+next variant or the template, rather than entering the regenerate loop. That
+avoids teaching relexicalisation *and* avoids issuing an instruction that
+cannot be complied with. The `evidence`-to-telemetry-only design is unchanged.
+
 `quote` is the exception and names the span, because there the correct repair
 genuinely is to quote the document or drop the quotation marks.
 
@@ -175,6 +206,11 @@ broken pipeline.
 
 ## Before merge
 
+0. **Re-run the 26/30 fabricated-corpus figure myself.** It is marked as the
+   workflow's rather than mine, and it is still doing load-bearing work in the
+   argument for building this at all. Labelling an unverified number does not
+   make it safe to reason from — it makes the reasoning honestly provisional,
+   which is not the same thing.
 1. Re-measure the false-positive rate **after** `p4-14` lands. Calibrating
    against exemplars that already fail the existing floor is meaningless.
 2. Re-measure once body capture is live — `raw_text` was NULL on all 10,825
