@@ -24,7 +24,7 @@ beforeAll(() => {
   }
 });
 
-beforeEach(() => resetSchemaGuardForTest());
+beforeEach(() => resetSchemaGuardForTest(env.DB));
 
 const post = (body: unknown): Promise<Response> =>
   SELF.fetch(WEBHOOK_URL, {
@@ -88,7 +88,7 @@ describe("findSchemaGap", () => {
   });
 
   it("names the missing object rather than failing anonymously", async () => {
-    resetSchemaGuardForTest();
+    resetSchemaGuardForTest(env.DB);
     const broken = {
       prepare: (sql: string) => ({
         all: async () => {
@@ -101,8 +101,37 @@ describe("findSchemaGap", () => {
     expect(gap).toContain("voice_finals");
   });
 
+  it("a batch failure with every probe clean does NOT report a clean schema", async () => {
+    // The fast path is one batched round trip; diagnosis is a slow per-table
+    // loop. If the batch fails for a reason the loop cannot reproduce, saying
+    // "no gap" would send the reader looking in the wrong place — so it says
+    // what it actually knows.
+    resetSchemaGuardForTest(env.DB);
+    const flaky = {
+      batch: async () => { throw new Error("D1_ERROR: network"); },
+      prepare: () => ({ all: async () => ({ results: [] }) }),
+    } as unknown as D1Database;
+    const gap = await findSchemaGap(flaky);
+    expect(gap).not.toBeNull();
+    expect(gap).toContain("probed clean");
+  });
+
+  it("the healthy path is ONE round trip, not one per table", async () => {
+    resetSchemaGuardForTest(env.DB);
+    let batches = 0, prepares = 0;
+    const counting = {
+      batch: async () => { batches += 1; return []; },
+      prepare: () => { prepares += 1; return { all: async () => ({ results: [] }) }; },
+    } as unknown as D1Database;
+    expect(await findSchemaGap(counting)).toBeNull();
+    expect(batches, "one batched round trip").toBe(1);
+    // prepare() is called to BUILD the statements; what matters is that no
+    // per-table .all() round trip happened, which the batch count proves.
+    expect(prepares).toBe(REQUIRED_SHAPE.length);
+  });
+
   it("caches only SUCCESS — a failure must not outlive the migration that fixes it", async () => {
-    resetSchemaGuardForTest();
+    resetSchemaGuardForTest(env.DB);
     let calls = 0;
     const failing = {
       prepare: () => ({ all: async () => { calls += 1; throw new Error("no such column: draft_text"); } }),
@@ -133,7 +162,7 @@ describe("the refusal does NOT consume the update", () => {
     // that it broke while claiming the update_id, so Telegram never redelivered
     // and the tap was lost. Dropping a required column reproduces the shape.
     await env.DB.prepare(`ALTER TABLE post_log DROP COLUMN grounding_chars`).run();
-    resetSchemaGuardForTest();
+    resetSchemaGuardForTest(env.DB);
     const id = ++updateId;
     try {
       const res = await post({ update_id: id, callback_query: { id: "cb1", from: { id: 424242 }, message: { message_id: 9 }, data: "p:y:1:1:c" } });
@@ -142,20 +171,20 @@ describe("the refusal does NOT consume the update", () => {
       expect(await claimed(id), "an unclaimed update is a redeliverable one").toBe(false);
     } finally {
       await env.DB.prepare(`ALTER TABLE post_log ADD COLUMN grounding_chars INTEGER`).run();
-      resetSchemaGuardForTest();
+      resetSchemaGuardForTest(env.DB);
     }
   });
 
   it("and the SAME update lands once the migration is back — zero lost taps", async () => {
     await env.DB.prepare(`ALTER TABLE post_log DROP COLUMN grounding_chars`).run();
-    resetSchemaGuardForTest();
+    resetSchemaGuardForTest(env.DB);
     const id = ++updateId;
     const refused = await post({ update_id: id, message: { message_id: 2, chat: { id: 424242 }, from: { id: 424242 }, text: "/start" } });
     expect(refused.status).toBe(500);
     expect(await claimed(id)).toBe(false);
 
     await env.DB.prepare(`ALTER TABLE post_log ADD COLUMN grounding_chars INTEGER`).run();
-    resetSchemaGuardForTest();
+    resetSchemaGuardForTest(env.DB);
     const redelivered = await post({ update_id: id, message: { message_id: 2, chat: { id: 424242 }, from: { id: 424242 }, text: "/start" } });
     expect(redelivered.status, "the retry Telegram would send").toBe(200);
     expect(await claimed(id)).toBe(true);

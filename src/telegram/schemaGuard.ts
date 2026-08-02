@@ -74,34 +74,64 @@ export const REQUIRED_SHAPE: ReadonlyArray<{ readonly table: string; readonly co
 ];
 
 /**
- * Cached per isolate, and ONLY on success.
+ * Cached per BINDING, and only on success.
  *
- * A cached failure would survive the migration that fixes it, turning a
- * self-healing 500 into a permanent one until the next cold start — which is
- * the same "recovery path is dead" shape as a suppression whose digest never
- * sends.
+ * Keyed on the D1Database rather than held in a module flag, because module
+ * state is per-isolate and shared across every env an isolate ever sees. That
+ * is harmless today with one binding — but a schema verdict cached from a
+ * different binding is precisely the class this file exists to prevent, and a
+ * guard whose own cache can be stale is a poor advertisement for itself. A
+ * collected binding takes its entry with it.
+ *
+ * A FAILURE IS NEVER CACHED. It would outlive the migration that fixes it,
+ * turning a self-healing 500 into a permanent one until the next cold start —
+ * the same dead-recovery-path shape as a suppression whose digest never sends.
  */
-let verified = false;
+const verified = new WeakMap<D1Database, true>();
 
-/** Test seam: isolates share module state within a run. */
-export function resetSchemaGuardForTest(): void {
-  verified = false;
+/**
+ * Test seam, and it survives the WeakMap for a measured reason: this pool
+ * hands every case in a file the SAME `env.DB` object (checked), so a
+ * per-binding cache persists across cases exactly as a module flag would. The
+ * WeakMap is a production correctness improvement, not a way to delete this.
+ */
+export function resetSchemaGuardForTest(db?: D1Database): void {
+  if (db) verified.delete(db);
 }
 
 /** The missing object, or null when the schema satisfies the writers. */
 export async function findSchemaGap(db: D1Database): Promise<string | null> {
-  if (verified) return null;
-  for (const { table, columns } of REQUIRED_SHAPE) {
-    try {
-      // LIMIT 0 exercises the REAL schema and returns no rows: a missing table
-      // or a missing column is an error, and a present one costs nothing.
-      // Comparing against sqlite_master strings would be a second parser to
-      // keep correct.
-      await db.prepare(`SELECT ${columns.join(", ")} FROM ${table} LIMIT 0`).all();
-    } catch (e) {
-      return `${table} (${String(e).slice(0, 160)})`;
+  if (verified.has(db)) return null;
+
+  // LIMIT 0 exercises the REAL schema and returns no rows: a missing table or
+  // column is an error, a present one costs nothing. Comparing against
+  // sqlite_master strings would be a second parser to keep correct.
+  const probes = REQUIRED_SHAPE.map(({ table, columns }) =>
+    db.prepare(`SELECT ${columns.join(", ")} FROM ${table} LIMIT 0`),
+  );
+
+  try {
+    // ONE round trip for all of them. This runs on the owner's tap latency at
+    // cold start, and six sequential D1 hops is the cost that matters here —
+    // not the query allowance, which is nowhere near binding.
+    await db.batch(probes);
+    verified.set(db, true);
+    return null;
+  } catch {
+    // The batch says something failed, not WHICH — so identify on the slow
+    // path, which only runs when the schema is already broken. Naming the
+    // object is the difference between a 500 the owner can act on and one he
+    // has to bisect.
+    for (const { table, columns } of REQUIRED_SHAPE) {
+      try {
+        await db.prepare(`SELECT ${columns.join(", ")} FROM ${table} LIMIT 0`).all();
+      } catch (e) {
+        return `${table} (${String(e).slice(0, 160)})`;
+      }
     }
+    // Every probe passed individually: the batch failed for some other reason.
+    // Say so rather than reporting a clean schema, which would send the reader
+    // looking in the wrong place.
+    return "schema probe batch failed but every table probed clean";
   }
-  verified = true;
-  return null;
 }
