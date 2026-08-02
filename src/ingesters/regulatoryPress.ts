@@ -519,6 +519,9 @@ export function makePressHandler(src: PressSource) {
             score,
             status: score >= SCORE_POSTABLE && fresh ? "new" : "logged",
             rawText: item.description,
+            // parsePressFeed builds the payload AND the description from the same
+            // <item>/<entry> block, with no fetch in between.
+            rawTextMode: "same_entry" as const,
           },
           now,
         );
