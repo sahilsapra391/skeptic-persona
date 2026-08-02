@@ -45,6 +45,46 @@ describe("an institution is cited the same way in every lane", () => {
   });
 });
 
+describe("no institution is cited two ways anywhere in the union", () => {
+  // MECHANICAL, no table to maintain. Two of the three divergences found on
+  // 2026-08-01 were article-only -- "per Bank of England" against "per the
+  // Bank of England", and the same for the Bank of Canada -- and that class
+  // is detectable without knowing which institution is which.
+  //
+  // It is the class that would have shipped silently, too: the ECB pair was
+  // only caught because "per European Central Bank" against "per the ECB" was
+  // different enough to break a validator. An article costs nothing at the
+  // gate and still puts two citations for one institution on the account.
+  const ALL = [...Object.entries(RATE_ATTRIBUTION), ...Object.entries(PRESS_ATTRIBUTION)];
+  const norm = (cite: string) => cite.toLowerCase().replace(/^per\s+(the\s+)?/, "").replace(/\s+/g, " ").trim();
+
+  it("has no two citations differing only by a definite article or spacing", () => {
+    const byNorm = new Map<string, Set<string>>();
+    for (const [, cite] of ALL) {
+      const k = norm(cite);
+      if (!byNorm.has(k)) byNorm.set(k, new Set());
+      byNorm.get(k)!.add(cite);
+    }
+    const collisions = [...byNorm.entries()]
+      .filter(([, forms]) => forms.size > 1)
+      .map(([k, forms]) => `${k}: ${[...forms].join(" | ")}`);
+    expect(collisions).toEqual([]);
+  });
+
+  it("states plainly what this does NOT catch", () => {
+    // An ABBREVIATION against a full name normalises to two different keys,
+    // so "per ECB" and "per European Central Bank" would both survive the
+    // check above. That was the actual ECB bug, and no normalisation finds it
+    // without a synonym table -- which is a hand-maintained artifact with the
+    // same staleness problem as the list below.
+    //
+    // Pinned as a fact rather than left as an assumption, so nobody reads the
+    // mechanical check as total coverage.
+    expect(norm("per ECB")).not.toBe(norm("per European Central Bank"));
+    expect(norm("per the Bank of England")).toBe(norm("per Bank of England"));
+  });
+});
+
 describe("the ECB citation matches the exemplar the model is told to imitate", () => {
   it('declares "per ECB", the abbreviation the owner wrote', () => {
     // The owner's RATE_DECISION exemplar reads:
