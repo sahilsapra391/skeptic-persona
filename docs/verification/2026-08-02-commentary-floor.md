@@ -109,6 +109,37 @@ Recorded because they will recur if the idea is rebuilt:
   400-character fact block yields a floor of 475 and the model is told
   `"The CONTRACT is 475-280 weighted chars TOTAL"`.
 
+## A constraint that outlives the withdrawal
+
+Found by the delta review, and it applies to **any** future attempt to record
+a pre-generation decision as a status row:
+
+`deliverCards` derives `terminal_status` from `MAX(g.id)` among matching rows.
+A `skipped_*` row inserted BEFORE the LLM loop therefore has the **lowest** id
+of that item's rows, so any completed outcome outranks it — dry and sharp
+valid means terminal `valid`, and the early row is never the one the card
+reads. The only path on which such a row becomes visible is one where every
+OpenRouter attempt also failed, which is precisely the case where it explains
+nothing.
+
+Two consequences that would recur:
+
+- **A pre-flight status is invisible in the common case.** Any "we decided not
+  to ask for X" marker inserted early needs a different mechanism than a
+  `generations` row, or it must be inserted after the loop.
+- **A confident cause can be wrong at the same time.** During an OpenRouter
+  outage the rows are `[too_thin, api_error, api_error]`; only the first
+  matches the terminal predicate, so the card would have asserted "this record
+  cannot fund a take" when the real reason nothing generated was that the LLM
+  was unreachable — and dry and sharp carry no minimum and *were* requested.
+  The row is permanently terminal, so a healthy tick later does not correct it.
+
+The withdrawn code replaced a vague-but-true label ("generation fell back")
+with a confident falsehood, on the only path where the label was visible. That
+is worth more than the specific labels: **a status that names a cause must be
+derivable at the moment the card is built, not at the moment the decision was
+taken.**
+
 ## What was right
 
 The `no_room` / `unmeasurable` split — a product outcome and a defect signal
