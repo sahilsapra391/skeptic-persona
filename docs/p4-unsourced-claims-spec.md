@@ -62,6 +62,27 @@ stopped, because nothing pushed it to continue.
 91% of items come from sources whose median payload is at or below six fields,
 so this is the normal operating condition, not an edge case.
 
+**And the trend is against us.** The ingestion session measured the press
+sources they added tonight, taking press from 6 sources to 26. Across 60 items
+in the adopted fixtures:
+
+| | share |
+| --- | ---: |
+| title carries a money figure | **2%** |
+| title carries any non-date number | 5% |
+| description carries a money figure | 8% |
+| description empty | 35% → 20% after a parser fix |
+
+Their conclusion, and it is the one that matters here: **26 of roughly 35
+sources now structurally cannot fund a 200-character commentary from their own
+record.** The 2% is not a defect to fix — it is what a regulator press feed
+*is*.
+
+So the population this gate will run against is getting thinner as coverage
+grows, which is the opposite of the direction a validator wants. That is an
+argument for the depth gate landing FIRST and for this check being sized
+against the post-gate population rather than today's.
+
 **Therefore:** gate the commentary *variant* on whether the record can fund it,
 falling back to `dry`/`sharp`. The failure mode becomes "a thin item gets a
 wire post" — the archetype's own default — instead of "an unsourceable claim
