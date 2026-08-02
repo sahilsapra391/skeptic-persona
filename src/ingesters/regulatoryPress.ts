@@ -30,6 +30,20 @@ export interface PressSource {
   skipTitle?: RegExp;
 }
 
+/**
+ * gov.uk serves one Atom feed per organisation, mixing press releases with
+ * every document that organisation publishes. Documents carry a type prefix
+ * ("Transparency data: CMA: spending over £500") and press releases do not,
+ * so the prefix is the whole filter: keep the unprefixed items, drop the
+ * document library.
+ *
+ * The list is explicit rather than a `/^[A-Z][a-z ]+:/` shape, because a real
+ * headline can lead with a colon too ("Vodafone: CMA opens inquiry") and that
+ * one must survive.
+ */
+const GOV_UK_DOCUMENT_PREFIX =
+  /^(transparency data|corporate report|foi release|guidance|statutory guidance|correspondence|policy paper|research and analysis|impact assessment|consultation outcome|open consultation|closed consultation|independent report|promotional material|form|notice|accredited official statistics|official statistics|national statistics|statistical data set):/i;
+
 export const PRESS_SOURCES: readonly PressSource[] = [
   // --- Enforcement wire. Highest-lift category measured across the five
   // competitor corpora (1.63x median engagement), and these are the actions
@@ -205,6 +219,71 @@ export const PRESS_SOURCES: readonly PressSource[] = [
     authority: "Sveriges Riksbank",
     url: "https://www.riksbank.se/en-gb/rss/press-releases/",
     categories: [],
+  },
+  {
+    id: "press_bea",
+    authority: "Bureau of Economic Analysis",
+    // GDP, personal income and outlays, the trade balance. The releases
+    // themselves, hours before anyone's summary of them.
+    url: "https://apps.bea.gov/rss/rss.xml",
+    categories: [],
+  },
+  {
+    id: "press_eia",
+    authority: "US Energy Information Administration",
+    // "Today in Energy": EIA publishing its own series as short notes, so
+    // this is a primary source reading its own data, not a vendor's read.
+    url: "https://www.eia.gov/rss/todayinenergy.xml",
+    categories: [],
+    // The feed mixes data notes with explainers, and the explainers are
+    // reliably phrased as questions ("What are tank bottoms?"). A question
+    // is a teaching post, not an event.
+    skipTitle: /\?\s*$/,
+  },
+  {
+    id: "press_wto",
+    authority: "WTO",
+    // Disputes, panel reports and the quarterly goods-trade series.
+    url: "https://www.wto.org/library/rss/latest_news_e.xml",
+    categories: [],
+    // Two kinds of noise: technical-assistance donations ("Lithuania gives
+    // EUR 30,000 to help..."), which are announcements about the WTO rather
+    // than about trade, and the same question-shaped explainers as EIA.
+    skipTitle: /\?\s*$|\b(gives|donates|contributes|pledges)\s+(EUR|US\$|CHF|£|\$)/i,
+  },
+  {
+    id: "press_cma",
+    authority: "UK CMA",
+    // Merger inquiries and anti-competitive conduct cases, which name the
+    // parties in the title ("Vodafone / CK Hutchison JV merger inquiry").
+    url: "https://www.gov.uk/government/organisations/competition-and-markets-authority.atom",
+    categories: [],
+    skipTitle: GOV_UK_DOCUMENT_PREFIX,
+  },
+  {
+    id: "press_hmt",
+    authority: "HM Treasury",
+    url: "https://www.gov.uk/government/organisations/hm-treasury.atom",
+    categories: [],
+    skipTitle: GOV_UK_DOCUMENT_PREFIX,
+  },
+  {
+    id: "press_finma",
+    authority: "FINMA",
+    // Swiss market supervisor. Concludes proceedings against named firms,
+    // which is the shape this desk can actually cite.
+    url: "https://www.finma.ch/en/rss/news/",
+    categories: [],
+    // The /en/ feed is NOT all English: roughly half of it is German
+    // sanctions notices ("Aktualisierte Sanktionsmeldung: Russland"), and
+    // this desk has no translator, so posting one would mean relaying a
+    // regulator's wording in a language we did not read.
+    //
+    // Only "Aktualisierte" was observed on 2026-08-01; the other openers are
+    // prophylactic. RESIDUAL RISK, stated rather than hidden: a German item
+    // starting some other way still gets through. The endpoint being /en/ is
+    // not a guarantee of language, which is the general lesson.
+    skipTitle: /^(Aktualisierte|Sanktionsmeldung|Medienmitteilung|Verfügung|Mitteilung)\b/i,
   },
 ];
 
