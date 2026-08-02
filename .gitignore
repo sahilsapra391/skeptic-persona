@@ -5,3 +5,11 @@ dist/
 coverage/
 .DS_Store
 *.log
+
+# Review/design subagents write scratch tests into test/ and `git add -A` has
+# no opinion about intent — three such files reached commits on 2026-08-01,
+# and test/zzRefuteScratch.test.ts has been on main since 07-28. A test count
+# is the evidence a change is safe; it must not include files nobody read.
+test/zz*
+test/_scratch*
+test/*.probe.test.ts

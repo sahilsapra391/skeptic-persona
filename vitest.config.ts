@@ -20,6 +20,14 @@ export default defineWorkersConfig(async () => {
               BLS_POLL_INTERVAL_MS: "0",
               BLS_POLL_DEADLINE_MS: "300",
               INGEST_SECRET: "test-ingest-secret",
+              // p4-03: curation OFF by default in tests. Ingester suites
+              // assert ingestion behaviour (dedup, drain caps, conditional
+              // GET) and must not also depend on the salience thresholds of
+              // the day. A floor of 0 passes everything; a bypass of 0 makes
+              // every item ignore the daily caps. test/salience.test.ts turns
+              // the gate back ON explicitly by spreading its own env.
+              SALIENCE_FLOOR: "0",
+              CAP_BYPASS_SCORE: "0",
               THREADS_APP_ID: "TESTAPP",
               THREADS_APP_SECRET: "TESTSECRET",
             },

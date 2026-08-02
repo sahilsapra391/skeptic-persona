@@ -25,7 +25,8 @@ export type CadenceProfile =
   | "every_5m"
   | "every_30m"
   | "hourly"
-  | "daily_1330_utc"; // generic daily slot (used by calendar sync jobs)
+  | "daily_1330_utc" // generic daily slot (used by calendar sync jobs)
+  | "daily_2100_et"; // end-of-day roll-up (digest push, after the US close)
 
 /** Off-window next-due: now + offMs, clamped so we never sleep past the window open. */
 function offWindow(now: Date, offMs: number, openHour: number): Date {
@@ -60,6 +61,12 @@ export function nextDue(profile: string, now: Date): Date {
       if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
       return next;
     }
+    // 21:00 ET: after the US close and after the post-close EDGAR wave (the
+    // 20:00-21:00 UTC hour holds 24% of all cards), so a day's digest is
+    // complete when it sends. ET-anchored, so it does not drift by an hour
+    // across DST the way a fixed UTC slot would.
+    case "daily_2100_et":
+      return nextLocalTime(now, ET, 21, 0, true);
     default:
       // Unknown profile (typo in a seeded migration): park an hour out
       // instead of hot-looping, and say so loudly.

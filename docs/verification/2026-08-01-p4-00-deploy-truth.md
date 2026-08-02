@@ -147,3 +147,63 @@ just the three payload facts.
 PENDING Monday: House index rebuild (~13:00 UTC) + the 14:20 UTC house lane
 queue fresh weekend/Monday e-filings (senate lane parked, §4). Record lands
 here as a docs follow-up on main per owner decision 2026-08-01.
+
+
+---
+
+## Operational traps found the hard way, 2026-08-01
+
+Four green signals that answered a different question than the one being
+asked. Each cost real time or nearly shipped a defect; all four are cheap to
+avoid once named.
+
+**1. A local `.dev.vars` makes a passing test fail.** It supplies
+`OPENROUTER_API_KEY`, so the assertion that generation does nothing when
+unconfigured is no longer true locally. Both sessions hit it and both lost
+the SAME test:
+
+```
+with .dev.vars     ->  x runGeneration end-to-end > does nothing unconfigured
+                       Test Files  1 failed | 50 passed (51)
+without            ->  Test Files  51 passed (51)
+```
+
+CORRECTION, recorded rather than quietly fixed: an earlier version of this
+section claimed the two sessions failed in OPPOSITE directions — one gaining
+a pass, one losing one — and generalised from that to "local and CI disagree,
+and which way depends on which tests the key touches". **That was wrong.** It
+came from reading a cross-session report that itself contained both "fails
+locally" and "locally you get more passes than CI" in the same paragraph; the
+first was the measurement and the second was the error, and this document
+amplified the error into a general rule. Re-measured above: one direction,
+one test, both sessions.
+
+The operational rule survives the correction and is simpler than the version
+built on the mistake: **a local full-suite result is not evidence about CI.**
+Here it costs a false failure, which is the cheap direction — you go hunting
+a regression that does not exist. Check on a clean worktree first, not last.
+
+**2. `npm test` says nothing about compilation.** `npm run typecheck` is a
+separate CI step (ci.yml). PR #75 shipped 704 green tests and three
+`TS18047` errors; the sequence that produced it was typecheck, then edit,
+then suite. The rule is **typecheck AFTER the last edit, not before it.**
+
+**3. A mergeability flag read right after a push is a stale computation.**
+GitHub reported `CONFLICTING` for ~20 seconds on a branch whose local merge
+was already clean. Both sessions hit it. Re-read it, or merge locally to
+check.
+
+**4. A quiet Saturday looks exactly like a dead pipeline from `items` alone.**
+`due_now = 0` with sensible FUTURE `due_at`s is a healthy scheduled system;
+the same zero with `due_at`s in the past is a stuck one, and those two states
+are invisible to any query over `items`. Recency of output is not evidence of
+liveness for a scheduled system — which also means an empty digest tomorrow
+morning is not proof the salience layer is broken. Queries in
+`docs/verification/2026-08-01-scheduled-liveness.md`.
+
+**5. A corrected default cannot reach an already-migrated database.** Migration
+0044 seeded `digest_push` disabled; the fix that seeds it enabled is correct
+for a fresh DB and unreachable for production, because wrangler will not
+re-run an applied migration. The repair has to be its own idempotent
+migration (0047), not a note asking someone to remember an `UPDATE`. A
+recovery path guarded by human memory is not a recovery path.
