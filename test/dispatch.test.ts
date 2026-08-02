@@ -396,20 +396,52 @@ describe("time-budget exposure is bounded by the concurrency", () => {
     // true while something pins the bound.
     //
     // Without the `ran > 0 && elapsed >= budget` guard, all 8 run.
+    //
+    // WHAT THIS ASSERTS, AND WHY NOT THE OBVIOUS THING. It measures PEAK
+    // SIMULTANEOUS execution, not cumulative starts. `started.length <=
+    // concurrency` looks like the natural assertion and is NOT a true
+    // invariant — it failed on CI while passing 5/5 locally, and the mechanism
+    // is a clock race, not a harness artefact:
+    //
+    //   TICK_TIME_BUDGET_MS is 1 and workerd's clock granularity is also ~1 ms.
+    //   Instrumenting the guard locally prints `elapsed=1.000` on the very
+    //   first check. On a machine where it reads 0.000, `0 >= 1` is false, so
+    //   the guard does not trip and further jobs start — cumulative starts then
+    //   exceed the concurrency while nothing is wrong with the dispatcher.
+    //
+    // Cumulative starts are also bounded by more than the pool: a runner that
+    // returns early WITHOUT reaching `ran += 1` (a lost claim, or a row with no
+    // registered handler) lets the next item re-check while `ran` is still 0.
+    // Verified: seeding four handler-less rows ahead of the real ones puts SIX
+    // items past the budget check instead of two.
+    //
+    // Peak in-flight has neither problem. It is bounded by the pool's runner
+    // count by construction, with no dependence on the clock, on claim
+    // outcomes, or on row ordering. That is the property the design actually
+    // promises: exposure to an overrun budget is bounded by the concurrency.
     const started: string[] = [];
-    for (let i = 0; i < 8; i++) {
+    let inFlight = 0;
+    let peak = 0;
+    const SEEDED = 8;
+    for (let i = 0; i < SEEDED; i++) {
       const name = `budgetjob${i}`;
       registry[name] = async () => {
         started.push(name);
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
         await new Promise((r) => setTimeout(r, 15));
+        inFlight -= 1;
       };
       await seedJob(name, "2026-07-22T13:30:00.000Z");
     }
     const tight = { ...env, TICK_TIME_BUDGET_MS: "1", TICK_JOB_CONCURRENCY: "2" } as never;
     await tick(tight, NOW);
-    // Same reason: the bound is what the tick resolved, not what was asked for.
     expect(started.length).toBeGreaterThan(0); // the first job is unconditional
-    expect(started.length).toBeLessThanOrEqual(resolveConcurrency(tight)); // the wave is the bound
+    // The bound the design promises, measured where it is deterministic.
+    expect(peak).toBeLessThanOrEqual(resolveConcurrency(tight));
+    // Anti-vacuity: the guard must actually have stopped something. Without it
+    // all 8 run, and this is what goes red.
+    expect(started.length).toBeLessThan(SEEDED);
   });
 });
 
