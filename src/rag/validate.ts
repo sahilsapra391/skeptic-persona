@@ -908,16 +908,32 @@ function isNameShaped(name: string, following: string): boolean {
     if (FURNITURE.has(parts.slice(1).join(" ").toUpperCase())) return false;
   }
 
-  // A trailing MONTH is a date component ONLY when a day number follows it.
+  // A trailing MONTH is a date component ONLY when dateCheck would actually
+  // claim the phrase — tested with dateCheck's OWN regex, not a reading of it.
   //
-  // The adjacency requirement is the whole rule, and its absence was the bug:
-  // dateCheck owns a month only in "July 18", never the bare word. Without it,
-  // any capitalised phrase ending in a month token went unchecked — "Theresa
-  // May", "Senator May", "Congressman June", "Analyst Dec" — and MONTHS holds
-  // the abbreviations too, so Dec/Sept/Nov/Mar/Aug were all name-killers.
-  // Reusing another validator's lexicon is not by itself a safety argument;
-  // the predicate has to match as well as the vocabulary.
-  if (parts.length === 2 && lower[1]! in MONTHS && /^[\s.,]*\d{1,2}\b/.test(following)) return false;
+  // Three rounds on this one rule, and each fix was closer to the last:
+  //   1. Borrowed the MONTHS lexicon with no adjacency at all, so "Theresa
+  //      May" and "Analyst Dec" went unchecked entirely.
+  //   2. Added adjacency, but wrote `[\s.,]*\d{1,2}` — which admits a COMMA
+  //      that DATE_PHRASE_RE's `\s+` does not. On a comma entityCheck stood
+  //      down believing dateCheck owned the phrase, and dateCheck never
+  //      claimed it, so "Senator May, 2 days after the trade." was checked by
+  //      NOTHING. A complete, correctly-sourced, postable draft naming a
+  //      member who exists in no payload field.
+  //      The same predicate also REJECTED "July 4th", which dateCheck accepts
+  //      — wrong in both directions from one near-miss.
+  //   3. This: reuse the regex.
+  //
+  // The rule that ends the family: IF THE ARGUMENT IS "THE OTHER VALIDATOR
+  // OWNS THIS", THE PREDICATE MUST BE THAT VALIDATOR'S PREDICATE. Not its
+  // vocabulary, and not a careful reading of its shape. Anchoring
+  // DATE_PHRASE_RE at the month and running it over `month + following` asks
+  // dateCheck the question directly, so the two cannot disagree about any
+  // separator, ordinal or year form that either of them ever learns.
+  if (parts.length === 2 && lower[1]! in MONTHS) {
+    const anchored = new RegExp(`^(?:${DATE_PHRASE_RE.source})`, "i");
+    if (anchored.test(`${parts[1]!}${following}`)) return false;
+  }
 
   return true;
 }
