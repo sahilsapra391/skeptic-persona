@@ -76,6 +76,41 @@ export function lagDays(filedIso: string, txnDate: string): number | null {
 }
 
 /**
+ * Whole weeks in a disclosure lag, floored. 45 days -> 6 weeks.
+ *
+ * WHY THIS IS A FIELD AND NOT THE MODEL'S JOB. The owner's flagship
+ * CONGRESS_PTR exemplar reads "Legal, disclosed, and six weeks stale." The
+ * fabrication gate refuses arithmetic on principle -- a model that computes
+ * is a model that can compute wrongly and confidently -- so the only way that
+ * sentence can ever be written is if 6 is a number the payload states.
+ *
+ * The prompt has been telling the model "derived figures are already computed
+ * as fields" since p4-01. This is the first one that actually is.
+ */
+export function lagWeeks(days: number | null): number | null {
+  if (days === null || !Number.isFinite(days) || days < 0) return null;
+  return Math.floor(days / 7);
+}
+
+/**
+ * The OLDEST trade's lag in a multi-transaction filing.
+ *
+ * `lagDays` is the newest trade's lag, which is the honest answer to "how
+ * late was this filing" and the wrong one for "how much history landed at
+ * once". A House PTR clearing eleven trades spanning March to May discloses
+ * its newest trade four days late and its oldest 118 days late; only the
+ * second number describes what the filing actually is.
+ *
+ * Returns null when no transaction carries a usable date, and equals
+ * `lagDays` on a single-transaction filing rather than being suppressed --
+ * whether "up to" is worth saying is the template's call, not this one's.
+ */
+export function maxLagDays(filedIso: string, txns: readonly { transactionDate: string }[]): number | null {
+  const lags = txns.map((t) => lagDays(filedIso, t.transactionDate)).filter((d): d is number => d !== null);
+  return lags.length > 0 ? Math.max(...lags) : null;
+}
+
+/**
  * Ratio between a band's upper and lower bound ("$1,001 - $15,000" -> ~15).
  * Gates the "The range is doing a lot of work." escalation beat: a wide band
  * is a parsed property of the disclosure, not an inference about the trade.
