@@ -261,6 +261,115 @@ otherwise.
 
 ---
 
+## 7. One defect in the generation lane, added after parking
+
+Recorded here rather than lost, because it was found by the ingestion session
+after both handoffs were written, and it is in `validate.ts` — my lane.
+
+**A raw ISO timestamp in a draft fails `numberCheck` and costs a variant.**
+Live: `#919`'s `sharp` variant died on `"Published 2026-08-01T09:45:00.000Z."`
+
+Reproduced against the real payload — and the rejection is on the string's
+COMPONENTS, which is the part that names the cause:
+
+```
+"08"  does not appear in the payload
+"01"  does not appear in the payload
+"09"  does not appear in the payload
+"000" does not appear in the payload
+```
+
+The same sentence written as `"Published August 1."` passes.
+
+**The defect is an asymmetry between the two sides of the same check.**
+`payloadFacts` consumes ISO strings structurally, so the payload side never
+leaks `2026-08-01` as the free integers 2026, 8, 1 — that was bypass #4, closed
+twice. `draftNumbers` does **not** do the same on the draft side, so a model
+that quotes a timestamp verbatim has it shredded into unlicensed components.
+
+It is bypass #4 inverted: that one leaked payload components **in** as
+licensed, this one leaks draft components **out** as unlicensed. Both come from
+one side of a pair treating ISO strings structurally and the other not.
+
+**Not cosmetic — it costs a whole variant**, and the fix is not a prompt
+instruction telling the model to avoid timestamps. It is making the draft side
+consume ISO datetimes the way the payload side already does, then checking the
+resulting date against the payload's dates as a tuple. The bypass-#4 machinery
+to do that already exists and is tested; it is simply not applied to the draft
+side of this path.
+
+**Care required**, and it is why this is a note and not a patch: the draft side
+is where `numberCheck` catches fabricated quantities, so anything that consumes
+digits there widens what a draft may state. Any fix needs the enumerate-the-
+class treatment the owner's #80 bar sets for a fabrication-gate relaxation, not
+a one-line regex.
+
+### The payload side is fixed by doctrine — do not "fix" it upstream
+
+The obvious upstream move is to stop writing full ISO into `publishedIso`.
+**That is not available.** CLAUDE.md mandates *"All times stored as ISO-8601
+UTC. Feed timestamps arrive in four different conventions — normalize at
+parse."* Four dialects arrive in four conventions and ISO is what makes them
+comparable. Changing the stored format to dodge a tokenizer trades a real
+invariant for a symptom.
+
+So the pair can only be made symmetric **on the draft side**, which is where
+this is flagged.
+
+### It is OUR beat, not the model quoting a timestamp
+
+`archetypes.ts:889-894`:
+
+```ts
+{ id: "reg.dateStamped",
+  text: "Published {publishedIso}.",
+  tier: "base",
+  when: { op: "has", field: "publishedIso" } }
+```
+
+`fillSlots` substitutes `String(raw)` with no formatting, and `eligibleBeats`
+hands the gated beat to the prompt under *"you may use AT MOST one, verbatim or
+not at all"*.
+
+**So the pipeline offers the model a beat that cannot pass its own validator.**
+The model is not quoting a timestamp of its own accord; we are giving it one
+and then rejecting it.
+
+**And it can NEVER pass, for any press item, ever.** `publishedIso` is always a
+full ISO string — `regulatoryPress.ts` returns `d.toISOString()` on both paths
+(lines 341 and 344), so there is no shape in which that beat renders anything
+`numberCheck` can accept. `reg.dateStamped` has been offered to the model and
+rejected on **every REGULATORY_NEWS generation since it shipped**.
+
+That settles the fix. The tokenizer change widens what a draft may state and
+needs the #80 bar; **the beat change removes a slot that was never usable.**
+Cheaper, narrower, and it closes both exits at once — `"Published August 1."`
+passes and reads like something a person wrote, which the ISO never did.
+
+Worth noting how close this came to being seen already: `regulatoryPress.ts:332`
+carries the comment *"publishedIso is printed verbatim by the REGULATORY_NEWS
+date beat"* — written about a timezone-anchoring concern. The verbatim printing
+was known; its validator consequence was not, because the two live in different
+files and nobody asked the second question.
+
+**And there are two independent exits**, so fixing only the tokenizer leaves
+one live: the validator rejecting a true statement, *and* a copy-ready draft
+containing `2026-08-01T09:45:00.000Z` on the occasions it passes. Nobody wants
+that in a post.
+
+---
+
+## A note on how these handoffs were split
+
+Two handoff documents were written, split **by subsystem**. Both this defect
+and the `#321` card-lifecycle question fell in the gaps *between* subsystems
+and had no owner in either doc — this one because it is generation rather than
+salience, that one because it spans queue lifecycle and the publish loop.
+
+Each was caught only because the two sessions kept talking after parking.
+**The next pair will split the same way**, so it is worth knowing that the
+gaps between the lanes are where the unowned items live.
+
 ## Provenance
 
 Sections 1–6 describe code and measurements produced by the ingestion and p4
