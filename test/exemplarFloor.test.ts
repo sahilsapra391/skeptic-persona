@@ -130,7 +130,13 @@ const COVERED_ARCHETYPES = new Set(OWNER_EXEMPLARS.map((e) => e.archetype));
 const KNOWN_FLOOR_CONFLICTS = [
   { archetype: "INSIDER_CLUSTER", detail: 'entity: name "All Code" does not appear in the payload' },
   { archetype: "FILING_FORM4", detail: 'entity: all-caps token "BUYING" does not appear in the payload' },
-  { archetype: "RATE_DECISION", detail: 'sourcing: attribution "per ECB" is not one of our records' },
+  // "per ECB" REMOVED 2026-08-02: RATE_ATTRIBUTION now declares the
+  // abbreviation the owner's exemplar teaches (#101), so this no longer
+  // trips. The staleness guard named it the moment the fix landed, which is
+  // the whole point of the guard -- the fix forces its own cleanup.
+  //
+  // "per MPC statement" STAYS: there is no rate_rbi source, and that
+  // exemplar also names no institution at all. Both are owner calls.
   { archetype: "RATE_DECISION", detail: 'sourcing: attribution "per MPC statement" is not one of our records' },
 ] as const;
 
