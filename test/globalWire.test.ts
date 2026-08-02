@@ -19,7 +19,8 @@ import WTO from "./fixtures/press-wto.xml.fixture?raw";
 import CMA from "./fixtures/press-cma.xml.fixture?raw";
 import HMT from "./fixtures/press-hmt.xml.fixture?raw";
 import FINMA from "./fixtures/press-finma.xml.fixture?raw";
-import { parsePressFeed, PRESS_SOURCES } from "../src/ingesters/regulatoryPress";
+import { draftPress, parsePressFeed, PRESS_SOURCES } from "../src/ingesters/regulatoryPress";
+import { isFreshAtIngest, isFreshDateOnly } from "../src/ingesters/shared";
 import { PRESS_ATTRIBUTION } from "../src/ingesters/pressAttribution";
 
 // Every feed below was live-probed 2026-08-01 and kept only if it returned
@@ -206,6 +207,107 @@ describe("batch 3 noise filters", () => {
     ]) {
       expect(src("press_finma").skipTitle!.test(en), en).toBe(false);
     }
+  });
+});
+
+describe("a date-only stamp is anchored at UTC midnight, not the source's", () => {
+  it("dates SEBI on the day SEBI published, not the day before", () => {
+    // THE BUG. "31 Jul, 2026 +0530" has NO time of day, so the offset applies
+    // to a moment the source never gave. Honouring it anchored the item at
+    // IST midnight -> 2026-07-30T18:30:00.000Z, and publishedIso is printed
+    // verbatim by the REGULATORY_NEWS date beat. The post stated a calendar
+    // day BEFORE the one SEBI published on.
+    //
+    // Nothing downstream catches it: every validator asks whether a number
+    // came from a parsed field, and this one did. The fabrication floor
+    // guarantees provenance, not correctness.
+    const xml = `<rss><channel><item>
+      <title>Final Order in the matter of an unauthorised pledge</title>
+      <link>https://www.sebi.gov.in/x</link>
+      <pubDate>31 Jul, 2026 +0530</pubDate>
+    </item></channel></rss>`;
+    const [item] = parsePressFeed(xml);
+    expect(item!.publishedIso).toBe("2026-07-31T00:00:00.000Z");
+    expect(item!.publishedIso).not.toBe("2026-07-30T18:30:00.000Z");
+    expect(item!.dateOnly).toBe(true);
+  });
+
+  it("leaves a stamp that DOES carry a time exactly where the source put it", () => {
+    // The offset is only meaningless when there is no time to apply it to.
+    const xml = `<rss><channel><item><title>A thing happened</title>
+      <link>https://example.gov/x</link>
+      <pubDate>Mon, 27 Jul 2026 09:20:41 GMT</pubDate></item></channel></rss>`;
+    const [item] = parsePressFeed(xml);
+    expect(item!.publishedIso).toBe("2026-07-27T09:20:41.000Z");
+    expect(item!.dateOnly).toBe(false);
+  });
+
+  it("gives a date-only item the whole-day freshness allowance", () => {
+    // Any midnight anchor starts the 24h gate BEFORE the source's working
+    // day, so the usable window is whatever is left after publication.
+    // Take a SEBI order filed 23:45 IST on 31 July (18:15Z):
+    //
+    //   old anchor, IST midnight (2026-07-30T18:30Z)  24h gate expires 18:30Z
+    //                                                  -> fresh for 15 MINUTES
+    //   new anchor, UTC midnight (2026-07-31T00:00Z)  24h gate expires 00:00Z
+    //                                                  -> fresh for 5h 45m
+    //   new anchor + whole-day allowance               48h -> fresh for ~29h
+    //
+    // Only the third survives an hourly poll plus a queue that batches. The
+    // first two log the order and it never reaches anyone.
+    const anchored = "2026-07-31T00:00:00.000Z";
+    const nextMorning = new Date("2026-08-01T06:00:00.000Z"); // 11:30 IST, day after
+    expect(isFreshAtIngest(anchored, nextMorning)).toBe(false);
+    expect(isFreshDateOnly(anchored, nextMorning)).toBe(true);
+  });
+});
+
+describe("a headline that ends in a period does not render two", () => {
+  it("trims the title's own terminal period", () => {
+    const src = PRESS_SOURCES.find((s) => s.id === "press_sebi")!;
+    const line = draftPress(src, {
+      title: "Final Order against Zee Entertainment Enterprises Ltd.",
+      link: "https://www.sebi.gov.in/x",
+      publishedIso: "2026-07-31T00:00:00.000Z",
+      categories: [],
+      guid: "g",
+      description: null,
+      dateOnly: true,
+    });
+    expect(line).toMatch(/Ltd$/);
+    expect(line).not.toContain("Ltd..");
+  });
+});
+
+describe("two filters that did not remove what their comments claimed", () => {
+  const src = (id: string) => PRESS_SOURCES.find((s) => s.id === id)!;
+
+  it("DOJ drops grants under their formal name too", () => {
+    // The filter said it removed grants; the alternative was the literal
+    // "grant award", so the Notice of Funding Opportunity sailed through.
+    for (const noise of [
+      "Justice Department Announces Funding Opportunities to Advance Public Safety Efforts Across Tribal Nations",
+      "Department Announces Notice of Funding Opportunity for FY2026",
+      "Justice Department Announces Grant Award to Local Program",
+    ]) {
+      expect(src("press_doj").skipTitle!.test(noise), noise).toBe(true);
+    }
+    // A sentencing names a person and an amount and stays.
+    for (const news of [
+      "Former Executive Sentenced for Insider Trading Scheme",
+      "Pharmaceutical Company Agrees to Pay $150 Million to Resolve Fraud Allegations",
+    ]) {
+      expect(src("press_doj").skipTitle!.test(news), news).toBe(false);
+    }
+  });
+
+  it("EBA drops its periodic e-mail digest, as the EU Commission lane already does", () => {
+    for (const digest of ["EBA E-mail alert 31 July, 2026", "EBA Email alert 24 July, 2026"]) {
+      expect(src("press_eba").skipTitle!.test(digest), digest).toBe(true);
+    }
+    expect(
+      src("press_eba").skipTitle!.test("EBA publishes final draft technical standards on liquidity"),
+    ).toBe(false);
   });
 });
 

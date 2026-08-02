@@ -7,7 +7,7 @@ import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG
   recordSourceError,
 } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
-import { isFreshAtIngest } from "./shared";
+import { isFreshAtIngest, isFreshDateOnly } from "./shared";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -115,7 +115,12 @@ export const PRESS_SOURCES: readonly PressSource[] = [
     // programmes and appointments are not market intelligence.
     // \w* on the stems, not a bare \b: "nominat\b" cannot match "Nominates",
     // because the boundary it demands falls in the middle of the word.
-    skipTitle: /\b(nominat\w*|grant award|communit\w*|appoint\w*|swearing|memorial|award ceremony)\b/i,
+    // "grant award" alone missed the same thing under its formal name:
+    // "Announces Funding Opportunities to Advance Public Safety Efforts"
+    // is a Notice of Funding Opportunity, i.e. exactly what this filter
+    // says it removes, and it was queueing.
+    skipTitle:
+      /\b(nominat\w*|grant awards?|funding opportunit\w*|notice of funding|communit\w*|appoint\w*|swearing|memorial|award ceremony)\b/i,
   },
   {
     id: "press_fed_speeches",
@@ -196,7 +201,10 @@ export const PRESS_SOURCES: readonly PressSource[] = [
     categories: [],
     // The EBA feed carries conference and paper calls alongside supervisory
     // actions; those are academic housekeeping, not supervision.
-    skipTitle: /\b(call for papers|research workshop|vacancy|recruit\w*)\b/i,
+    // The e-mail alert is a periodic digest, not an action -- the identical
+    // case press_eu_commission already filters with /^Daily News\b/i. Its
+    // description is Drupal field markup, so it carries no content either.
+    skipTitle: /\b(call for papers|research workshop|vacancy|recruit\w*)\b|^EBA E-?mail alert\b/i,
   },
   {
     id: "press_boe_news",
@@ -289,9 +297,20 @@ export interface PressItem {
    *  itself, captured at ingest as grounding text (p4-01). Null when the
    *  feed carries none or only boilerplate. */
   description: string | null;
+  /** The feed gave a date with no time of day (SEBI). Freshness for these
+   *  uses the whole-day allowance, since an IST-evening order would other-
+   *  wise be stale within hours of a UTC-midnight anchor. */
+  dateOnly: boolean;
 }
 
-function parseDate(v: string): string {
+interface ParsedDate {
+  iso: string;
+  /** True when the feed gave a DATE with no time of day. Such items get the
+   *  whole-day freshness allowance, not the 24h one -- see makePressHandler. */
+  dateOnly: boolean;
+}
+
+function parseDate(v: string): ParsedDate {
   // Feeds here use RFC-822 ("Mon, 27 Jul 2026 09:20:41 GMT") and a
   // human format ("Monday, July 27, 2026 - 15:30"). Date handles both;
   // anything it cannot read is dropped rather than guessed.
@@ -304,10 +323,25 @@ function parseDate(v: string): string {
     // discarding a real filing over punctuation.
     const dateOnly = /^(\d{1,2})\s+([A-Za-z]{3,})[,]?\s+(\d{4})\s*([+-]\d{4})?$/.exec(cleaned);
     if (dateOnly) {
-      d = new Date(`${dateOnly[1]} ${dateOnly[2]} ${dateOnly[3]} 00:00:00 ${dateOnly[4] ?? "+0000"}`);
+      // ANCHOR AT UTC MIDNIGHT, and DISCARD the offset the stamp carries.
+      //
+      // The first version passed `dateOnly[4] ?? "+0000"` through, reasoning
+      // that honouring the source's zone was the faithful thing. It is the
+      // opposite: a date-only stamp has NO time, so the offset applies to a
+      // moment the source never gave. Anchoring "31 Jul, 2026 +0530" at IST
+      // midnight yields 2026-07-30T18:30:00.000Z -- and publishedIso is
+      // printed verbatim by the REGULATORY_NEWS date beat, so the post
+      // states a calendar day BEFORE the one SEBI published on.
+      //
+      // Nothing catches that downstream. Every validator we have asks
+      // whether a number came from a parsed field, and this one did: the
+      // wrong date IS the parsed field. The fabrication floor guarantees
+      // provenance, not correctness, and the two come apart exactly here.
+      d = new Date(`${dateOnly[1]} ${dateOnly[2]} ${dateOnly[3]} 00:00:00 +0000`);
+      if (!Number.isNaN(d.getTime())) return { iso: d.toISOString(), dateOnly: true };
     }
   }
-  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+  return { iso: Number.isNaN(d.getTime()) ? "" : d.toISOString(), dateOnly: false };
 }
 
 /** Feeds wrap values in CDATA inconsistently, even within one document. */
@@ -367,11 +401,12 @@ export function parsePressFeed(xml: string): PressItem[] {
       "";
     const link = (linkTag || atomHref || "").trim();
     const published = parseDate(firstOf(item, ["pubDate", "dc:date", "published", "updated"]));
-    if (!title || !link || !published) continue;
+    if (!title || !link || !published.iso) continue;
     out.push({
       title,
       link,
-      publishedIso: published,
+      publishedIso: published.iso,
+      dateOnly: published.dateOnly,
       categories: extractAll(item, "category").map((c) => decodeEntities(c.trim())).filter(Boolean),
       guid: (extractFirst(item, "guid") ?? link).trim(),
       description: parseDescription(item, title),
@@ -388,7 +423,10 @@ export function isNewsworthy(src: PressSource, item: PressItem): boolean {
 }
 
 export function draftPress(src: PressSource, item: PressItem): string {
-  return `${src.authority}: ${item.title}`;
+  // Trim the title's own terminal period: templates join clauses with ". ",
+  // and a headline ending "... Zee Entertainment Enterprises Ltd." rendered
+  // as "Ltd..". Same normalisation draftRecall already applies.
+  return `${src.authority}: ${item.title.replace(/\.\s*$/, "")}`;
 }
 
 export function makePressHandler(src: PressSource) {
@@ -407,7 +445,15 @@ export function makePressHandler(src: PressSource) {
 
       for (const item of items) {
         const newsworthy = isNewsworthy(src, item);
-        const fresh = isFreshAtIngest(item.publishedIso, now);
+        // A date-only stamp is anchored at UTC midnight, so the 24h gate
+        // starts counting from BEFORE the source's working day rather than
+        // from publication. Measured on SEBI's "31 Jul, 2026 +0530": an
+        // order published at 23:45 IST was fresh for minutes against an
+        // hourly poll, then logged and never queued. Date-only precision
+        // gets the whole-day allowance, exactly as the congress lanes do.
+        const fresh = item.dateOnly
+          ? isFreshDateOnly(item.publishedIso, now)
+          : isFreshAtIngest(item.publishedIso, now);
         const score = newsworthy ? SCORE_POSTABLE : SCORE_LOG_ONLY;
         await insertItem(
           env.DB,
