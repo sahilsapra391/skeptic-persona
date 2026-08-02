@@ -311,6 +311,65 @@ describe("two filters that did not remove what their comments claimed", () => {
   });
 });
 
+describe("grounding text follows the same four dialects the dates do", () => {
+  // Measured across all 20 adopted feeds on 2026-08-01: 21 of 60 items had
+  // no description, and NINE of those were OFSI, CMA and HM Treasury -- all
+  // Atom, all carrying <summary> the entire time. Reading only <description>
+  // dropped it.
+  //
+  // This is the batch-1 date bug repeating. Atom was taught to the item
+  // reader, the link reader and the date reader; the body was left behind,
+  // because NOTHING FAILS when grounding text goes missing. The item still
+  // parses, still queues, still posts. It just posts thinner, and thin
+  // payloads are what push a model to reach outside the record.
+
+  it("reads Atom <summary>, which three adopted sources use and none had", () => {
+    for (const [id, xml] of [
+      ["press_ofsi", OFSI],
+      ["press_cma", CMA],
+      ["press_hmt", HMT],
+    ] as const) {
+      const items = parsePressFeed(xml);
+      expect(items.length, id).toBeGreaterThan(0);
+      for (const it of items) {
+        expect(it.description, `${id} description`).toBeTruthy();
+        expect(it.description!.length, `${id} length`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("falls back through description, summary, content:encoded, content", () => {
+    const wrap = (body: string) =>
+      `<feed><entry><title>A regulator did a thing</title>
+       <link rel="alternate" href="https://example.gov/x"/>
+       <updated>2026-07-31T12:00:00Z</updated>${body}</entry></feed>`;
+    const long = "The authority has concluded proceedings and set out its reasoning in full.";
+
+    for (const tag of ["summary", "content", "content:encoded"]) {
+      const items = parsePressFeed(wrap(`<${tag}>${long}</${tag}>`));
+      expect(items[0]?.description, tag).toContain("concluded proceedings");
+    }
+    // <description> still wins when a feed carries both.
+    const both = parsePressFeed(wrap(`<description>${long} Primary.</description><summary>Secondary secondary secondary.</summary>`));
+    expect(both[0]?.description).toContain("Primary");
+  });
+
+  it("still refuses a description that only restates the title", () => {
+    // SEBI copies the title verbatim into <description>. Widening the tag
+    // list must not open a path around the guard that drops it -- storing a
+    // duplicate title as grounding teaches the model nothing while looking
+    // like coverage.
+    const dupe = parsePressFeed(
+      `<rss><channel><item><title>Final Order in the matter of unauthorised pledge of property</title>
+       <link>https://www.sebi.gov.in/x</link><pubDate>31 Jul, 2026 +0530</pubDate>
+       <description>Final Order in the matter of unauthorised pledge of property</description>
+       </item></channel></rss>`,
+    );
+    expect(dupe.length).toBe(1);
+    expect(dupe[0]!.description).toBeNull();
+  });
+});
+
 describe("DOJ needs its noise filter", () => {
   it("skips departmental items that are not market intelligence", () => {
     const doj = PRESS_SOURCES.find((s) => s.id === "press_doj")!;
