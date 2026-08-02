@@ -6,6 +6,7 @@ import {
   MAX_TICK_JOB_CONCURRENCY,
   registry,
   resolveConcurrency,
+  TICK_JOB_CONCURRENCY,
   tick,
 } from "../src/dispatch";
 import { fetchPool, MAX_CONCURRENT_FETCHES, newTickBudget, SEC_POOL_CONCURRENCY } from "../src/lib/budget";
@@ -17,6 +18,19 @@ beforeEach(async () => {
 });
 
 const NOW = new Date("2026-07-22T14:00:00Z"); // Wed 10:00 EDT
+
+/** p4-20: due_at now carries a per-job PHASE inside the interval, so a job of
+ *  cadence `every_5m` reschedules near now+5m rather than to a round now+5m.
+ *  Asserting the exact instant would pin the hash rather than the cadence, so
+ *  assert the CONTRACT: advanced, and inside the one-time transition bound of
+ *  [interval/2, 1.5*interval). The dispersion and the bound are pinned
+ *  directly in test/cadence.test.ts. */
+function expectRescheduledWithin(actual: string, now: Date, intervalMs: number) {
+  const t = new Date(actual).getTime();
+  expect(t).toBeGreaterThanOrEqual(now.getTime() + intervalMs / 2);
+  expect(t).toBeLessThan(now.getTime() + intervalMs * 1.5);
+}
+
 
 async function seedJob(name: string, dueAt: string, profile = "every_5m", enabled = 1) {
   await env.DB.prepare("INSERT INTO jobs (name, due_at, cadence_profile, enabled) VALUES (?1, ?2, ?3, ?4)")
@@ -49,7 +63,7 @@ describe("tick", () => {
     await tick(env, NOW);
 
     expect(ran).toEqual(["a"]);
-    expect(await dueAtOf("a")).toBe("2026-07-22T14:05:00.000Z");
+    expectRescheduledWithin(await dueAtOf("a"), NOW, 5 * 60_000);
     expect(await dueAtOf("future")).toBe("2026-07-22T15:00:00.000Z");
   });
 
@@ -68,7 +82,7 @@ describe("tick", () => {
 
     expect(ran).toEqual(["ok"]);
     // Rescheduled BEFORE running: no every-minute retry hammering a source.
-    expect(await dueAtOf("boom")).toBe("2026-07-22T14:05:00.000Z");
+    expectRescheduledWithin(await dueAtOf("boom"), NOW, 5 * 60_000);
   });
 
   it("caps work per tick at MAX_JOBS_PER_TICK, oldest due first", async () => {
@@ -121,7 +135,7 @@ describe("tick", () => {
     await tick(env, NOW);
     expect(await dueAtOf("disabled")).toBe("2026-07-22T13:00:00.000Z");
     // Orphan still gets rescheduled (so a bad deploy can't hot-loop it).
-    expect(await dueAtOf("orphan")).toBe("2026-07-22T14:05:00.000Z");
+    expectRescheduledWithin(await dueAtOf("orphan"), NOW, 5 * 60_000);
   });
 
   it("a job due exactly at now runs (due_at <= now, not <)", async () => {
@@ -132,7 +146,7 @@ describe("tick", () => {
     await seedJob("exact", "2026-07-22T14:00:00.000Z"); // == NOW
     await tick(env, NOW);
     expect(ran).toEqual(["exact"]);
-    expect(await dueAtOf("exact")).toBe("2026-07-22T14:05:00.000Z");
+    expectRescheduledWithin(await dueAtOf("exact"), NOW, 5 * 60_000);
   });
 
   it("overlapping invocations cannot double-run a job (atomic claim)", async () => {
@@ -173,6 +187,24 @@ describe("tick", () => {
 
     expect(ran).toEqual([]);
     expect(await dueAtOf("a")).toBe("2026-07-22T13:00:00.000Z");
+  });
+});
+
+describe("the dispatcher must actually pass the job name to nextDue (p4-20)", () => {
+  it("two same-cadence jobs rescheduled by one tick do not land on the same due_at", async () => {
+    // WIRING, not arithmetic. test/cadence.test.ts proves nextDue disperses
+    // when handed a key — and every one of those tests passes the key itself,
+    // so all of them stay green if the DISPATCHER stops passing row.name.
+    // Deleting that argument was a mutation nothing caught, which is the same
+    // "fixed the call site, never pinned the wiring" hole this repo produced
+    // four times in one night. This is the test that fails when the wiring goes.
+    for (const n of ["twinjob_a", "twinjob_b", "twinjob_c"]) {
+      registry[n] = async () => {};
+      await seedJob(n, "2026-07-22T13:50:00.000Z"); // same cadence, same due_at
+    }
+    await tick(env, NOW);
+    const due = await Promise.all(["twinjob_a", "twinjob_b", "twinjob_c"].map((n) => dueAtOf(n)));
+    expect(new Set(due).size).toBe(3);
   });
 });
 
@@ -531,5 +563,54 @@ describe("the starvation guard never delays latency-critical work", () => {
     expect(ran[0]).toBe("poster");
     // And the starving work still gets its turn in the same tick.
     expect(ran.length).toBeGreaterThan(1);
+  });
+});
+
+describe("resolveConcurrency is a fallback, not a clamp (p4-23 follow-up)", () => {
+  // The integration tests above READ this value back, which is what makes them
+  // portable across machines — and it means nothing exercises the resolver
+  // itself. Hardcoding resolveConcurrency to ignore env leaves all 22 of them
+  // green. The ingestion session caught that gap in my own fix.
+  //
+  // Right split: unit-test the resolver where no harness can interfere,
+  // integration-test the contract. The old test did both through one path and
+  // neither reliably.
+  const R = (v?: string) => resolveConcurrency({ ...env, TICK_JOB_CONCURRENCY: v } as never);
+
+  it("takes a value inside the allowed range", () => {
+    expect(R("1")).toBe(1);
+    expect(R("2")).toBe(2);
+    expect(R("3")).toBe(3);
+  });
+
+  it("FALLS BACK rather than clamping when the value is too high", () => {
+    // The operationally important case. 8 does not become MAX_TICK_JOB_CONCURRENCY,
+    // it becomes the DEFAULT — which is lower than the operator asked for and
+    // lower than the number suggests. Pinned because it is surprising, and it
+    // now logs rather than doing it silently.
+    expect(R("8")).toBe(TICK_JOB_CONCURRENCY);
+    expect(R("6")).toBe(TICK_JOB_CONCURRENCY);
+    expect(MAX_TICK_JOB_CONCURRENCY).toBeLessThan(8);
+  });
+
+  it("falls back on junk, zero, negatives and absence", () => {
+    for (const v of ["0", "-1", "abc", "", " ", "NaN", "Infinity"]) {
+      expect(R(v), `TICK_JOB_CONCURRENCY=${JSON.stringify(v)}`).toBe(TICK_JOB_CONCURRENCY);
+    }
+    expect(resolveConcurrency({ ...env, TICK_JOB_CONCURRENCY: undefined } as never)).toBe(TICK_JOB_CONCURRENCY);
+  });
+
+  it("floors a fractional value inside the range instead of falling back", () => {
+    expect(R("2.7")).toBe(2);
+    // 3.7 is OUT of range (> MAX), so it falls back rather than flooring to 3.
+    expect(R("3.7")).toBe(TICK_JOB_CONCURRENCY);
+  });
+
+  it("never returns something the connection budget cannot fund", () => {
+    // The invariant that made SEC_POOL_CONCURRENCY necessary: whatever the
+    // resolver returns, times the nested pool width, must fit the platform cap.
+    for (const v of ["1", "2", "3", "8", "abc", undefined]) {
+      expect(R(v) * SEC_POOL_CONCURRENCY).toBeLessThanOrEqual(MAX_CONCURRENT_FETCHES);
+    }
   });
 });
