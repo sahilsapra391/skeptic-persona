@@ -65,10 +65,45 @@ Every `REGULATORY_NEWS` card ever created:
 | approved | **1** |
 
 **Stated fairly:** 1 in 39 is 2.6%, and the pipeline-wide approval rate is
-2.18%. Press is **not** an underperforming category — it converts at the
-average. The problem is not its value; it is that the exemption removes the
-cap from the category whose source count just quadrupled, while every category
-that does convert at the same rate stays capped.
+2.17% (20 of 920). Press is **not** an underperforming category — it converts
+at the average. The problem is not its value; it is that the exemption removes
+the cap from the category whose source count just quadrupled, while every
+category that does convert at the same rate stays capped.
+
+### Count approvals as `state ∪ post_log`, or every rate here is wrong
+
+`queue.state='approved'` alone returns **2**. Eighteen more sit in `post_log`
+with `queue.state='expired'`, which the salience record already documents:
+
+> 18 `post_log` rows have `queue.state='expired'` … Reading `queue.state`
+> alone undercounts approvals by 18 and makes six archetypes look uniformly 0%.
+
+Counting one column gives a pipeline rate of 0.22% and makes press look like
+the only category converting at all, roughly 23x everything else. **That
+figure is an artifact.** It is worth naming because the wrong number argues
+for the wrong fix — "leave press uncapped, it is exceptional" — and the right
+number does not.
+
+Per archetype, counted correctly:
+
+| archetype | cards | approved | rate |
+|---|---|---|---|
+| POLICY_ACTION | 19 | 6 | **31.6%** |
+| POSITIONING | 8 | 2 | **25.0%** |
+| INSIDER_NOTICE | 157 | 5 | 3.2% |
+| **REGULATORY_NEWS** | **39** | **1** | **2.6%** |
+| HALT | 219 | 3 | 1.4% |
+| OWNERSHIP_STAKE | 86 | 1 | 1.2% |
+| FILING_FORM4 | 97 | 1 | 1.0% |
+| FILING_8K | 235 | 1 | 0.4% |
+
+**REGULATORY_NEWS is mid-table.** `POLICY_ACTION` converts twelve times better
+and is *also* `CEILING_EXEMPT` — which is the exemption earning its keep, and
+the contrast any tier design should be aimed at.
+
+At n=1 this cannot distinguish 2.6% from 0.5%. It rules out *"cap it because
+it is noise"*. It does not support *"leave it uncapped because it is
+exceptional"*.
 
 ## The code exempts more than the decision does
 
@@ -98,6 +133,28 @@ Mechanically that is a tier declared per authority, in a leaf module keyed the
 same way `PRESS_ATTRIBUTION` is, read by a new `case "REGULATORY_NEWS"` in
 `salienceFor`, with `exempt` computed from the tier rather than from the
 archetype alone.
+
+**Keying on authority works, and it is worth stating because it looks like it
+should not.** `press_sec_enforcement` and `press_sec_speeches` are the same
+institution, so the obvious objection is that authority cannot separate them.
+In production it does:
+
+```
+press_sec_enforcement   authority = "SEC"                 28 items
+press_sec_speeches      authority = "SEC Commissioners"   25 items
+```
+
+Authority is unique per source by a **test-enforced invariant** —
+`test/globalWire.test.ts`, *"gives each source its own authority, so no two
+sources share a citation key"*. Since `payload.authority` is already written
+into every press payload, `salienceFor(archetype, payload)` needs no signature
+change and the leaf map is guarded against divergence by the parity test in
+#110.
+
+The registry also already groups these in prose: `regulatoryPress.ts` opens
+one block `// --- Enforcement wire.` and another `// --- GLOBAL WIRE FANOUT`.
+The grouping exists; it is a comment, so salience cannot read it. Promoting
+the file's own stated grouping into a field beats inventing a taxonomy.
 
 **The weights are not mine to pick and I have not picked them.** Choosing how
 far below the floor an ONS release-calendar entry should sit is an editorial
