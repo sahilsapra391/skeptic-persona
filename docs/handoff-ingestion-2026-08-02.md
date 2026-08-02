@@ -317,12 +317,37 @@ regression suite built from real poison, and a note on every validator that
 consumes it. Recorded so the fourth instance is recognised rather than patched
 locally again.
 
-### Looked past by all three sessions
+### Card #321 — measured, and NOT a risk
 
-**Card #321 has sat unanswered for five days.** Queue TTLs expire unactioned
-cards while their items stay `queued`. With a publish loop that has never run,
-every card is on that path, and **nobody has measured what happens to the item
-when its card expires.**
+An earlier version of this entry called it *"looked past by all three
+sessions"* and said queue TTLs would expire it while its item stayed
+`queued`. **That premise is wrong**, and it is corrected here rather than
+deleted because the wrong version invites a harmful fix.
+
+The expiry sweep is scoped (`db.ts`):
+
+```sql
+UPDATE queue SET state = 'expired', decided_at = ?1
+ WHERE id IN (SELECT id FROM queue WHERE state = 'pending' AND created_at <= …)
+```
+
+**`state = 'pending'`. Approved cards are never swept.** All three live cards
+— #321, #918, #919 — are `approved`, verified in production. They will sit
+indefinitely, and that is correct: the TTL exists to discard drafts nobody
+judged, not decisions the owner made and has not followed through on.
+
+The stranding case is handled too. The same atomic batch carries a
+**self-healing mirror** that repairs items left `queued` by a past partial
+failure, keyed on the whole expired set rather than only this sweep's rows.
+
+**So #321 sitting five days is not decay — it is the system correctly holding
+an approval.** Stated this way on purpose: "unanswered five days, unmeasured"
+reads like rot and would invite someone to build expiry-for-approved-cards,
+which would throw away exactly the work the owner has already blessed.
+
+Traced independently by the RAG session and the p4 session, then verified
+here against the source and the live table. **This lane has no unowned open
+item.**
 
 ---
 
