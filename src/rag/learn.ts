@@ -78,6 +78,37 @@ export function editRatio(draft: string, final: string): number {
 }
 
 /**
+ * The canonical form a post is COMPARED in and STORED in — the same string for
+ * both, which is the whole point.
+ *
+ * The bug this closes: `promotionStatement` stored `finalText.trim()` while
+ * `editDistance` measured the untrimmed pair. So replying with the draft plus
+ * one trailing space gave distance 1 — "edited" — and wrote a `voice_finals`
+ * row BYTE-IDENTICAL to `post_log.draft_text`. Raw model output re-entered the
+ * prompt labelled as the owner's signed voice, which is the collapse mechanism
+ * arriving through a different door: the one closed was `distance === 0`.
+ *
+ * Measuring one string and storing another can never be made consistent by
+ * moving the threshold. A threshold of `> 3` would still promote a genuine
+ * three-character edit, which is defensible; promoting an identical string is
+ * not, at any threshold.
+ *
+ * The reported instance was a trailing space. The CLASS is wider — leading,
+ * trailing, newline and internal runs all produced distance 1 — so this
+ * normalises all of them rather than the one that was demonstrated. Newlines
+ * survive because they carry the fact/beat/take structure; only their runs and
+ * the horizontal whitespace inside a line are collapsed.
+ */
+export function normalisePost(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
  * The register a promoted final rides under, so the bank and the committed
  * exemplars are the same shape at the injection point. 'dry' and 'sharp' are
  * wire registers; 'commentary' is its own. A 'template' fallback is NOT
@@ -139,7 +170,9 @@ export function promotionStatement(db: D1Database, now: Date, input: PromotionIn
   if (!input.wasEdited) return null; // the model's own output never feeds itself
   const register = registerFor(typeof input.variant === "string" ? input.variant : null);
   if (register === null) return null;
-  const text = input.finalText.trim();
+  // The SAME canonical form the distance was measured in. Storing a different
+  // string from the one compared is what let an identical post promote.
+  const text = normalisePost(input.finalText);
   if (text === "") return null;
   // Re-answering a card repairs the row rather than appending a rival one.
   return db
