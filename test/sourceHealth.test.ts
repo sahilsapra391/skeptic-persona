@@ -445,3 +445,47 @@ describe("a legacy row keeps its NULL through further failures", () => {
     expect(f).toBe(iso(t1));
   });
 });
+
+describe("a job that polls no source can still be failing", () => {
+  // THE LIVE INSTANCE, 2026-08-02. `source_health` sat at
+  // jobs.consecutive_failures = 7 for seven hours and appeared in no report.
+  //
+  // It has enabled = 1, so the disabled clause missed it. It has NO
+  // source_state row, so COALESCE made its source count 0 and the source
+  // clause missed it. And jobs.last_ok_at was non-null from before the
+  // breakage, so the never-ran clause missed it. Three clauses, all blind to
+  // the same row -- and the row was the health system itself.
+  //
+  // Cause was code ahead of schema: #84 merged at 22:40:30Z selecting
+  // s.first_failure_at; migration 0048 landed 05:09Z the next morning. Every
+  // hourly run between threw `no such column`. It self-healed, and the seven
+  // hours were invisible because a throwing job writes a counter and no error
+  // text anywhere.
+  it("reports a sourceless job whose HANDLER is throwing", async () => {
+    await env.DB.prepare(
+      `INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority, last_ok_at, consecutive_failures)
+       VALUES ('watcher_job', '2026-08-02T06:00:00.000Z', 'hourly', 1, 50, '2026-08-01T22:23:01.000Z', 7)`,
+    ).run();
+
+    const rows = await healthReport(env as never, new Date("2026-08-02T05:23:00.000Z"));
+    const row = rows.find((r) => r.name === "watcher_job");
+    expect(row, "a job failing 7 times must appear in the report").toBeTruthy();
+    expect(row!.jobFails).toBe(7);
+    expect(row!.fails).toBe(0); // no source_state row: the SOURCE is not what failed
+    expect(row!.hasSource).toBe(0);
+
+    // Assert on THIS row's line, not on the whole report: the seeded fleet
+    // has other rows that legitimately say "never succeeded", and a
+    // whole-text assertion would be measuring them instead.
+    const line = formatHealth(rows, new Date("2026-08-02T05:23:00.000Z"))
+      .split("\n")
+      .find((l) => l.startsWith("watcher_job:"))!;
+    expect(line, "the failing job must have its own line").toBeTruthy();
+    // Name which thing broke: an unanswering source and a throwing handler
+    // need different responses, and one "N fails" hid the difference.
+    expect(line).toContain("JOB fails (handler throwing)");
+    // And read the job clock, since there is no source clock to read.
+    expect(line).toContain("last ok 7h ago");
+    expect(line).not.toContain("never succeeded");
+  });
+});
