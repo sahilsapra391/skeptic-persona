@@ -214,8 +214,17 @@ export async function runSourceHealth(
 export interface HealthRow {
   name: string;
   enabled: number;
+  /** source_state: the SOURCE did not answer. Zero for jobs that fetch nothing. */
   fails: number;
+  /** jobs: the HANDLER threw. A job with no source_state row can only fail this way. */
+  jobFails: number;
   lastOkAt: string | null;
+  /** jobs.last_ok_at — set on any successful handler return, source or not. */
+  jobLastOkAt: string | null;
+  /** 1 when a source_state row exists. Distinguishes "the source has never
+   *  answered" from "this job polls no source", which a null lastOkAt alone
+   *  cannot: both are null and they mean opposite things. */
+  hasSource: number;
   quarantineReason: string | null;
 }
 
@@ -234,16 +243,40 @@ export interface HealthRow {
  * when things are fine.
  */
 export async function healthReport(env: Env, now: Date = new Date()): Promise<HealthRow[]> {
+  // TWO failure counters, and the report used to read only one.
+  //
+  // source_state.consecutive_failures says the SOURCE did not answer.
+  // jobs.consecutive_failures says the HANDLER threw. A job that fetches
+  // nothing -- source_health, generation, digest_push, queue_expiry,
+  // edgar_8k_body, voice_digest -- has NO source_state row, so its only
+  // failure counter is the job one, and this query never looked at it.
+  //
+  // LIVE INSTANCE, 2026-08-02: `source_health` itself sat at
+  // jobs.consecutive_failures = 7 for seven hours and appeared in no report.
+  // It has enabled = 1 (so the disabled clause misses it), no source_state row
+  // (so COALESCE makes its source count 0), and a non-null jobs.last_ok_at
+  // from before the breakage (so the never-ran clause misses it). Three
+  // clauses, all of them blind to the same row.
+  //
+  // The cause was code shipping ahead of its schema: #84 merged 22:40:30Z
+  // selecting s.first_failure_at, migration 0048 was applied at 05:09Z the
+  // next morning, and every hourly run in between threw `no such column`.
+  // Self-healing once the column existed -- but the seven hours were invisible
+  // because a throwing job writes a counter and no error text anywhere.
   const rows = await env.DB.prepare(
     `SELECT j.name AS name, j.enabled AS enabled,
             COALESCE(s.consecutive_failures, 0) AS fails,
+            COALESCE(j.consecutive_failures, 0) AS jobFails,
             s.last_ok_at AS lastOkAt,
+            j.last_ok_at AS jobLastOkAt,
+            CASE WHEN s.source IS NULL THEN 0 ELSE 1 END AS hasSource,
             j.quarantine_reason AS quarantineReason
        FROM jobs j LEFT JOIN source_state s ON s.source = j.name
       WHERE j.enabled = 0
          OR COALESCE(s.consecutive_failures, 0) > 0
+         OR COALESCE(j.consecutive_failures, 0) > 0
          OR (j.last_ok_at IS NULL AND j.due_at <= ?1)
-      ORDER BY j.enabled ASC, fails DESC`,
+      ORDER BY j.enabled ASC, (COALESCE(s.consecutive_failures, 0) + COALESCE(j.consecutive_failures, 0)) DESC`,
   )
     .bind(iso(now))
     .all<HealthRow>();
@@ -261,11 +294,25 @@ export function formatHealth(rows: readonly HealthRow[], now: Date): string {
     // was an outage.
     const state =
       r.enabled === 0 ? (r.quarantineReason ? "QUARANTINED" : "disabled (manual)") : "failing";
+    // Name WHICH thing is failing. "the source will not answer" and "the
+    // handler throws" need different responses -- one is someone else's
+    // outage, the other is our bug -- and a single "N fails" hid that.
+    const parts: string[] = [];
+    if (r.fails > 0) parts.push(`${r.fails} source fails`);
+    if (r.jobFails > 0) parts.push(`${r.jobFails} JOB fails (handler throwing)`);
+    if (parts.length === 0) parts.push("0 fails");
+    // Which clock to read, and it is NOT a null-coalesce. A source-backed job
+    // whose source has never answered has lastOkAt null and a perfectly fresh
+    // jobs.last_ok_at from the polls that failed politely -- falling through
+    // to the job clock would report "last ok 2h ago" for a source that has
+    // never once responded. The existing test caught exactly that.
+    //
+    // So: if a source_state row exists, its clock is the truth and null means
+    // never. Only a job that polls no source falls back to the job clock.
+    const okAt = r.hasSource === 1 ? r.lastOkAt : r.jobLastOkAt;
     const since =
-      r.lastOkAt === null
-        ? "never succeeded"
-        : `last ok ${Math.round(hoursSince(r.lastOkAt, now))}h ago`;
-    return `${r.name}: ${state}, ${r.fails} fails, ${since}`;
+      okAt === null ? "never succeeded" : `last ok ${Math.round(hoursSince(okAt, now))}h ago`;
+    return `${r.name}: ${state}, ${parts.join(" + ")}, ${since}`;
   });
   return `Source health (${rows.length} not clean):\n${lines.join("\n")}`;
 }
