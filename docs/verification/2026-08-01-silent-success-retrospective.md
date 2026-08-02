@@ -276,6 +276,65 @@ but was verified here before being written down: `git show d089bab` gives **0
 `expect(` and 2 `it(` blocks**, added 2026-07-28 and removed 2026-08-01 in #97,
 which is four days on main.
 
+### A sibling, deliberately NOT in either table
+
+One surface from the same nights does not belong under this property, and
+saying why is more useful than filing it anyway.
+
+A budget test failed on CI three times. The cause was neither of the two
+suspects: `TICK_TIME_BUDGET_MS` is **1**, and workerd's clock granularity is
+also **~1 ms**.
+
+```
+PROBE job=budgetjob0 ran=0 elapsed=1.000 budget=1
+PROBE job=budgetjob2 ran=2 elapsed=5.000 budget=1   <- defers
+```
+
+Where `elapsed` reads `1.000` the guard trips; where it reads `0.000`,
+`0 >= 1` is false and more jobs start. **The threshold was set at the
+resolution of the instrument measuring it** — the measurement was fine and the
+*comparison* was below the noise floor.
+
+Every row above is a reporter reporting something untrue. **Here nothing lied.**
+`elapsed` genuinely was `1.000`, and genuinely was `0.000` elsewhere, and
+neither reading is wrong. The report is accurate and the *decision built on it*
+carries no information.
+
+So it is a sibling property rather than an instance: **a threshold placed
+inside its own instrument's error bar.** Filing it in the table would dilute a
+property whose whole value is that it names one mechanism precisely.
+
+**And the tidy version of it is half the story**, which is its own lesson. The
+same assertion was false for a second, independent reason: a runner that
+returns before its counter increments — a lost claim, or a row with no
+registered handler — lets the next item re-check against a stale count. Four
+handler-less rows seeded ahead of the real ones put six items past a guard
+sized for two. Either reason alone makes the test flaky. "The clock was the
+problem" is the satisfying answer and it is 50% of one.
+
+### The shape survives the fix, which is why the fixes kept failing
+
+Stated because three separate sequences here have it, from three sessions:
+
+> Each fix corrected the previous one's surface and kept its shape, and the
+> shape was the problem.
+
+- A budget assertion rewritten three times — a hardcoded bound, then
+  read-the-value-back, then a property independent of timing. The first two
+  kept asserting **a count that several unrelated things can move**.
+- A duplicate-URL guard that encoded *the description of the three sources
+  found by eye* rather than the property, and stayed green because the config
+  happened to be correct.
+- A name/date boundary rewritten three times: borrow the vocabulary, then
+  borrow the shape, then finally borrow the predicate. The first two were
+  approximations of a boundary, and an approximation of a boundary is a hole on
+  both sides of it.
+
+The tell is the same each time: the fix addresses the failing case and leaves
+the class. **A fix scoped to the instance that revealed the class is the
+default failure** — it takes deliberate effort to notice, because the instance
+is always the thing in front of you.
+
 ### Why knowing about it does not help
 
 The clearest evidence is the sixth surface, which was produced **while writing
