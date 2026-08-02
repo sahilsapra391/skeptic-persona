@@ -189,6 +189,35 @@ The last two are the ingestion session's; the assertion-free test file and its
 four-day green are theirs too, found by auditing their own history rather than
 by anything failing.
 
+### Three more, added after a second night
+
+| surface | reported | true |
+|---|---|---|
+| A reviewer reproduced an author's distribution and confirmed every figure | the arithmetic checked out | it was computed over the wrong **population** — 20 of 27 exemplars belonged to a register the rule did not govern. **Reproducing a number confirms the arithmetic and says nothing about the population** |
+| A mutation came back green | the guard is missing | the guard was fine and **the mutation was a no-op** — a comment inserted where a real change should have been. Seen three times, twice from a shell loop that split its own mutation strings on an embedded colon |
+| A cross-session finding arrived contradicting a correct local measurement | the local measurement was wrong | the *incoming* one was, and the recipient moved to retract a good document without re-measuring. It came from the session that had spent the night insisting on provenance marking |
+
+**The mutation row deserves its sign stated**, because the natural reading is
+wrong in both directions. One instance was a passing mutation hiding a defence
+that lived somewhere other than where the author assumed — coverage that
+existed, misattributed. Two were passing mutations hiding **nothing at all** —
+a gap invented where none existed. Same root: the mutation was never verified
+to mutate.
+
+Which makes mutation testing an **instance** of the property rather than an
+exception to it: *a mutation test is a reporter, and its success is evidence
+about the mutation, not about the guard.* Read the diff. The defence is to put
+each mutation's diff in the commit message, including the one expected to stay
+green.
+
+**The cross-session row is the coordination form**, and it is the one with no
+technical fix. Everything three sessions sent each other all night was a
+*summary*, and a summary is a number produced by a process the reader did not
+run. The rule that survives it: **a cross-session finding that contradicts your
+own measurement is a reason to re-measure, not to retract** — which does not
+depend on the sender remembering to attach caveats, and is therefore cheaper
+than asking everyone to be careful.
+
 **Provenance, since this document's own subject demands it.** Rows 1–6 are
 this session's and each was reproduced here. Rows 7–8 are the ingestion
 session's, reported by them and **not** independently re-run — the CPSC and
@@ -221,9 +250,10 @@ Worked instances from the same night, each cheap:
   before this was adopted.
 - **Reviewing a pinned SHA**, stated explicitly, with the author freezing the
   branch until a verdict returns. `#106` moved under a running review three
-  times; each move produced a confident report about code that no longer
-  existed. A review is a measurement of a tree, and the tree is a variable the
-  author controls.
+  times; each move invalidated a running review — one was killed mid-flight and
+  a second required a scoped delta pass to cover what it had missed. A review is
+  a measurement of a tree, and **the tree is a variable the author controls**,
+  which makes the freeze the author's obligation rather than the reviewer's.
 - **Enumerating the class, not the instance** — but only where the change makes
   a validator *accept* something it used to reject. Everywhere else it is a tax
   nobody pays, and an unaffordable discipline is one that quietly stops.
