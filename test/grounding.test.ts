@@ -11,6 +11,14 @@ import { parsePressFeed } from "../src/ingesters/regulatoryPress";
 
 const NOW = new Date("2026-08-01T20:00:00.000Z");
 
+/** Coverage start for these fixtures. p4-27 will not cite a count unless our
+ *  own continuous coverage is >= MIN_COVERAGE_DAYS AND predates the window the
+ *  count spans — so these rows are stamped as fetched long before their events,
+ *  which is what a source we have genuinely been watching looks like. Without
+ *  this the count line is correctly withheld and these tests would be asserting
+ *  a rendering that no longer happens. */
+const COVERED_SINCE = "2026-05-01T00:00:00.000Z";
+
 async function seedPress(externalId: string, title: string, eventAt: string): Promise<number> {
   const res = await insertItem(
     env.DB,
@@ -25,7 +33,9 @@ async function seedPress(externalId: string, title: string, eventAt: string): Pr
     },
     NOW,
   );
-  return res.id ?? 0;
+  const id = res.id ?? 0;
+  await env.DB.prepare(`UPDATE items SET fetched_at = ?1 WHERE id = ?2`).bind(COVERED_SINCE, id).run();
+  return id;
 }
 
 describe("lakeContext (p4-01)", () => {
