@@ -56,6 +56,7 @@ export const RUN_TIME_CAP_MS = 120_000;
 
 const KV_OPENROUTER_ALERTED = "openrouter:auth_alert_sent";
 const KV_ECHO_EMPTY_ALERTED = "echo:empty_alert_sent";
+const KV_UNMEASURABLE_ALERTED = "record:unmeasurable_alert_sent";
 
 const VARIANTS: readonly Variant[] = ["dry", "sharp", "commentary"];
 
@@ -452,6 +453,31 @@ export async function runGeneration(
       log("info", "commentary withheld", {
         queueId: row.queue_id, archetype: archetypeId, verdict, floor: commentaryFloor(floorAnchor),
       });
+      // TWO STATUSES, TWO AUDIENCES. `too_thin` is a PRODUCT OUTCOME — the
+      // record genuinely cannot fund a take inside 280, nothing is wrong, and
+      // silence is correct. `unmeasurable` is a DEFECT SIGNAL: the canonical
+      // render produced no fact block for an item whose record is real.
+      //
+      // They had separate rows in D1 and the same face in Telegram, because
+      // deliver.ts labels only `skipped_no_exemplar` specially and everything
+      // else reads "generation fell back" — and when dry and sharp succeed,
+      // the label branch never runs at all, so the only trace was one info
+      // log. That is the null-versus-zero collapse avoided in the data,
+      // reappearing one layer out in the presentation.
+      //
+      // So the defect signal alerts, on the fallback_blocked precedent, with
+      // the same KV suppression the other two alerts use: this fires per item
+      // and a broken renderer would otherwise flood the chat.
+      if (verdict === "unmeasurable" && !(await env.KV.get(KV_UNMEASURABLE_ALERTED))) {
+        const delivered = await alertOwner(
+          env,
+          `⚠️ #${row.queue_id} (${archetypeId}): the template render produced no fact block, so the commentary floor could not be measured and commentary was withheld. Dry and sharp are unaffected. This is a rendering defect, not a thin record — worth a look.`,
+          budget,
+        );
+        // Suppress only on DELIVERY, so an undelivered alert is retried
+        // rather than swallowed for 24h (the fix applied to the echo alert).
+        if (delivered) await env.KV.put(KV_UNMEASURABLE_ALERTED, "1", { expirationTtl: 24 * 3600 });
+      }
     }
 
     const valid = new Set<Variant>();

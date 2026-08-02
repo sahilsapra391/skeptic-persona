@@ -104,3 +104,40 @@ describe("an owner edit cannot lower the floor", () => {
     expect(commentaryFloor(CANONICAL)).not.toBe(commentaryFloor(OWNER_EDIT_SHORT_FIRST_LINE));
   });
 });
+
+describe("the two withholding reasons keep separate faces", () => {
+  it("a product outcome and a defect do not read the same to the owner", async () => {
+    // They had separate rows in D1 and one face in Telegram. deliver.ts
+    // labelled only skipped_no_exemplar specially; everything else read
+    // "generation fell back", so a thin record (correct, nothing wrong) and a
+    // degraded render (a defect) were indistinguishable — the null-versus-zero
+    // collapse avoided in the data, reappearing in the presentation.
+    const { buildCard } = await import("../src/rag/deliver");
+    const { env } = await import("cloudflare:test");
+    const { insertItem, createQueueEntry, decideQueueEntry, SCORE_POSTABLE } = await import("../src/lib/db");
+    const { iso } = await import("../src/lib/time");
+    const NOW = new Date("2026-08-02T16:00:00Z");
+
+    const mk = async (ext: string, status: string): Promise<string> => {
+      const item = await insertItem(env.DB, {
+        source: "senate_ptr", externalId: ext, category: "congress", eventAt: iso(NOW),
+        sourceUrl: `https://efdsearch.senate.gov/${ext}`,
+        payload: { member: "Jane Roe" }, score: SCORE_POSTABLE,
+      });
+      const qid = await createQueueEntry(env.DB, item.id ?? 0, "CONGRESS_PTR", "Draft, per Senate eFD", NOW);
+      await decideQueueEntry(env.DB, qid, "approved", NOW);
+      const card = await buildCard(env.DB, qid, "CONGRESS_PTR", status, 1);
+      return card.text;
+    };
+
+    const thin = await mk("lbl-thin", "skipped_record_too_thin");
+    const bad = await mk("lbl-bad", "skipped_record_unmeasurable");
+    const plain = await mk("lbl-plain", "fallback_template");
+
+    expect(thin).toContain("cannot fund a take");
+    expect(bad).toContain("a defect, not a thin record");
+    expect(plain).toContain("generation fell back");
+    // The one that matters: they are not the same string.
+    expect(thin).not.toBe(bad);
+  });
+});
