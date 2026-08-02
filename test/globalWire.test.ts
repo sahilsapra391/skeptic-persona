@@ -105,6 +105,32 @@ describe("every source can be cited", () => {
     const dupes = urls.filter((u, i) => urls.indexOf(u) !== i);
     expect(dupes).toEqual([]);
   });
+
+  it("registers no ENDPOINT twice, however the query string differs", () => {
+    // Exact-string equality would have caught only two of the three.
+    //
+    // Re-verifying the batch-3 record on 2026-08-02 found the EU Commission
+    // case is not an identical URL: the registered source carries
+    // `?language=en&pagesize=20` and the probe used `?language=en`. Adopt the
+    // probe URL alongside the existing row and BOTH register, the exact-match
+    // guard passes, and the host is polled twice for the same feed with a
+    // different page size.
+    //
+    // Host + path, query discarded. Safe against the current 26 because no
+    // two press sources legitimately share an endpoint and differ only by
+    // query -- checked before tightening, since a guard that fails on correct
+    // config gets deleted rather than fixed.
+    const key = (u: string) => {
+      const p = new URL(u);
+      return `${p.host.toLowerCase()}${p.pathname.replace(/\/$/, "").toLowerCase()}`;
+    };
+    const keys = PRESS_SOURCES.map((s) => key(s.url));
+    const collisions = keys
+      .map((k, i) => ({ k, id: PRESS_SOURCES[i]!.id }))
+      .filter(({ k }, i) => keys.indexOf(k) !== i)
+      .map(({ k, id }) => `${id} -> ${k}`);
+    expect(collisions).toEqual([]);
+  });
 });
 
 describe("a feed with no date at all is refused, not dated by us", () => {
