@@ -86,13 +86,58 @@ Against the same 400 live rows:
 | floor lowered to what the record supports | 245 | **61%** |
 | unchanged (record already funds 200) | 149 | 38% |
 
-And the check that matters most, the owner's exemplars against the floor they
-would be judged by:
+And the owner's exemplars against the floor they would be judged by:
 
 | | fails |
 | --- | ---: |
 | flat 200 floor | **11 of 27** |
 | record-relative floor | **0 of 27** |
+
+**The 0 is TAUTOLOGICAL and should not be read as validation.** `total = fact +
+take + separators`, so `total >= fact + 75` holds whenever `take >= 75`, and
+anchoring on the observed minimum guarantees the result. Stating it plainly
+because the number looks like a finding and is arithmetic. Raised in review;
+the argument below is what replaces it.
+
+### What actually defends the anchor
+
+The sorted takes:
+
+```
+75, 78, 86, 92, 97, 105, 106, 108, 108, 109, 111, 117, 122, ...
+```
+
+**The bottom of the distribution is dense.** The next value after 75 is 78 and
+the one after is 86, so the minimum and the 10th percentile are 11 characters
+apart and the choice between them barely matters. Had the takes been
+`[75, 120, 124, ...]`, anchoring on 75 would be fitting to a single freak
+sample and the percentile argument would win. They are not, so this is an
+empirical defence rather than a preference.
+
+**The drift risk is the real hazard, and it is guarded.** `MIN_TAKE_WEIGHTED`
+is a literal that happens to equal the data today. A future exemplar with a
+60-character take makes the parity test fail — correctly — and the tempting fix
+is to lower the constant, which ratchets the floor down permanently, one
+exemplar at a time. `test/takeAnchors.test.ts` asserts the constant IS the
+computed minimum, so lowering it is a decision someone makes on purpose.
+
+### And the floor is a boundary, not a target
+
+Models satisfice. Told a range starting at 75, output converges just past 75,
+and the median draft lands ~40% below the median of the voice it imitates —
+every one of them passing, the validator working perfectly, and the posts
+thinner than his. That is the original complaint arriving through a new door.
+
+Raising the floor is the wrong answer, since 124 would reject 11 signed
+exemplars. So the prompt states **two different quantities**: the CONTRACT
+(`commentaryFloor()`, what gets rejected) and the TARGET
+(`TARGET_TAKE_WEIGHTED = 124`, his median, what good looks like), labelled so
+the target can never be read as the boundary.
+
+This does not contradict "a number stated to the model and a number enforced
+against it must come from one function" — that rule is about the contract
+boundary, and it still holds. One contract plus one target is a different shape
+from three statements of one contract.
 
 ## What else had to change
 

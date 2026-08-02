@@ -868,6 +868,23 @@ export function structuralCheck(text: string, variant: Variant = "dry"): Validat
  */
 export const MIN_TAKE_WEIGHTED = 75;
 
+/**
+ * What a GOOD take costs — the owner's MEDIAN, not his minimum.
+ *
+ * This is a target, never a boundary, and the distinction is the point.
+ * Models satisfice: told a range starting at 75, output converges just past
+ * 75, and the median draft lands ~40% below the median of the voice it is
+ * imitating. Every one of them passes, the validator works perfectly, and the
+ * posts are thinner than his — the original complaint arriving through a new
+ * door.
+ *
+ * Raising the FLOOR to 124 is the wrong fix: it would reject 11 of his 27
+ * signed exemplars, which is what this whole change exists to stop. So the
+ * boundary and the target are separate quantities, stated separately, and the
+ * prompt must never let the target read as the contract.
+ */
+export const TARGET_TAKE_WEIGHTED = 124;
+
 /** The first segment: fact block plus attribution, per the structural law. */
 function factBlockOf(text: string): string {
   return text.split(/\n+/).map((s) => s.trim()).find(Boolean) ?? "";
@@ -903,8 +920,28 @@ export function commentaryFloor(templateDraft: string): number {
  * answer is to not ask for a take at all — the item still gets dry and sharp,
  * which are the archetype's own default and carry no length minimum.
  */
+export type CommentaryVerdict = "ok" | "unmeasurable" | "no_room";
+
+/**
+ * Can this record support a take, and if not, WHY — the two reasons being
+ * different facts about the world that must not share a status.
+ *
+ * `unmeasurable` is the degraded-render case. `commentaryFloor("")` returns
+ * MIN_TAKE_WEIGHTED, which is the LOOSEST answer — correct as a validator
+ * default, where a caller who forgot an argument must not cause spurious
+ * rejections, and wrong as a generation decision, where it would admit a
+ * 75-character take against an item whose record is real and simply failed to
+ * render. Generation therefore refuses rather than inheriting the permissive
+ * default: not being able to measure the record is not the same as measuring
+ * a thin one.
+ */
+export function commentaryVerdict(templateDraft: string): CommentaryVerdict {
+  if (factBlockOf(templateDraft).trim() === "") return "unmeasurable";
+  return commentaryFloor(templateDraft) <= POST_TEXT_LIMIT ? "ok" : "no_room";
+}
+
 export function commentaryIsPossible(templateDraft: string): boolean {
-  return commentaryFloor(templateDraft) <= POST_TEXT_LIMIT;
+  return commentaryVerdict(templateDraft) === "ok";
 }
 
 export function lengthCheck(text: string, variant: Variant, templateDraft = ""): ValidationIssue[] {

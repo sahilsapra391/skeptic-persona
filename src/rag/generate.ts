@@ -15,7 +15,7 @@ import { OWNER_EXEMPLARS, stylePackFor } from "./stylepack";
 import { fetchSourceText, hasDedicatedCapture, isBlockedGroundingHost, type SourceText } from "./sourceText";
 import { lakeContext } from "./context";
 import { openerHash, skeletonHash } from "./echo";
-import { checkGroundingProvenance, commentaryFloor, commentaryIsPossible, corpusHasData, validateVariant, type ValidationIssue, type Variant } from "./validate";
+import { checkGroundingProvenance, commentaryFloor, commentaryVerdict, corpusHasData, TARGET_TAKE_WEIGHTED, validateVariant, type ValidationIssue, type Variant } from "./validate";
 
 // The generation job (docs/p2r-plan.md Part D): approved queue rows become
 // three copy-ready variants. Runs AFTER the Approve tap, so the template
@@ -177,7 +177,7 @@ export function buildPrompt(
     // Segment budgets, not just a total: given only "200-280" the model wrote
     // a 115-char fact block and then crushed the take to fit, which is where
     // lossy name compression (and its fabrication risk) comes from.
-    `- commentary (THE deliverable; the other two are fallbacks): ${floor}-${POST_TEXT_LIMIT} weighted chars TOTAL, built as two budgeted parts. Fact block FIRST, at most ${COMMENTARY_FACT_BUDGET} weighted chars including the attribution — compress it yourself (drop clause padding, keep every number and name exact); it must survive being screenshotted alone. Then a blank line, then the take, at most ${COMMENTARY_TAKE_BUDGET} weighted chars: one or two short segments (a punch line, then the argument), opinionated, a real point of view, no hedging, no advice, no imputed motive. Engage the SPECIFIC record in the data above — what this actor did, how it sits against the prior record — not generalities about markets. No claims about market reaction (spreads, flows, pricing, positioning) unless stated in the data above. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a fact as if it were the take.`,
+    `- commentary (THE deliverable; the other two are fallbacks). TWO DIFFERENT NUMBERS, do not confuse them. The CONTRACT is ${floor}-${POST_TEXT_LIMIT} weighted chars TOTAL — outside it the variant is rejected. The TARGET is a take of about ${TARGET_TAKE_WEIGHTED} weighted chars, which is the median of the owner exemplars above; the contract's lower bound is his SHORTEST ever and is a floor, not an aim. Write to the target and let the contract catch mistakes. Built as two budgeted parts: Fact block FIRST, at most ${COMMENTARY_FACT_BUDGET} weighted chars including the attribution — compress it yourself (drop clause padding, keep every number and name exact); it must survive being screenshotted alone. Then a blank line, then the take, at most ${COMMENTARY_TAKE_BUDGET} weighted chars: one or two short segments (a punch line, then the argument), opinionated, a real point of view, no hedging, no advice, no imputed motive. Engage the SPECIFIC record in the data above — what this actor did, how it sits against the prior record — not generalities about markets. No claims about market reaction (spreads, flows, pricing, positioning) unless stated in the data above. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a fact as if it were the take.`,
     "- sharp: wire register (fact block + attribution, then at most one beat line), the escalation tier: the sharpest ELIGIBLE beat, compression at maximum.",
     "- dry: wire register, 100-140 weighted chars. Fact block + attribution, then at most one eligible beat on its own line.",
     attribution !== null
@@ -418,16 +418,19 @@ export async function runGeneration(
     //
     // Recorded as a generations row, not skipped in silence: a variant that
     // was never requested has to be distinguishable from one that failed.
-    const commentaryPossible = commentaryIsPossible(fallback);
-    const wanted: readonly Variant[] = commentaryPossible ? VARIANTS : VARIANTS.filter((v) => v !== "commentary");
-    if (!commentaryPossible) {
-      await insertGeneration(
-        env.DB,
-        { queueId: row.queue_id, variant: "commentary", text: "", status: "skipped_record_too_thin", attempt },
-        now,
-      );
-      log("info", "commentary withheld: the record cannot fund a take inside the limit", {
-        queueId: row.queue_id, archetype: archetypeId, floor: commentaryFloor(fallback),
+    const verdict = commentaryVerdict(fallback);
+    const wanted: readonly Variant[] = verdict === "ok" ? VARIANTS : VARIANTS.filter((v) => v !== "commentary");
+    if (verdict !== "ok") {
+      // Two DIFFERENT facts, two statuses. "no_room" is arithmetic: the
+      // record's fact block plus the shortest signed take exceeds 280.
+      // "unmeasurable" is a degraded render — and it must NOT inherit
+      // commentaryFloor's permissive default, which would admit a
+      // 75-character take against an item whose record is real and simply
+      // failed to render.
+      const status = verdict === "no_room" ? "skipped_record_too_thin" : "skipped_record_unmeasurable";
+      await insertGeneration(env.DB, { queueId: row.queue_id, variant: "commentary", text: "", status, attempt }, now);
+      log("info", "commentary withheld", {
+        queueId: row.queue_id, archetype: archetypeId, verdict, floor: commentaryFloor(fallback),
       });
     }
 
