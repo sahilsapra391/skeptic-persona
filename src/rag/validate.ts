@@ -75,6 +75,33 @@ function canon(n: number): string {
 
 const ISO_DATETIME_RE = /\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?Z?)?/g;
 
+/**
+ * US slash dates — "7/30/2026", "06/29/2026".
+ *
+ * BYPASS #4 WAS ONLY HALF-CLOSED, and this is the other half. Dates are
+ * consumed structurally so their components never enter the numeric set as
+ * free integers; that fix matched ISO only, on the assumption stated in
+ * CLAUDE.md that "all times stored as ISO-8601 UTC". Live `house_ptr` payloads
+ * do not: they carry `filedDate: "7/30/2026"` and `tradeDate: "06/29/2026"`
+ * verbatim from the Clerk.
+ *
+ * Measured against a real production payload (Morrison, MN03), the licensed
+ * small integers were 3, 6, 7, 29, 30, 31 — and 6, 7, 29, 30 are nothing but
+ * month and day digits. Every one of these passed numberCheck:
+ *
+ *     "Seven filings cleared today."     "30 transactions in one PDF."
+ *     "Six insiders moved."              "29 separate purchases."
+ *
+ * Fabricated quantities, licensed by a calendar, on our highest-engagement
+ * source. The guarantee the whole gauntlet exists to provide was holding only
+ * for sources that happened to normalise their dates.
+ *
+ * MM/DD is assumed because every source reaching this shape is a US filing
+ * agent. Ambiguity is not a risk here: both readings are date COMPONENTS, and
+ * the point is to consume them, not to interpret them.
+ */
+const US_DATE_RE = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g;
+
 export interface PayloadFacts {
   /** Canonical numeric values the payload actually states. */
   readonly numbers: Set<string>;
@@ -114,7 +141,15 @@ export function payloadFacts(payload: Payload): PayloadFacts {
       dates.add(`${y}-${mo}-${d}`);
       addNumber(y!, false); // the year alone is a legitimate standalone claim
     }
-    const stripped = v.replace(ISO_DATETIME_RE, " ");
+    // Slash dates are consumed the same way, for the same reason (bypass #4's
+    // other half): components must never survive as free integers.
+    for (const m of v.matchAll(US_DATE_RE)) {
+      const [mo, d, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
+      dates.add(`${mo}-${d}`);
+      dates.add(`${y}-${mo}-${d}`);
+      addNumber(y, false); // the year alone is a legitimate standalone claim
+    }
+    const stripped = v.replace(ISO_DATETIME_RE, " ").replace(US_DATE_RE, " ");
     for (const m of stripped.matchAll(/\d[\d,]*\.?\d*/g)) {
       addNumber(Number(m[0].replace(/,/g, "")), percentContext);
     }
@@ -165,18 +200,22 @@ export function groundingFacts(grounding: string): PayloadFacts {
   // the draft-side DATE_PHRASE_RE: month-name and ISO forms only. Free prose
   // is full of slash tokens that are not dates ("a 3/4 majority", "24/7"),
   // and each would otherwise license a fabricated month-day (review finding).
-  const afterDates = grounding.replace(GROUNDING_DATE_RE, (_, mn1, d1, y1, d2, mn2, y2, yIso, mIso, dIso) => {
+  const afterDates = grounding.replace(
+    GROUNDING_DATE_RE,
+    (_, mn1, d1, y1, d2, mn2, y2, yIso, mIso, dIso, mSlash, dSlash, ySlash) => {
     let m: number | undefined, d: number | undefined, y: number | undefined;
     if (mn1) [m, d, y] = [MONTHS[String(mn1).toLowerCase()], Number(d1), y1 ? Number(y1) : undefined];
     else if (mn2) [m, d, y] = [MONTHS[String(mn2).toLowerCase()], Number(d2), y2 ? Number(y2) : undefined];
-    else [y, m, d] = [Number(yIso), Number(mIso), Number(dIso)];
+    else if (yIso) [y, m, d] = [Number(yIso), Number(mIso), Number(dIso)];
+    else [m, d, y] = [Number(mSlash), Number(dSlash), Number(ySlash)];
     dates.add(`${m}-${d}`);
     if (y !== undefined) {
       dates.add(`${y}-${m}-${d}`);
       addNumber(y);
     }
     return " ";
-  });
+  },
+  );
 
   // Clock times consumed next, mirroring numberCheck's own time pass: "9:30
   // a.m." must not hand 9 and 30 to the licensed set (review finding — the
@@ -581,13 +620,32 @@ const DATE_PHRASE_RE = new RegExp(
   "gi",
 );
 
-/** Grounding-side date grammar: month-name and ISO forms ONLY. The slash
- *  form stays draft-side (DATE_PHRASE_RE) where it validates a claim; over
- *  free source prose it would mint dates from fractions and dockets. */
+/**
+ * Grounding-side date grammar: month-name, ISO, and the STRICT slash form.
+ *
+ * The slash form was excluded here on the stated ground that "over free source
+ * prose it would mint dates from fractions and dockets". That risk is real for
+ * a loose pattern and does not survive the strict one: `\d{1,2}/\d{1,2}/\d{4}`
+ * requires a four-digit year, which "1/2 of holders" and docket "3-12345" do
+ * not have.
+ *
+ * Excluding it had a measured cost. `groundingFacts("...submitted 7/30/2026
+ * by the member.")` licensed 7 and 30 as free integers, which mergeFacts then
+ * hands to the draft — the same date-component leak just closed on the payload
+ * side, through the p4-01 widening instead. US filing agents print slash dates
+ * constantly, so this fires on ordinary source documents rather than
+ * adversarial ones.
+ *
+ * Changing a documented decision, so the reasoning is here rather than in a
+ * commit message: the original concern was about a pattern loose enough to
+ * match fragments, and the fix is to keep the pattern tight, not to leave the
+ * components licensed.
+ */
 const GROUNDING_DATE_RE = new RegExp(
   `\\b(?:(${MONTH_NAME})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(\\d{4}))?` +
     `|(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTH_NAME})\\.?(?:,?\\s+(\\d{4}))?` +
-    `|(\\d{4})-(\\d{2})-(\\d{2}))\\b`,
+    `|(\\d{4})-(\\d{2})-(\\d{2})` +
+    `|(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4}))\\b`,
   "gi",
 );
 
