@@ -396,23 +396,58 @@ describe("generation and delivery are decoupled (p4-13)", () => {
     // reachable today rather than hypothetical.
     registerJobs();
     const handler = registry["generation"]!;
-    // A poisoned DB makes runGeneration's very first query throw. deliverCards
-    // then runs against the same poisoned DB and throws too — so the assertion
-    // that matters is which error escapes: delivery's, not generation's,
-    // proves delivery was attempted after the failure.
+
+    // The first version of this test threw the IDENTICAL message from both
+    // stub paths and asserted only `rejects.toThrow("D1 hiccup")`. That passes
+    // whether or not delivery was ever attempted — review proved it by
+    // swapping in the pre-PR src/jobs.ts (the plain sequential
+    // `await runGeneration(); await deliverCards();`) and watching it stay
+    // green. The comment claimed the escaping error identified the path; the
+    // code made the two indistinguishable.
+    //
+    // So: distinct messages per path, and a record of the SQL actually
+    // attempted. deliverCards' opening query is the only one that selects
+    // `stale_card`, which makes it a reliable fingerprint.
+    const seen: string[] = [];
+    const DELIVERY_SQL = "stale_card";
     const poisoned = {
       ...env,
+      // Set explicitly: deliverCards returns early without these, which would
+      // make the delivery assertion below fail for a reason unrelated to the
+      // decoupling. Better a confusing red than a silent green.
+      TELEGRAM_BOT_TOKEN: "TEST:TOKEN",
+      TELEGRAM_CHAT_ID: "424242",
       OPENROUTER_API_KEY: "k",
       OPENROUTER_MODEL: "m",
       DB: {
-        prepare() {
-          throw new Error("D1 hiccup in collisionCheck");
+        prepare(sql: string) {
+          seen.push(sql);
+          throw new Error(
+            sql.includes(DELIVERY_SQL) ? "D1 hiccup in deliverCards" : "D1 hiccup in collisionCheck",
+          );
         },
         batch() {
+          seen.push("batch()");
           throw new Error("D1 hiccup in collisionCheck");
         },
       },
     } as never;
-    await expect(handler(poisoned, NOW, newTickBudget())).rejects.toThrow("D1 hiccup");
+
+    await expect(handler(poisoned, NOW, newTickBudget())).rejects.toThrow(
+      // Delivery's error, not generation's. In the decoupled handler
+      // deliverCards runs AFTER the generation catch and its throw propagates
+      // directly, so this message can only escape if delivery was attempted.
+      // Under the pre-PR sequential version the generation throw escapes first
+      // and this assertion goes red.
+      "D1 hiccup in deliverCards",
+    );
+
+    // Belt and braces, and the assertion that survives a refactor of the
+    // error messages: both paths were actually entered, generation first.
+    const generationAttempted = seen.findIndex((s) => !s.includes(DELIVERY_SQL));
+    const deliveryAttempted = seen.findIndex((s) => s.includes(DELIVERY_SQL));
+    expect(generationAttempted).toBeGreaterThanOrEqual(0);
+    expect(deliveryAttempted).toBeGreaterThanOrEqual(0);
+    expect(deliveryAttempted).toBeGreaterThan(generationAttempted);
   });
 });
