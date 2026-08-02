@@ -189,26 +189,49 @@ The last two are the ingestion session's; the assertion-free test file and its
 four-day green are theirs too, found by auditing their own history rather than
 by anything failing.
 
-### Three more, added after a second night
+### Three more, where the check ON THE CHECK failed
 
 | surface | reported | true |
 |---|---|---|
 | A reviewer reproduced an author's distribution and confirmed every figure | the arithmetic checked out | it was computed over the wrong **population** — 20 of 27 exemplars belonged to a register the rule did not govern. **Reproducing a number confirms the arithmetic and says nothing about the population** |
-| A mutation came back green | the guard is missing | the guard was fine and **the mutation was a no-op** — a comment inserted where a real change should have been. Seen three times, twice from a shell loop that split its own mutation strings on an embedded colon |
+| A mutation came back green | the guard is missing | the guard was fine and **the mutation was a no-op** — a comment inserted where a real change should have been. Seen repeatedly — a no-op comment where a real change belonged, and a shell loop that split its own mutation strings on an embedded colon |
 | A cross-session finding arrived contradicting a correct local measurement | the local measurement was wrong | the *incoming* one was, and the recipient moved to retract a good document without re-measuring. It came from the session that had spent the night insisting on provenance marking |
 
 **The mutation row deserves its sign stated**, because the natural reading is
 wrong in both directions. One instance was a passing mutation hiding a defence
 that lived somewhere other than where the author assumed — coverage that
-existed, misattributed. Two were passing mutations hiding **nothing at all** —
-a gap invented where none existed. Same root: the mutation was never verified
-to mutate.
+existed, misattributed. Others were passing mutations hiding **nothing at
+all** — a gap invented where none existed.
 
-Which makes mutation testing an **instance** of the property rather than an
-exception to it: *a mutation test is a reporter, and its success is evidence
-about the mutation, not about the guard.* Read the diff. The defence is to put
-each mutation's diff in the commit message, including the one expected to stay
-green.
+**But the property bites one step earlier than "the mutation test lied", and
+the difference changes what you do about it.** A green mutation run reports one
+bit for a conjunction of two claims: *the code changed* and *a test noticed*.
+Green cannot say which conjunct failed. That is under-determination, and
+nothing in it involves a success signal produced by a different process than
+the work.
+
+The genuine instance is the **mutation-application step**. `sed` exits 0
+whether or not it matched. Python's `str.replace` no-ops silently on a missing
+anchor — already in the adjacent-instances list below, as a patch script that
+printed `polish applied` having changed nothing. A shell loop that split its
+mutation strings on an embedded colon exits 0 having applied garbage. *That* is
+a reporter reporting success while the worker did nothing.
+
+So: **the diff is not a double-check on a test you already half-trust. It is
+what makes the run's output mean anything at all.** Without it, green is not a
+weak signal — it is not a signal. Put each mutation's diff in the commit
+message, including the one expected to stay green.
+
+**All three are the defence failing**, which is why they are separated rather
+than appended. The conclusion below is *"the only defence is a check performed
+by something other than the reporter"* — and these are three checks-on-checks
+doing exactly that and still reporting wrongly. A reader who reaches that
+conclusion should meet its counter-examples immediately.
+
+And they share a shape: a reviewer confirmed an **arithmetic** and never asked
+what it was computed over; a mutation run confirmed an **exit code** and never
+asked what it was applied to. **Both verified the operation and not the
+operand.**
 
 **The cross-session row is the coordination form**, and it is the one with no
 technical fix. Everything three sessions sent each other all night was a
