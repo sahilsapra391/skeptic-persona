@@ -135,19 +135,10 @@ export async function buildCard(
 
   if (copyRow.length === 0) {
     const text = await resolveVariantText(db, queueId, "template");
-    // Each terminal status that means something DIFFERENT to the owner says
-    // something different. "generation fell back" was the catch-all, and it
-    // read identically for a thin record (a product outcome, nothing wrong)
-    // and a degraded render (a defect). Distinctions kept in D1 and collapsed
-    // in the message are distinctions the owner does not have.
     const label =
       terminalStatus === "skipped_no_exemplar"
         ? `template draft (no exemplar for ${archetype} yet — write one to enable generation)`
-        : terminalStatus === "skipped_record_too_thin"
-          ? "template draft (this record cannot fund a take inside 280 — wire copy is the right output here)"
-          : terminalStatus === "skipped_record_unmeasurable"
-            ? "template draft (⚠️ the render produced no fact block — a defect, not a thin record)"
-            : "template draft (generation fell back)";
+        : "template draft (generation fell back)";
     sections.push(`— ${label} —\n${text ?? ""}`);
     copyRow.push({ text: "Copy draft", callback_data: `c:t:${queueId}:${cycle}` });
   }

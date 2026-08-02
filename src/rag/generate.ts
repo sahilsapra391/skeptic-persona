@@ -8,7 +8,7 @@ import { ARCHETYPES, renderForQueue } from "../templates";
 import type { ArchetypeId, Payload } from "../templates/types";
 import { evaluateGate } from "../templates/gate";
 import { fillSlots, resolveAttribution } from "../templates/render";
-import { fitsInPost, POST_TEXT_LIMIT } from "../templates/length";
+import { fitsInPost } from "../templates/length";
 import { checkRegister } from "../templates/validate";
 import { chatComplete, OpenRouterError, parseVariants } from "./openrouter";
 import { OWNER_EXEMPLARS, stylePackFor } from "./stylepack";
@@ -16,7 +16,7 @@ import { ownerFinals } from "./learn";
 import { fetchSourceText, hasDedicatedCapture, isBlockedGroundingHost, type SourceText } from "./sourceText";
 import { lakeContext } from "./context";
 import { openerHash, skeletonHash } from "./echo";
-import { checkGroundingProvenance, commentaryFloor, commentaryVerdict, corpusHasData, TARGET_TAKE_WEIGHTED, validateVariant, type ValidationIssue, type Variant } from "./validate";
+import { checkGroundingProvenance, corpusHasData, validateVariant, type ValidationIssue, type Variant } from "./validate";
 
 // The generation job (docs/p2r-plan.md Part D): approved queue rows become
 // three copy-ready variants. Runs AFTER the Approve tap, so the template
@@ -82,7 +82,6 @@ export function ownerFinalsAllowance(committedCount: number): number {
 
 const KV_OPENROUTER_ALERTED = "openrouter:auth_alert_sent";
 const KV_ECHO_EMPTY_ALERTED = "echo:empty_alert_sent";
-const KV_UNMEASURABLE_ALERTED = "record:unmeasurable_alert_sent";
 
 const VARIANTS: readonly Variant[] = ["dry", "sharp", "commentary"];
 
@@ -148,17 +147,11 @@ export function buildPrompt(
   exemplars: ReadonlyArray<{ archetype: ArchetypeId; text: string; register?: "wire" | "commentary" }>,
   feedback: readonly string[] = [],
   grounding?: { source?: SourceText | null; contextLines?: readonly string[] },
-  /** The wire draft, so the commentary budget stated to the model is the one
-   *  the validator will apply. Two numbers that must agree, read from one
-   *  function — the prompt asking for 200 while lengthCheck wanted something
-   *  else is the shape that produced 5 rejections on the first live call. */
-  templateDraft = "",
 ): { system: string; user: string } {
-  const floor = commentaryFloor(templateDraft);
   const beats = eligibleBeats(archetypeId, payload);
   const system = [
     stylePackFor(archetypeId),
-    `OWNER EXEMPLARS (the voice to match; these outrank everything above on tone). Their NUMBERS are from PAST filings: reusing any number not in this item's payload fails validation. Commentary exemplars may run longer than the platform limit: match their VOICE, obey the ${floor}-${POST_TEXT_LIMIT} contract for THIS item.`,
+    "OWNER EXEMPLARS (the voice to match; these outrank everything above on tone). Their NUMBERS are from PAST filings: reusing any number not in this item's payload fails validation. Commentary exemplars may run longer than the platform limit: match their VOICE, obey the 200-280 contract.",
     ...exemplars.map((e) => `--- ${e.register ?? "wire"} ---\n${e.text}\n---`),
     beats.length > 0
       ? `ELIGIBLE BEATS for this item (pre-gated against the payload; you may use AT MOST one, verbatim or not at all):\n${beats.map((b) => `- ${b}`).join("\n")}`
@@ -204,7 +197,7 @@ export function buildPrompt(
     // Segment budgets, not just a total: given only "200-280" the model wrote
     // a 115-char fact block and then crushed the take to fit, which is where
     // lossy name compression (and its fabrication risk) comes from.
-    `- commentary (THE deliverable; the other two are fallbacks). TWO DIFFERENT NUMBERS, do not confuse them. The CONTRACT is ${floor}-${POST_TEXT_LIMIT} weighted chars TOTAL — outside it the variant is rejected. The TARGET is a take of about ${TARGET_TAKE_WEIGHTED} weighted chars, which is the median of the owner exemplars above; the contract's lower bound is his SHORTEST ever and is a floor, not an aim. Write to the target and let the contract catch mistakes. Built as two budgeted parts: Fact block FIRST, at most ${COMMENTARY_FACT_BUDGET} weighted chars including the attribution — compress it yourself (drop clause padding, keep every number and name exact); it must survive being screenshotted alone. Then a blank line, then the take, at most ${COMMENTARY_TAKE_BUDGET} weighted chars: one or two short segments (a punch line, then the argument), opinionated, a real point of view, no hedging, no advice, no imputed motive. Engage the SPECIFIC record in the data above — what this actor did, how it sits against the prior record — not generalities about markets. No claims about market reaction (spreads, flows, pricing, positioning) unless stated in the data above. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a fact as if it were the take.`,
+    `- commentary (THE deliverable; the other two are fallbacks): 200-280 weighted chars TOTAL, built as two budgeted parts. Fact block FIRST, at most ${COMMENTARY_FACT_BUDGET} weighted chars including the attribution — compress it yourself (drop clause padding, keep every number and name exact); it must survive being screenshotted alone. Then a blank line, then the take, at most ${COMMENTARY_TAKE_BUDGET} weighted chars: one or two short segments (a punch line, then the argument), opinionated, a real point of view, no hedging, no advice, no imputed motive. Engage the SPECIFIC record in the data above — what this actor did, how it sits against the prior record — not generalities about markets. No claims about market reaction (spreads, flows, pricing, positioning) unless stated in the data above. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a fact as if it were the take.`,
     "- sharp: wire register (fact block + attribution, then at most one beat line), the escalation tier: the sharpest ELIGIBLE beat, compression at maximum.",
     "- dry: wire register, 100-140 weighted chars. Fact block + attribution, then at most one eligible beat on its own line.",
     attribution !== null
@@ -461,86 +454,15 @@ export async function runGeneration(
     const licensedSource = sourceProvenance.ok ? (source?.text ?? "") : "";
     const grounding = [licensedSource, ...context.lines].filter(Boolean).join("\n") || undefined;
 
-    // THE ONE CASE WHERE A TAKE IS ARITHMETICALLY IMPOSSIBLE. If the record's
-    // own fact block plus the owner's shortest signed take exceeds the platform
-    // limit, no commentary can exist inside 280 — so asking for one can only
-    // produce something that fails, or something that invented room by cutting
-    // the record. The item still gets dry and sharp, which carry no minimum and
-    // are the archetype's own default. Measured against 400 live queue rows
-    // this withholds 6 of them.
-    //
-    // Recorded as a generations row, not skipped in silence: a variant that
-    // was never requested has to be distinguishable from one that failed.
-    // THE FLOOR ANCHORS ON THE CANONICAL RENDER, never on the owner's edit.
-    //
-    // `fallback` is `edited_text ?? draft_text`, re-rendered ONLY when it
-    // fails fitsInPost. The register check runs later, at the fallback stage —
-    // so an owner edit that FITS THE BUDGET BUT FAILS THE REGISTER slips
-    // between the two gates and becomes the anchor, with its first line being
-    // whatever he typed rather than the record's fact block.
-    //
-    // Both directions exist and one is harmful: a longer line than the
-    // canonical fact block raises the floor and rejects commentary
-    // unnecessarily (conservative, self-correcting), while a SHORTER one
-    // lowers the floor and admits thin commentary against an item whose record
-    // is real. That second direction is precisely what this rule exists to
-    // prevent, so it must not be reachable through the owner's keyboard.
-    //
-    // draft_text is the template render of the record, which is definitionally
-    // "what the record supports"; edited_text is what the owner wants to post,
-    // a different question. When a re-render happened, `fallback` IS the
-    // canonical compressed render, so it is the right anchor then.
-    const floorAnchor = fallbackRerendered ? fallback : row.draft_text;
-    const verdict = commentaryVerdict(floorAnchor);
-    const wanted: readonly Variant[] = verdict === "ok" ? VARIANTS : VARIANTS.filter((v) => v !== "commentary");
-    if (verdict !== "ok") {
-      // Two DIFFERENT facts, two statuses. "no_room" is arithmetic: the
-      // record's fact block plus the shortest signed take exceeds 280.
-      // "unmeasurable" is a degraded render — and it must NOT inherit
-      // commentaryFloor's permissive default, which would admit a
-      // 75-character take against an item whose record is real and simply
-      // failed to render.
-      const status = verdict === "no_room" ? "skipped_record_too_thin" : "skipped_record_unmeasurable";
-      await insertGeneration(env.DB, { queueId: row.queue_id, variant: "commentary", text: "", status, attempt }, now);
-      log("info", "commentary withheld", {
-        queueId: row.queue_id, archetype: archetypeId, verdict, floor: commentaryFloor(floorAnchor),
-      });
-      // TWO STATUSES, TWO AUDIENCES. `too_thin` is a PRODUCT OUTCOME — the
-      // record genuinely cannot fund a take inside 280, nothing is wrong, and
-      // silence is correct. `unmeasurable` is a DEFECT SIGNAL: the canonical
-      // render produced no fact block for an item whose record is real.
-      //
-      // They had separate rows in D1 and the same face in Telegram, because
-      // deliver.ts labels only `skipped_no_exemplar` specially and everything
-      // else reads "generation fell back" — and when dry and sharp succeed,
-      // the label branch never runs at all, so the only trace was one info
-      // log. That is the null-versus-zero collapse avoided in the data,
-      // reappearing one layer out in the presentation.
-      //
-      // So the defect signal alerts, on the fallback_blocked precedent, with
-      // the same KV suppression the other two alerts use: this fires per item
-      // and a broken renderer would otherwise flood the chat.
-      if (verdict === "unmeasurable" && !(await env.KV.get(KV_UNMEASURABLE_ALERTED))) {
-        const delivered = await alertOwner(
-          env,
-          `⚠️ #${row.queue_id} (${archetypeId}): the template render produced no fact block, so the commentary floor could not be measured and commentary was withheld. Dry and sharp are unaffected. This is a rendering defect, not a thin record — worth a look.`,
-          budget,
-        );
-        // Suppress only on DELIVERY, so an undelivered alert is retried
-        // rather than swallowed for 24h (the fix applied to the echo alert).
-        if (delivered) await env.KV.put(KV_UNMEASURABLE_ALERTED, "1", { expirationTtl: 24 * 3600 });
-      }
-    }
-
     const valid = new Set<Variant>();
     const feedback: string[] = [];
     let sawApiError = false;
 
-    for (let round = 0; round < 2 && attemptsLeft > round && valid.size < wanted.length; round++) {
+    for (let round = 0; round < 2 && attemptsLeft > round && valid.size < VARIANTS.length; round++) {
       if (!budget.take(1, { reserved: true })) break;
       let content: string;
       try {
-        const prompt = buildPrompt(archetypeId, payload, bank, feedback, { source, contextLines: context.lines }, floorAnchor);
+        const prompt = buildPrompt(archetypeId, payload, bank, feedback, { source, contextLines: context.lines });
         content = await chatComplete(env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, [
           { role: "system", content: prompt.system },
           { role: "user", content: prompt.user },
@@ -566,7 +488,7 @@ export async function runGeneration(
       }
 
       const variants = parseVariants(content);
-      for (const v of wanted) {
+      for (const v of VARIANTS) {
         if (valid.has(v)) continue;
         const text = variants[v];
         if (!text) {
@@ -580,7 +502,6 @@ export async function runGeneration(
           payload,
           grounding,
           templateDraft: fallback,
-          floorAnchor,
           skeletonHash: skeletonHash(text),
           openerHash: openerHash(text),
           corpusPopulated,

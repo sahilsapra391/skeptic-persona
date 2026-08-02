@@ -16,10 +16,7 @@ import {
   draftNumbers,
   entityCheck,
   hedgeCheck,
-  commentaryFloor,
-  commentaryIsPossible,
   lengthCheck,
-  MIN_TAKE_WEIGHTED,
   motiveCheck,
   numberCheck,
   payloadFacts,
@@ -30,7 +27,6 @@ import {
   validateVariant,
   wordNumberCheck,
 } from "../src/rag/validate";
-import { POST_TEXT_LIMIT } from "../src/templates/length";
 import { fnv1a, maskSkeleton, ngramHashes, openerHash, skeletonHash, NGRAM_SALT } from "../src/rag/echo";
 import { ARCHETYPES } from "../src/templates/archetypes";
 import { iso } from "../src/lib/time";
@@ -657,46 +653,10 @@ describe("structure + length", () => {
     expect(structuralCheck("A, per SEC.\n\nB.\n\nC.").map((i) => i.rule)).toContain("structure");
   });
 
-  it("commentary's floor is RECORD-RELATIVE; dry has none", () => {
-    // Was a flat 200. That was the forcing function behind unsourced
-    // world-knowledge: a fact block of 46-190 weighted chars against a 200
-    // demand left 85-154 characters the record could not fund, and the only
-    // remaining source is the model's knowledge of the world.
+  it("commentary has a 200 weighted floor; dry does not", () => {
     const short = "CPI 2.4%, per BLS.";
     expect(lengthCheck(short, "dry")).toEqual([]);
     expect(lengthCheck(short, "commentary").map((i) => i.rule)).toEqual(["length"]);
-
-    // A THIN record lowers the bar rather than forcing invention.
-    const thinWire = "Trading in $XYZ halted 14:20 ET, per Nasdaq.";
-    expect(commentaryFloor(thinWire)).toBeLessThan(200);
-    const modest = `${thinWire}\n\nThe tape says nothing for the next hour, and that silence is the only disclosure anyone gets.`;
-    expect(lengthCheck(modest, "commentary", thinWire)).toEqual([]);
-
-    // A RICH record raises it, so a thin take against a fat fact block still
-    // fails — the floor cannot be gamed by writing less.
-    const fatWire = "8-K, Item 4.02: prior financial statements for fiscal 2025 should no longer be relied upon, filed after the close, per SEC. The audit committee reached the conclusion on July 30.";
-    expect(commentaryFloor(fatWire)).toBeGreaterThan(200);
-    expect(lengthCheck(`${fatWire}\n\nShort.`, "commentary", fatWire).map((i) => i.rule)).toEqual(["length"]);
-  });
-
-  it("the floor is read from the RECORD, not from the model's own fact block", () => {
-    // Otherwise a model could lower its own bar by writing a shorter first
-    // segment. The template draft is the anchor, and it is not the model's.
-    const wire = "8-K, Item 4.02: prior statements should no longer be relied upon, filed after the close, per SEC.";
-    const gamed = "8-K, per SEC.\n\nRelied upon until it wasn't.";
-    expect(lengthCheck(gamed, "commentary", wire).map((i) => i.rule)).toEqual(["length"]);
-  });
-
-  it("a caller that forgets the draft gets the LOOSEST floor, not a strict one", () => {
-    // Failing closed on a length rule would reject legitimate short commentary
-    // for a plumbing mistake. Strictness belongs in the fabrication floor.
-    expect(commentaryFloor("")).toBe(MIN_TAKE_WEIGHTED);
-  });
-
-  it("commentaryIsPossible is arithmetic, not a threshold", () => {
-    const enormous = "x".repeat(POST_TEXT_LIMIT);
-    expect(commentaryIsPossible(enormous)).toBe(false);
-    expect(commentaryIsPossible("8-K, per SEC.")).toBe(true);
   });
 });
 

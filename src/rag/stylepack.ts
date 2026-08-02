@@ -44,9 +44,7 @@ conclude; it hands them the record that concludes it.
 REGISTER
 Wire-terse for the dry and sharp variants: median 100-140 weighted
 characters. The commentary variant is the explainer register, and its
-contract is RECORD-RELATIVE: the fact block this record supports, plus
-at least 75 weighted characters of take (the owner's own shortest), up to
-the 280 platform limit. Fact block first, then the take
+contract is 200-280 weighted characters, fact block first, then the take
 (persona.md: wire-terse or explainer-long, nothing in between; commentary
 is the long form, never something in between). No hashtags. No
 engagement-bait questions. No fake urgency: no "BREAKING" on routine items.
@@ -105,7 +103,7 @@ export const MOVES = `THE THREE MOVES (in order of precedence)
    or its attribution, it goes. The studied wire account's usable-set median
    is ~90 characters (measured; see the verification record). dry/sharp
    target the 100-140 band. Compression governs SENTENCES in every variant;
-   it never shrinks the take below the owner's shortest signed take.
+   it never shrinks commentary below its 200-280 contract.
 
 2. JUXTAPOSITION. Two parsed facts placed adjacent, zero connective tissue,
    no claim joining them. The pairing is the only editorial act; the reader
@@ -213,8 +211,7 @@ final clause WITHOUT the first two: the disclosure mechanics ARE the story.
  * weighted 280); "commentary" exemplars model the take register — the owner
  * writes it at 296-354 chars, ABOVE the free-tier cap, so they are VOICE
  * REFERENCES, not postable posts: generated commentary must still land
- * inside the record-relative contract and the validator enforces that on
- * OUTPUT. If the account
+ * inside 200-280 and the validator enforces that on OUTPUT. If the account
  * ever moves to Premium, POST_TEXT_LIMIT is the only constant to revisit.
  *
  * Label mapping (owner's labels -> engine archetypes): INSIDER_FORM4 ->
