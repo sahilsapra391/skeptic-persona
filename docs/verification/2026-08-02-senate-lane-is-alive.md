@@ -94,3 +94,54 @@ nobody re-ran the one-line check for six days. The 403 was real. "403s
 Cloudflare Workers egress" was a measurement; "**it's an IP/ASN-class block**"
 was an inference, and only the inference was load-bearing for the six days of
 work that followed.
+
+---
+
+## Addendum, 2026-08-02T17:33Z — availability does not track client class
+
+Three samples now, all on the same Sunday:
+
+| time | client | result |
+|---|---|---|
+| 05:36Z | residential | **503**, Senate maintenance page |
+| 13:30Z | **Cloudflare Worker** | **200**, full handshake, PTR parsed |
+| 17:33Z | residential | **503**, Senate maintenance page |
+
+**The Worker succeeded between two residential failures.** Whatever gates
+`/search/report/data/`, it is not the requesting IP class — that theory is now
+dead in both directions, and the surviving explanation is an endpoint that is
+intermittently unavailable to everyone.
+
+### This probably answers the arrival-lag question
+
+The open question was whether eFD indexes filings days late, or whether our
+polls were failing and leaving no trace. A third availability sample makes the
+second look far more likely: `senate_ptr` runs **once a day** on
+`daily_1330_utc`, and a single daily attempt against an endpoint that 503s for
+long stretches will silently miss whole days.
+
+The misses leave nothing behind. `consecutive_failures` resets on the next
+success and `last_ok_at` is overwritten, so a week of one-in-three polls
+landing looks identical in D1 to a week of perfect polls.
+
+**Stated as likely, not established.** Three samples is not a distribution,
+and I have not observed a poll failing — only that the endpoint was down twice
+when I asked. The cheap next step is a retry inside the existing daily slot
+rather than a cadence change: two or three spaced attempts cost nothing
+against a source that publishes a handful of filings a day, and they convert
+"missed the window" into "hit it on the second try" without asking eFD for
+more traffic.
+
+Deliberately not built here. The lane is the flagship's other half and it is
+now known to work; the next person to touch it should have this recorded
+before choosing between a retry, a cadence change, and a freshness allowance,
+because those are three different fixes for three different causes and only
+one of them is supported.
+
+### One more thing this rules out
+
+The `daily_1330_utc` slot was chosen when the lane was believed dead, as a
+cheap auto-recovering probe. **13:30Z is 09:30 ET** — inside US business hours
+and, on the evidence above, a slot that does sometimes work. Nothing suggests
+the slot itself is wrong, so a fix that only moves the hour is unlikely to
+help.
