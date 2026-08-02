@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import FDA from "./fixtures/fda-drug-enforcement.json.fixture?raw";
+import FDA_DEVICE from "./fixtures/fda-device-enforcement.json.fixture?raw";
 import { draftRecall, eventKey, FDA_SOURCES, groupRecalls, parseRecalls, scoreRecall } from "../src/ingesters/fdaRecalls";
 import { SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../src/lib/db";
 
@@ -135,5 +136,62 @@ describe("the food dataset shares the drug parser, not its editorial gate", () =
     const classI = groupRecalls(records).find((e) => e.classification === "Class I")!;
     expect(scoreRecall({ ...classI, reason: "" }, food)).toBe(SCORE_LOG_ONLY);
     expect(scoreRecall({ ...classI, product: "" }, drug)).toBe(SCORE_LOG_ONLY);
+  });
+});
+
+describe("the device dataset is the third to share that parser", () => {
+  const device = FDA_SOURCES.find((s) => s.id === "fda_device_recall")!;
+  const devices = parseRecalls(FDA_DEVICE);
+
+  it("parses live device records with no parser change at all", () => {
+    // Field parity verified live 2026-08-01: event_id, recalling_firm,
+    // classification, reason_for_recall, report_date, recall_initiation_date,
+    // product_description, product_quantity, status, distribution_pattern and
+    // voluntary_mandated are all present in the device dataset under the same
+    // names as drug and food. Three datasets, one parser.
+    expect(device.url).toContain("api.fda.gov/device/enforcement.json");
+    expect(devices.length).toBe(10);
+    for (const r of devices) {
+      expect(r.firm.length, r.eventId).toBeGreaterThan(0);
+      expect(r.classification, r.eventId).toMatch(/^Class (I|II|III)$/);
+      expect(r.reportedIso, r.eventId).toMatch(/^\d{4}-\d{2}-\d{2}/);
+    }
+  });
+
+  it("groups per-product device rows into one event each", () => {
+    // Abiomed files one row per affected catalogue number: three rows, one
+    // recall. Ungrouped that is three approval cards for one event, the same
+    // flood the drug lane was fixed for.
+    const events = groupRecalls(devices);
+    expect(devices.length).toBe(10);
+    expect(events.length).toBe(6);
+    const abiomed = events.find((e) => e.firm.startsWith("Abiomed"))!;
+    expect(abiomed.productCount).toBe(3);
+  });
+
+  it("holds Class II devices, where the drug lane would post them", () => {
+    // Counted 2026-08-01 over 2026-05-01..08-01: device Class I is 38 events
+    // (~13/month) and Class II is 200 (~67/month) -- DOUBLE the food Class II
+    // rate that got food capped. Medline alone is 189 of the 640 Class II
+    // rows.
+    const drug = FDA_SOURCES.find((s) => s.id === "fda_drug_recall")!;
+    const events = groupRecalls(devices);
+    const classII = events.find((e) => e.classification === "Class II")!;
+    expect(scoreRecall(classII, device)).toBe(SCORE_LOG_ONLY);
+    expect(scoreRecall(classII, drug)).toBe(SCORE_POSTABLE);
+
+    const classI = events.find((e) => e.classification === "Class I")!;
+    expect(scoreRecall(classI, device)).toBe(SCORE_AUTO_ALERT);
+  });
+
+  it("names the device maker in the draft, which is the whole point", () => {
+    // CPSC consumer recalls were probed the same night and rejected: their
+    // Manufacturers field is empty on ~60% of records and the rest are small
+    // importers. Device recalls name the listed maker in a parsed field.
+    const events = groupRecalls(devices);
+    const abiomed = events.find((e) => e.firm.startsWith("Abiomed"))!;
+    const line = draftRecall(abiomed, device.kind);
+    expect(line).toContain("FDA Class I device recall: Abiomed, Inc.");
+    expect(line).toContain("+2 more products");
   });
 });

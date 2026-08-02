@@ -14,6 +14,7 @@ import {
 } from "../lib/db";
 import { checkRegister } from "../templates/validate";
 import { CODE_VARIANT, postedButtons, resolveVariantText, type CardVariant } from "../rag/deliver";
+import { editDistance, normalisePost, pairContext, promotionStatement } from "../rag/learn";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 import { promoteHeldItem } from "../digest";
@@ -242,11 +243,31 @@ async function handleCallback(env: ConfiguredEnv, cb: TgCallbackQuery): Promise<
   }
 }
 
+/**
+ * NOTE the absence of `chosen_variant`, which is deliberate and load-bearing.
+ *
+ * That column is a MUTABLE SLOT: every Copy tap overwrites it, so by the time
+ * any later handler reads it, it names the last variant copied rather than the
+ * one that handler is about. Review finding #3 closed that on the tap side by
+ * putting the variant in callback_data; p4-09 found the same dependency
+ * surviving on the force-reply side and closed it by pinning the variant and
+ * draft to the prompt itself.
+ *
+ * A grep after the second fix confirmed there is no third reader. Rather than
+ * record that in a comment and leave the field selectable, it is removed from
+ * the row type entirely — a value that cannot be fetched cannot be trusted by
+ * code written next month, and the honest lesson from those two rounds is that
+ * a finding closed at one call site is not a finding closed.
+ *
+ * The column itself stays and is still written: as an audit breadcrumb it is
+ * fine. The authoritative answers live where they cannot drift — the variant
+ * in callback_data, and `cards.posted_prompt_variant` / `posted_prompt_draft`
+ * for the reply flow.
+ */
 interface CardRow {
   queue_id: number;
   telegram_message_id: number | null;
   cycle: number;
-  chosen_variant: string | null;
   posted_state: string | null;
   posted_prompt_message_id: number | null;
   edit_prompt_message_id: number | null;
@@ -255,7 +276,7 @@ interface CardRow {
 async function getCard(db: D1Database, queueId: number): Promise<CardRow | null> {
   return db
     .prepare(
-      `SELECT queue_id, telegram_message_id, cycle, chosen_variant, posted_state,
+      `SELECT queue_id, telegram_message_id, cycle, posted_state,
               posted_prompt_message_id, edit_prompt_message_id
        FROM cards WHERE queue_id = ?1`,
     )
@@ -351,8 +372,17 @@ async function handleCardPosted(
       `#${queueId}: reply to THIS message with the text EXACTLY as you posted it.`,
       { forceReply: true },
     );
-    await env.DB.prepare(`UPDATE cards SET posted_prompt_message_id = ?1, updated_at = ?2 WHERE queue_id = ?3`)
-      .bind(prompt.message_id, iso(new Date()), queueId)
+    // Pin what this prompt is ABOUT (p4-09). The variant rides in the tap's
+    // callback_data; the draft is resolved once, here, while it is still the
+    // text the owner is looking at. The reply handler then resolves nothing —
+    // no mutable chosen_variant, and no re-derivation that a later
+    // regeneration would silently answer differently.
+    const promptDraft = await resolveVariantText(env.DB, queueId, variant);
+    await env.DB.prepare(
+      `UPDATE cards SET posted_prompt_message_id = ?1, posted_prompt_variant = ?2,
+              posted_prompt_draft = ?3, updated_at = ?4 WHERE queue_id = ?5`,
+    )
+      .bind(prompt.message_id, variant, promptDraft, iso(new Date()), queueId)
       .run();
     await answerCallbackQuery(token, cb.id);
     return;
@@ -360,7 +390,22 @@ async function handleCardPosted(
 
   // action === "y": the text of the prompt TAPPED is what went public.
   const finalText = await resolveVariantText(env.DB, queueId, variant);
-  await recordManualPost(env, queueId, finalText ?? "", cb.id);
+  // Shipped as generated, so the draft IS the final and the distance is 0 by
+  // construction — not computed, because computing it would invite the reader
+  // to wonder whether it could be otherwise.
+  //
+  // Unless there was no text to resolve. Recording ("", "", 0) there would
+  // book an EMPTY post as a perfect zero-edit success and quietly inflate the
+  // headline metric, so a missing draft is captured as missing.
+  const captured = finalText !== null && finalText !== "";
+  // Same canonical form as the edited path, so post_log holds one shape of
+  // text however the row got there.
+  const canonical = captured ? normalisePost(finalText) : "";
+  await recordManualPost(env, queueId, canonical, cb.id, {
+    draft: captured ? canonical : null,
+    variant: captured ? variant : null,
+    distance: captured ? 0 : null,
+  });
 }
 
 /**
@@ -369,7 +414,13 @@ async function handleCardPosted(
  * never half-apply — and because the UPDATEs re-run harmlessly, a re-tap
  * REPAIRS a previously half-applied state instead of skipping it forever.
  */
-async function recordManualPost(env: ConfiguredEnv, queueId: number, finalText: string, callbackId: string): Promise<void> {
+async function recordManualPost(
+  env: ConfiguredEnv,
+  queueId: number,
+  finalText: string,
+  callbackId: string,
+  pair: { draft: string | null; variant: string | null; distance: number | null },
+): Promise<void> {
   const token = env.TELEGRAM_BOT_TOKEN;
   const meta = await env.DB.prepare(
     `SELECT q.item_id, q.archetype, i.category FROM queue q JOIN items i ON i.id = q.item_id WHERE q.id = ?1`,
@@ -380,14 +431,34 @@ async function recordManualPost(env: ConfiguredEnv, queueId: number, finalText: 
     await answerCallbackQuery(token, callbackId, `Unknown queue entry #${queueId}.`);
     return;
   }
+  const now = new Date();
+  // Why the draft looked the way it did — a thin-payload rewrite is not the
+  // same signal as a voice rewrite, and only capture time can tell them apart.
+  const ctx = await pairContext(env.DB, queueId);
+  // The promotion rides in the SAME batch as the claim (p4-09). A voice_finals
+  // row without its post_log row, or the reverse, is a split record, and the
+  // loop's only value is that the two agree.
+  const promotion = promotionStatement(env.DB, now, {
+    queueId,
+    archetype: meta.archetype,
+    variant: pair.variant,
+    finalText,
+    wasEdited: (pair.distance ?? 0) > 0,
+  });
   const results = await env.DB.batch([
     env.DB.prepare(
-      `INSERT OR IGNORE INTO post_log (queue_id, platform_post_id, posted_at, archetype, category, posted_manually, final_text)
-       VALUES (?1, NULL, ?2, ?3, ?4, 1, ?5)`,
-    ).bind(queueId, iso(new Date()), meta.archetype, meta.category, finalText),
+      `INSERT OR IGNORE INTO post_log (queue_id, platform_post_id, posted_at, archetype, category, posted_manually,
+                                       final_text, draft_text, draft_variant, edit_distance,
+                                       payload_field_count, grounding_chars)
+       VALUES (?1, NULL, ?2, ?3, ?4, 1, ?5, ?6, ?7, ?8, ?9, ?10)`,
+    ).bind(
+      queueId, iso(now), meta.archetype, meta.category, finalText,
+      pair.draft, pair.variant, pair.distance, ctx.payloadFieldCount, ctx.groundingChars,
+    ),
     env.DB.prepare(`UPDATE cards SET posted_state = 'yes', updated_at = ?1 WHERE queue_id = ?2 AND (posted_state IS NULL OR posted_state = 'skipped')`)
-      .bind(iso(new Date()), queueId),
+      .bind(iso(now), queueId),
     env.DB.prepare(`UPDATE items SET status = 'posted' WHERE id = ?1`).bind(meta.item_id),
+    ...(promotion ? [promotion] : []),
   ]);
   const claimed = (results[0]?.meta.changes ?? 0) > 0;
   await answerCallbackQuery(token, callbackId, claimed ? `#${queueId} recorded as posted.` : `#${queueId} was already recorded; state re-synced.`);
@@ -490,14 +561,45 @@ async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promis
   // Card replies first (p2r-05): posted-modified capture and card edit.
   if (msg.reply_to_message && msg.text) {
     const replyId = msg.reply_to_message.message_id;
-    const postedTarget = await env.DB.prepare(`SELECT queue_id FROM cards WHERE posted_prompt_message_id = ?1 AND posted_state IS NULL`)
+    const postedTarget = await env.DB.prepare(
+      `SELECT queue_id, posted_prompt_variant, posted_prompt_draft FROM cards
+       WHERE posted_prompt_message_id = ?1 AND posted_state IS NULL`,
+    )
       .bind(replyId)
-      .first<{ queue_id: number }>();
+      .first<{ queue_id: number; posted_prompt_variant: string | null; posted_prompt_draft: string | null }>();
     if (postedTarget) {
       const meta = await env.DB.prepare(
         `SELECT q.item_id, q.archetype, i.category FROM queue q JOIN items i ON i.id = q.item_id WHERE q.id = ?1`,
       ).bind(postedTarget.queue_id).first<{ item_id: number; archetype: string; category: string }>();
       if (meta) {
+        // The draft was pinned to THIS prompt when it was sent, so the pair is
+        // the one the owner actually acted on — not whatever generations holds
+        // by the time the reply arrives. A draft that was never pinned (a card
+        // from before p4-09) leaves the pair NULL, which the metric counts as
+        // uncaptured rather than as a perfect score.
+        // ONE canonical form, used for the comparison AND for everything
+        // stored. A whitespace-only reply previously measured as distance 1
+        // while promoting a byte-identical string as the owner's voice.
+        const draft = postedTarget.posted_prompt_draft === null
+          ? null
+          : normalisePost(postedTarget.posted_prompt_draft);
+        const finalText = normalisePost(msg.text);
+        const now = new Date();
+        const ctx = await pairContext(env.DB, postedTarget.queue_id);
+        const distance = draft === null ? null : editDistance(draft, finalText);
+        // Reaching this flow is not proof of an edit: an owner who retypes the
+        // draft exactly has shipped it unedited, and saying otherwise would
+        // make post_log.edit_distance (0) and voice_finals.was_edited (1)
+        // disagree about the same post. Where the draft was never captured we
+        // cannot tell, and the flow's own claim stands.
+        const wasEdited = distance === null ? true : distance > 0;
+        const promotion = promotionStatement(env.DB, now, {
+          queueId: postedTarget.queue_id,
+          archetype: meta.archetype,
+          variant: postedTarget.posted_prompt_variant,
+          finalText,
+          wasEdited,
+        });
         // What the owner ACTUALLY posted is ground truth — recorded verbatim,
         // no register gate: it is already public, refusing it here would only
         // blind the ledger to reality. ONE atomic batch (D1 batches are
@@ -505,12 +607,19 @@ async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promis
         // half-apply, and a Telegram redelivery re-running it is harmless.
         await env.DB.batch([
           env.DB.prepare(
-            `INSERT OR IGNORE INTO post_log (queue_id, platform_post_id, posted_at, archetype, category, posted_manually, final_text)
-             VALUES (?1, NULL, ?2, ?3, ?4, 1, ?5)`,
-          ).bind(postedTarget.queue_id, iso(new Date()), meta.archetype, meta.category, msg.text),
+            `INSERT OR IGNORE INTO post_log (queue_id, platform_post_id, posted_at, archetype, category, posted_manually,
+                                             final_text, draft_text, draft_variant, edit_distance,
+                                             payload_field_count, grounding_chars)
+             VALUES (?1, NULL, ?2, ?3, ?4, 1, ?5, ?6, ?7, ?8, ?9, ?10)`,
+          ).bind(
+            postedTarget.queue_id, iso(now), meta.archetype, meta.category, finalText,
+            draft, postedTarget.posted_prompt_variant, distance,
+            ctx.payloadFieldCount, ctx.groundingChars,
+          ),
           env.DB.prepare(`UPDATE cards SET posted_state = 'modified', updated_at = ?1 WHERE queue_id = ?2 AND (posted_state IS NULL OR posted_state = 'skipped')`)
-            .bind(iso(new Date()), postedTarget.queue_id),
+            .bind(iso(now), postedTarget.queue_id),
           env.DB.prepare(`UPDATE items SET status = 'posted' WHERE id = ?1`).bind(meta.item_id),
+          ...(promotion ? [promotion] : []),
         ]);
         try {
           await sendMessage(token, env.TELEGRAM_CHAT_ID, `#${postedTarget.queue_id} recorded as posted (edited).`, {

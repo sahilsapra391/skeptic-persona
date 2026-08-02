@@ -69,6 +69,30 @@ export const FDA_SOURCES: readonly FdaEnforcementSource[] = [
     pageUrl: FDA_PAGE,
     postableGrades: ["Class I"],
   },
+  {
+    id: "fda_device_recall",
+    kind: "device",
+    url: "https://api.fda.gov/device/enforcement.json?limit=30&sort=report_date:desc",
+    pageUrl: "https://www.fda.gov/medical-devices/medical-device-recalls",
+    /**
+     * Class I ONLY, and the measurement says so rather than the analogy to
+     * food. Counted 2026-08-01 over 2026-05-01..08-01:
+     *
+     *   Class I    151 rows ->  38 events  (~13/month)
+     *   Class II   640 rows -> 200 events  (~67/month)
+     *   Class III    2 rows
+     *
+     * 67 events a month is DOUBLE the food Class II rate that got food
+     * capped, and the queue already expires more cards than it approves.
+     *
+     * The severity split lines up with the firms. Class I over that window
+     * is Arrow International, Abiomed, Becton Dickinson, Medline, Argon --
+     * device makers whose recalls move the maker. Class II is dominated by
+     * one firm (Medline, 189 of 640 rows) and runs to calibration drift and
+     * labelling, which is a real safety notice and not market intelligence.
+     */
+    postableGrades: ["Class I"],
+  },
 ];
 
 export interface FdaRecall {
@@ -309,10 +333,23 @@ export async function pollFdaEnforcement(
     return;
   }
 
+  // src.id, NOT the SOURCE constant. SOURCE is "fda_drug_recall"; this
+  // function is the per-source fan-out, so binding the constant made EVERY
+  // lane drain the drug lane.
+  //
+  // fda_food_recall has therefore never drained its own items since it
+  // shipped (4ac245f, migration 0041). Class I food recalls insert with
+  // status='new', the food poll enqueues drug rows instead, and the food
+  // rows are never selected again -- they sit at 'new' permanently, and the
+  // dedup key stops re-ingest from creating a second chance.
+  //
+  // Nothing surfaced it: the poll succeeds, items land in the lake, the
+  // source-health counters stay green, and the only symptom is cards that
+  // never appear for a lane nobody was watching.
   const pending = await env.DB.prepare(
     `SELECT id, source_url, payload FROM items WHERE source = ?1 AND status = 'new' AND score >= ?2 ORDER BY id LIMIT 3`,
   )
-    .bind(SOURCE, SCORE_POSTABLE)
+    .bind(src.id, SCORE_POSTABLE)
     .all<{ id: number; source_url: string; payload: string }>();
   for (const row of pending.results) {
     if (!budget.take(1)) break;

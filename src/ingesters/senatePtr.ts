@@ -4,7 +4,7 @@ import { buildUserAgent, politeFetch, type PoliteResponse } from "../lib/http";
 import { decodeEntities, extractAll, extractFirst } from "../lib/xml";
 import { getSourceState, insertItem, putSourceState, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
-import { bandSpan, bandWidth, isFreshDateOnly, lagDays, mdyToIso } from "./shared";
+import { bandSpan, bandWidth, isFreshDateOnly, lagDays, lagWeeks, maxLagDays, mdyToIso } from "./shared";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -194,6 +194,11 @@ export async function ingestEfdRow(
         amountBand: newest?.amount ?? null,
         singleTxn: txns.length === 1,
         lagDays: minLag,
+        // Same two derived fields as the House lane: one disclosure under one
+        // statute, and a reader should not be able to tell which parser
+        // produced the line.
+        lagWeeks: lagWeeks(minLag),
+        maxLagDays: maxLagDays(filedIso, dated),
         bandSpanRatio: bandSpan(newest?.amount ?? ""),
         bandWidthUsd: bandWidth(newest?.amount ?? ""),
       },
