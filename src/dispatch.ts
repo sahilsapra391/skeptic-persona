@@ -292,7 +292,13 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
       deferred,
       concurrency,
       wallMs: Math.round(elapsedMs(startedAt)),
-      serialMs: durations.reduce((n, d) => n + d.ms, 0),
+      // NOT "serialMs". Every entry was measured while up to concurrency-1
+      // siblings competed for the runtime and the 6-connection ceiling, so
+      // summing them does NOT reconstruct what a serial tick would have cost —
+      // it is inflated, and inflated in the direction that makes a new source
+      // tier look more affordable than it is. Naming it serialMs would have
+      // invited exactly that reading, from me, when sizing the mesh.
+      summedJobMs: durations.reduce((n, d) => n + d.ms, 0),
       slowest: durations.slice(0, 5),
     });
   }
