@@ -304,6 +304,56 @@ digits there widens what a draft may state. Any fix needs the enumerate-the-
 class treatment the owner's #80 bar sets for a fabrication-gate relaxation, not
 a one-line regex.
 
+### The payload side is fixed by doctrine — do not "fix" it upstream
+
+The obvious upstream move is to stop writing full ISO into `publishedIso`.
+**That is not available.** CLAUDE.md mandates *"All times stored as ISO-8601
+UTC. Feed timestamps arrive in four different conventions — normalize at
+parse."* Four dialects arrive in four conventions and ISO is what makes them
+comparable. Changing the stored format to dodge a tokenizer trades a real
+invariant for a symptom.
+
+So the pair can only be made symmetric **on the draft side**, which is where
+this is flagged.
+
+### It is OUR beat, not the model quoting a timestamp
+
+`archetypes.ts:889-894`:
+
+```ts
+{ id: "reg.dateStamped",
+  text: "Published {publishedIso}.",
+  tier: "base",
+  when: { op: "has", field: "publishedIso" } }
+```
+
+`fillSlots` substitutes `String(raw)` with no formatting, and `eligibleBeats`
+hands the gated beat to the prompt under *"you may use AT MOST one, verbatim or
+not at all"*.
+
+**So the pipeline offers the model a beat that cannot pass its own validator.**
+The model is not quoting a timestamp of its own accord; we are giving it one
+and then rejecting it. That reframes the fix: the tokenizer asymmetry is real,
+but the cheapest correct change may be the beat, not the validator.
+
+**And there are two independent exits**, so fixing only the tokenizer leaves
+one live: the validator rejecting a true statement, *and* a copy-ready draft
+containing `2026-08-01T09:45:00.000Z` on the occasions it passes. Nobody wants
+that in a post.
+
+---
+
+## A note on how these handoffs were split
+
+Two handoff documents were written, split **by subsystem**. Both this defect
+and the `#321` card-lifecycle question fell in the gaps *between* subsystems
+and had no owner in either doc — this one because it is generation rather than
+salience, that one because it spans queue lifecycle and the publish loop.
+
+Each was caught only because the two sessions kept talking after parking.
+**The next pair will split the same way**, so it is worth knowing that the
+gaps between the lanes are where the unowned items live.
+
 ## Provenance
 
 Sections 1–6 describe code and measurements produced by the ingestion and p4
