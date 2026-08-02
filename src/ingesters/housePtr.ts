@@ -6,7 +6,7 @@ import { getSourceState, insertItem, putSourceState, SCORE_LOG_ONLY, SCORE_POSTA
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 import { enqueueForApproval } from "../pipeline/enqueue";
-import { bandSpan, bandWidth, isFreshDateOnly, lagDays, mdyToIso } from "./shared";
+import { bandSpan, bandWidth, isFreshDateOnly, lagDays, lagWeeks, maxLagDays, mdyToIso } from "./shared";
 import { scrubUrls } from "../lib/html";
 
 // House Clerk PTR discovery (live-verified 2026-07-26; ZIP fixture captured
@@ -441,6 +441,11 @@ export async function applyHousePtrText(
     amountBand: newest?.amount ?? null,
     singleTxn: txns.length === 1,
     lagDays: minLag,
+    // Derived at INGEST from parsed dates, never by the model. The
+    // fabrication gate bans arithmetic, so a figure the owner's voice reaches
+    // for has to exist as a field or the sentence can never be written.
+    lagWeeks: lagWeeks(minLag),
+    maxLagDays: maxLagDays(filedIso, dated),
     bandSpanRatio: bandSpan(newest?.amount ?? ""),
     bandWidthUsd: bandWidth(newest?.amount ?? ""),
   };

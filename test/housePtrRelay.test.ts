@@ -125,6 +125,14 @@ describe("house_ptr extraction relay", () => {
     expect(p.factLine).toContain("House PTR:");
     expect(p.who).toBe("Hon. Example Member");
 
+    // The derived lag fields reach the STORED payload, which is the only
+    // place the generation prompt can read them from. Unit-testing the
+    // helpers proves the arithmetic; this proves the wiring.
+    expect(typeof p.lagDays).toBe("number");
+    expect(p.lagWeeks).toBe(Math.floor((p.lagDays as number) / 7));
+    // 16 transactions, so the oldest trade is at least as stale as the newest.
+    expect(p.maxLagDays as number).toBeGreaterThanOrEqual(p.lagDays as number);
+
     // The relay drains in the same request, so a fresh filing lands in the
     // approval queue rather than sitting at 'new' waiting for a tick.
     const row = await env.DB.prepare(`SELECT id, status FROM items WHERE dedup_key = ?1`)
