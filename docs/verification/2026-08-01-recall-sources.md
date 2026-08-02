@@ -125,3 +125,66 @@ in order:
 CPSC is the case for class 4. Its first record has a `Manufacturers` entry, so
 inspecting one record would have said yes. It took 55 records to see that 33
 of them do not.
+
+---
+
+## PRODUCT_RECALL has a length WINDOW, not a cap (2026-08-01, after review)
+
+The p4 session's review of this chunk found that 24 of 38 live Class I device
+events fail `renderPost` with `over_budget`, and `enqueueForApproval` turns
+each into `status='logged'` — which the drain (`status='new'`) never sees
+again, and the dedup key stops re-ingest. **Dropped permanently and silently.**
+
+Reproduced on the shipped 10-row fixture through the real render path:
+
+```
+drug     6/6 rendered   {}
+device   4/6 rendered   {"over_budget": 2}
+```
+
+Direction confirmed. Device `reason_for_recall` is simply longer: median 187
+against drug's 124 here, 268 against 76 over the reviewer's live window.
+
+### The obvious fix is wrong, and measuring it is what showed that
+
+`draftRecall` caps `product` at 90 characters and leaves `reason` unbounded,
+so completing that pattern looks like the fix. It is not: capping the reason
+at 160, 130 and 110 moved device from 4/6 to 4/6 to 5/6.
+
+Making the composer budget-aware brought every fact line from up to 448
+weighted characters down to ~301 — and **two events still failed at 301 while
+others rendered at 301 and 302.** Same length, opposite outcomes, because the
+seed picks different skeletons and they are not the same size.
+
+Sweeping the budget against the real render path:
+
+| fact-line budget | drug | device |
+|---|---|---|
+| 300 | 6/6 | 4/6 |
+| **260** | 6/6 | **6/6** |
+| 220 | 6/6 | 5/6 |
+| 200 | 6/6 | 4/6 |
+| 180 | 6/6 | 4/6 |
+| 160 | 6/6 | 4/6 |
+
+**Non-monotonic.** Shorter is worse below 260, so there is a FLOOR as well as
+a ceiling: a fact line has to land inside a window the archetype never states.
+A composer that targets a cap can push a line under the floor and make things
+worse, which the 200 and 180 rows show happening.
+
+### So nothing shipped
+
+260 renders all six here. Tuning a constant to a six-event fixture when the
+reviewer measured thirty-eight is fitting noise, and the budget-aware composer
+was reverted with it — a change that trims toward an unknown floor is not
+obviously safe for drug and food either, and those lanes work today.
+
+**The real finding is the window, and it belongs to PRODUCT_RECALL rather than
+to an ingester.** An archetype that refuses a fact line for being too long AND
+for being too short, without stating either bound, cannot be targeted by the
+code that builds the line. That contract needs writing down before the device
+lane can queue honestly.
+
+Until then this chunk registers the source and lakes the events. **It should
+not be treated as a working posting lane**, and the 33% figure here is the
+fixture's, not production's.
