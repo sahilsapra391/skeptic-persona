@@ -435,7 +435,15 @@ export async function putSourceState(db: D1Database, s: SourceState, now: Date =
          consecutive_failures = excluded.consecutive_failures,
          first_failure_at = CASE
            WHEN excluded.consecutive_failures = 0 THEN NULL
-           WHEN source_state.first_failure_at IS NULL THEN ?8
+           -- Stamp only at the START of a run. The extra clause is the whole
+           -- fix: without it a LEGACY row -- one already mid-streak when the
+           -- column landed, carrying NULL -- gets dated on its next failing
+           -- poll and reads as brand new. Those rows are exactly the
+           -- long-dead sources the quarantine exists for, so the effect was
+           -- to give a source failing for days a fresh clock and a day of
+           -- immunity.
+           WHEN source_state.first_failure_at IS NULL
+            AND source_state.consecutive_failures = 0 THEN ?8
            ELSE source_state.first_failure_at
          END`,
     )

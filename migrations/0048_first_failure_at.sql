@@ -9,8 +9,14 @@
 -- ABSENCE MEANS OLD, NOT NEW. Every row that exists when this lands has NULL
 -- here, and those are precisely the long-running failures the quarantine was
 -- built for -- treasury_auction has been failing since well before this
--- shipped. hoursSince(null) is +Infinity, so a legacy row stays catchable and
--- only rows created after this point get an age.
+-- shipped. hoursSince(null) is +Infinity, so a legacy row stays catchable.
+--
+-- That holds because putSourceState stamps only at the START of a failure run
+-- (consecutive_failures transitioning from 0). An earlier version stamped
+-- whenever the column was NULL and failures were non-zero, which caught
+-- legacy rows MID-streak and dated them today -- handing the longest-dead
+-- sources a fresh clock. The claim in this comment was false for one poll
+-- until that guard was added; see p4-12.
 --
 -- Maintained entirely inside putSourceState, in SQL: stamped when a run
 -- starts, preserved while it continues, cleared on success. No ingester

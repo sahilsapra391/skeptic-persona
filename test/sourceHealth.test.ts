@@ -380,3 +380,68 @@ describe("a legacy row stays catchable", () => {
     expect(row?.quarantine_reason).toContain("never");
   });
 });
+
+describe("a legacy row keeps its NULL through further failures", () => {
+  it("does not hand the longest-dead source a fresh clock", async () => {
+    // The defect: putSourceState stamped whenever first_failure_at was NULL
+    // and failures were non-zero, which caught a LEGACY row mid-streak and
+    // dated it today. Those rows are exactly the long-dead sources the
+    // quarantine exists for, so the effect was a day of immunity for the
+    // worst offender in the fleet. Reproduced against a production-shaped
+    // treasury_auction row.
+    await env.DB.prepare("DELETE FROM source_state").run();
+    await env.DB.prepare(
+      `INSERT INTO source_state (source, consecutive_failures, last_ok_at)
+       VALUES ('treasury_auction', 16, NULL)`,
+    ).run();
+
+    const read = async () =>
+      (await env.DB.prepare(
+        `SELECT first_failure_at AS f, consecutive_failures AS n FROM source_state WHERE source = 'treasury_auction'`,
+      ).first<{ f: string | null; n: number }>())!;
+    expect((await read()).f).toBeNull();
+
+    // One more failing poll, exactly as the ingester writes it.
+    const later = new Date("2026-08-02T13:30:00.000Z");
+    await putSourceState(
+      env.DB,
+      {
+        source: "treasury_auction",
+        etag: null,
+        lastModified: null,
+        cursor: null,
+        lastPolledAt: iso(later),
+        lastOkAt: null,
+        consecutiveFailures: 17,
+      },
+      later,
+    );
+
+    const after = await read();
+    expect(after.n).toBe(17);
+    // Still NULL: absence continues to mean OLD, which is what 0048 claims.
+    expect(after.f).toBeNull();
+    expect(shouldQuarantine({ name: "treasury_auction", fails: 17, lastOkAt: null, firstFailureAt: after.f }, later)).toBe(true);
+  });
+
+  it("still starts the clock when a HEALTHY source begins failing", async () => {
+    // The guard must not break the case it was built for.
+    await env.DB.prepare("DELETE FROM source_state").run();
+    const t0 = new Date("2026-08-02T09:00:00.000Z");
+    const base = {
+      source: "was_healthy",
+      etag: null,
+      lastModified: null,
+      cursor: null,
+      lastPolledAt: iso(t0),
+      lastOkAt: iso(t0),
+    };
+    await putSourceState(env.DB, { ...base, consecutiveFailures: 0 }, t0);
+    const t1 = new Date("2026-08-02T10:00:00.000Z");
+    await putSourceState(env.DB, { ...base, consecutiveFailures: 1, lastOkAt: null }, t1);
+
+    const f = (await env.DB.prepare(`SELECT first_failure_at AS f FROM source_state WHERE source = 'was_healthy'`)
+      .first<{ f: string | null }>())!.f;
+    expect(f).toBe(iso(t1));
+  });
+});
