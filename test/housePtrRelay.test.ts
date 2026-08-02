@@ -125,6 +125,14 @@ describe("house_ptr extraction relay", () => {
     expect(p.factLine).toContain("House PTR:");
     expect(p.who).toBe("Hon. Example Member");
 
+    // The derived lag fields reach the STORED payload, which is the only
+    // place the generation prompt can read them from. Unit-testing the
+    // helpers proves the arithmetic; this proves the wiring.
+    expect(typeof p.lagDays).toBe("number");
+    expect(p.lagWeeks).toBe(Math.floor((p.lagDays as number) / 7));
+    // 16 transactions, so the oldest trade is at least as stale as the newest.
+    expect(p.maxLagDays as number).toBeGreaterThanOrEqual(p.lagDays as number);
+
     // The relay drains in the same request, so a fresh filing lands in the
     // approval queue rather than sitting at 'new' waiting for a tick.
     const row = await env.DB.prepare(`SELECT id, status FROM items WHERE dedup_key = ?1`)
@@ -261,6 +269,21 @@ describe("house_ptr extraction relay", () => {
 });
 
 describe("house_ptr items past the relay's drain limit still reach the queue", () => {
+  // EXPLICIT BUDGET, not a workaround. This test does real work — it inserts
+  // 322 lake items from the live-shaped ZIP fixture and makes five Telegram
+  // round-trips through the mock — and vitest's 5000 ms default is an
+  // arbitrary global, not a considered budget for it.
+  //
+  // It was already sitting on the line before this change: on origin/main it
+  // passes in a full run and FAILS at 5001 ms when the file is run on its own
+  // (`npx vitest run test/housePtrRelay.test.ts`), reproducibly, three times
+  // out of three. Bisected to #97, which added a sixteenth test to this file
+  // and pushed its heavy neighbour over. So CI is green while anyone running
+  // the one file gets a red, and the red is real work rather than a flake.
+  //
+  // Covered by the suite-wide testTimeout in vitest.config.ts rather than a
+  // per-test override, since the same fragility reds db.test.ts and
+  // congressPtr.test.ts under load and a one-test fix would leave those.
   it("pollHousePtr drains the backlog the relay could not enqueue", async () => {
     // THE BUG: drain() enqueues at most 3 per relay request, and house_ptr
     // was the one congressional source with no second drain — pollHousePtr

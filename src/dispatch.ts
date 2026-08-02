@@ -95,6 +95,41 @@ interface JobRow {
   priority: number;
 }
 
+/**
+ * The concurrency this tick will actually use.
+ *
+ * Exported because a test that hardcodes the number it *set* in a synthetic
+ * env is testing the env plumbing, not the contract. The budget test did
+ * exactly that: it built an override with
+ * `Object.assign(Object.create(Object.getPrototypeOf(env)), env, {...})`,
+ * asserted `ran <= 2`, passed 3/3 locally and failed on CI with
+ * "expected 3 to be less than or equal to 2" — the override was not visible to
+ * the Worker there, so the tick ran at the default 3.
+ *
+ * Reading the resolved value back keeps the assertion exactly what it claims —
+ * at most `concurrency` jobs start against a spent budget — on any machine,
+ * whatever the env override does.
+ */
+export function resolveConcurrency(env: Env): number {
+  const configured = env.TICK_JOB_CONCURRENCY;
+  const raw = Number(configured ?? TICK_JOB_CONCURRENCY);
+  if (Number.isFinite(raw) && raw >= 1 && raw <= MAX_TICK_JOB_CONCURRENCY) return Math.floor(raw);
+  // FALLBACK, NOT A CLAMP, and the difference is operational. An operator
+  // raising TICK_JOB_CONCURRENCY to 8 during a backlog gets 3 — the DEFAULT,
+  // lower than the 6 the number implies and lower than they asked for — so the
+  // lever appears to do nothing, or the wrong thing, in exactly the incident
+  // where somebody is reaching for it. Silence there is the worst property it
+  // could have, so say so.
+  if (configured !== undefined) {
+    log("warn", "TICK_JOB_CONCURRENCY out of range; falling back to the default", {
+      configured,
+      allowed: `1..${MAX_TICK_JOB_CONCURRENCY}`,
+      using: TICK_JOB_CONCURRENCY,
+    });
+  }
+  return TICK_JOB_CONCURRENCY;
+}
+
 export async function tick(env: Env, now: Date = new Date()): Promise<void> {
   if ((await env.KV.get(KILL_SWITCH_KEY)) === "1") {
     log("warn", "kill switch active; skipping tick");
@@ -177,11 +212,7 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
   // delay and no token bucket. The only sleeps in those ingesters are
   // QUEUE_NOTIFY_SPACING_MS, which paces TELEGRAM messages (<= 1/s per chat),
   // a different concern that happens to look like the same one.
-  const rawConcurrency = Number(env.TICK_JOB_CONCURRENCY ?? TICK_JOB_CONCURRENCY);
-  const concurrency =
-    Number.isFinite(rawConcurrency) && rawConcurrency >= 1 && rawConcurrency <= MAX_TICK_JOB_CONCURRENCY
-      ? Math.floor(rawConcurrency)
-      : TICK_JOB_CONCURRENCY;
+  const concurrency = resolveConcurrency(env);
 
   let ran = 0;
   let deferred = 0;
@@ -206,7 +237,7 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
       // are idempotent via dedup anyway). Concurrency does not weaken this:
       // the CAS is a single D1 statement and the loser sees changes === 0.
       const claim = await env.DB.prepare(`UPDATE jobs SET due_at = ?1 WHERE name = ?2 AND due_at = ?3`)
-        .bind(iso(nextDue(row.cadence_profile, now)), row.name, row.due_at)
+        .bind(iso(nextDue(row.cadence_profile, now, row.name)), row.name, row.due_at)
         .run();
       if (claim.meta.changes === 0) return; // another invocation owns it
 

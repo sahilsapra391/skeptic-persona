@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<rss version="2.0">
+    <channel>
+        <title>FRB: Speeches</title>
+        <link><![CDATA[https://www.federalreserve.gov/feeds/feeds.htm]]></link>
+        <description><![CDATA[Speeches of Federal Reserve Officials]]></description>
+        <language>en</language>
+        <item>
+            <title>Jefferson, Navigating Economic Shocks: A Monetary Policymaker’s Perspective</title>
+            <link><![CDATA[https://www.federalreserve.gov/newsevents/speech/jefferson20260716a.htm]]></link>
+            <guid><![CDATA[https://www.federalreserve.gov/newsevents/speech/jefferson20260716a.htm]]></guid>            
+            <description><![CDATA[Speech At the Stanford Institute for Economic Policy Research, Stanford University, Stanford, California]]></description>
+            <category>Speech</category>
+            <pubDate><![CDATA[Thu, 16 Jul 2026 23:00:00 GMT]]></pubDate>    
+        </item>
+        <item>
+            <title>Cook, Economic Outlook</title>
+            <link><![CDATA[https://www.federalreserve.gov/newsevents/speech/cook20260715a.htm]]></link>
+            <guid><![CDATA[https://www.federalreserve.gov/newsevents/speech/cook20260715a.htm]]></guid>            
+            <description><![CDATA[Speech At The Exchequer Club of Washington D.C., Washington, D.C.]]></description>
+            <category>Speech</category>
+            <pubDate><![CDATA[Wed, 15 Jul 2026 17:00:00 GMT]]></pubDate>    
+        </item>
+        <item>
+            <title>Bowman, Responsible Innovation and Financial Inclusion</title>
+            <link><![CDATA[https://www.federalreserve.gov/newsevents/speech/bowman20260714a.htm]]></link>
+            <guid><![CDATA[https://www.federalreserve.gov/newsevents/speech/bowman20260714a.htm]]></guid>            
+            <description><![CDATA[Speech At “Next-Gen Financial Inclusion,” the third annual Financial Inclusion Conference hosted by the Federal Reserve Board, Washington, D.C. (via pre-recorded video)]]></description>
+            <category>Speech</category>
+            <pubDate><![CDATA[Tue, 14 Jul 2026 18:55:00 GMT]]></pubDate>    
+        </item>
+        </channel></rss>
