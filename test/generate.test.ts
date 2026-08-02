@@ -1,9 +1,10 @@
 import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildPrompt, eligibleBeats, runGeneration, MAX_GENERATIONS_PER_RUN } from "../src/rag/generate";
 import { parseVariants } from "../src/rag/openrouter";
 import { registerJobs } from "../src/jobs";
 import { registry } from "../src/dispatch";
+import { newTickBudget } from "../src/lib/budget";
 import { createQueueEntry, decideQueueEntry, insertItem, SCORE_POSTABLE } from "../src/lib/db";
 import { iso } from "../src/lib/time";
 import type { ArchetypeId } from "../src/templates/types";
@@ -382,5 +383,71 @@ describe("runGeneration end-to-end", () => {
       `SELECT COUNT(*) AS n FROM generations g JOIN queue q ON q.id = g.queue_id JOIN items i ON i.id = q.item_id WHERE i.source = 'smoke_test'`,
     ).first<{ n: number }>();
     expect(smoke!.n).toBe(0);
+  });
+});
+
+describe("generation and delivery are decoupled (p4-13)", () => {
+  it("delivery still runs when generation throws, and the failure still surfaces", async () => {
+    // They were awaited in sequence, so a throw skipped delivery entirely —
+    // and deliverCards is not generation's downstream step: it delivers every
+    // terminal row without a live card, including ones generated on earlier
+    // ticks. A persistent throw stranded finished commentary the owner never
+    // saw. validateVariant makes D1 calls and is unwrapped, so the throw is
+    // reachable today rather than hypothetical.
+    registerJobs();
+    const handler = registry["generation"]!;
+
+    // The first version of this test threw the IDENTICAL message from both
+    // stub paths and asserted only `rejects.toThrow("D1 hiccup")`. That passes
+    // whether or not delivery was ever attempted — review proved it by
+    // swapping in the pre-PR src/jobs.ts (the plain sequential
+    // `await runGeneration(); await deliverCards();`) and watching it stay
+    // green. The comment claimed the escaping error identified the path; the
+    // code made the two indistinguishable.
+    //
+    // So: distinct messages per path, and a record of the SQL actually
+    // attempted. deliverCards' opening query is the only one that selects
+    // `stale_card`, which makes it a reliable fingerprint.
+    const seen: string[] = [];
+    const DELIVERY_SQL = "stale_card";
+    const poisoned = {
+      ...env,
+      // Set explicitly: deliverCards returns early without these, which would
+      // make the delivery assertion below fail for a reason unrelated to the
+      // decoupling. Better a confusing red than a silent green.
+      TELEGRAM_BOT_TOKEN: "TEST:TOKEN",
+      TELEGRAM_CHAT_ID: "424242",
+      OPENROUTER_API_KEY: "k",
+      OPENROUTER_MODEL: "m",
+      DB: {
+        prepare(sql: string) {
+          seen.push(sql);
+          throw new Error(
+            sql.includes(DELIVERY_SQL) ? "D1 hiccup in deliverCards" : "D1 hiccup in collisionCheck",
+          );
+        },
+        batch() {
+          seen.push("batch()");
+          throw new Error("D1 hiccup in collisionCheck");
+        },
+      },
+    } as never;
+
+    await expect(handler(poisoned, NOW, newTickBudget())).rejects.toThrow(
+      // Delivery's error, not generation's. In the decoupled handler
+      // deliverCards runs AFTER the generation catch and its throw propagates
+      // directly, so this message can only escape if delivery was attempted.
+      // Under the pre-PR sequential version the generation throw escapes first
+      // and this assertion goes red.
+      "D1 hiccup in deliverCards",
+    );
+
+    // Belt and braces, and the assertion that survives a refactor of the
+    // error messages: both paths were actually entered, generation first.
+    const generationAttempted = seen.findIndex((s) => !s.includes(DELIVERY_SQL));
+    const deliveryAttempted = seen.findIndex((s) => s.includes(DELIVERY_SQL));
+    expect(generationAttempted).toBeGreaterThanOrEqual(0);
+    expect(deliveryAttempted).toBeGreaterThanOrEqual(0);
+    expect(deliveryAttempted).toBeGreaterThan(generationAttempted);
   });
 });
