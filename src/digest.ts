@@ -192,33 +192,55 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
       buttons.push({ text: `↑ ${lines.length}`, callback_data: `dg:${h.item_id}` });
     }
     if (lines.length === 0) {
-      // Every row in this group failed to render. Marking them prevents an
-      // infinite silent retry; the loud log is how it reaches a human.
+      // Every row failed to render. TELL HIM FIRST, retire second: retiring
+      // before the alert let a whole category vanish on a Telegram 429 — rows
+      // came back marked sent, items stayed 'digested' and out of every
+      // drain, and the only trace was a warn nobody reads. If he cannot be
+      // told, the rows stay unsent and the next run tries again. Noisy beats
+      // silent, which is this chunk's whole thesis.
       if (skipped.length > 0) {
-        await env.DB.prepare(
-          `UPDATE digest_items SET sent_at = ?1 WHERE id IN (${skipped.map(() => "?").join(",")})`,
-        )
-          .bind(iso(now), ...skipped)
-          .run()
-          .catch(() => {});
-        log("error", "digest group unrenderable; rows retired without a card", {
-          day: g.day,
-          archetype: g.archetype,
-          rows: skipped.length,
-          itemIds: held.results.map((h) => h.item_id),
-        });
-        // The owner must hear about it too. A log line is not a channel he
-        // reads, and silently retiring a whole category is the same class as
-        // a silently cut list — he would see nothing and conclude nothing
-        // was held.
+        const n = held.results.length;
+        let told = false;
         try {
           await sendMessage(
             env.TELEGRAM_BOT_TOKEN,
             env.TELEGRAM_CHAT_ID,
-            `⚠️ ${held.results.length} ${g.archetype} ${held.results.length === 1 ? "item" : "items"} were held on ${g.day} but none could be rendered, so there is no digest card for them. They are retired; see the log for their item ids.`,
+            `⚠️ ${n} ${g.archetype} ${n === 1 ? "item was" : "items were"} held on ${g.day}, but none could be rendered, so there is no digest card. ${n === 1 ? "It is" : "They are"} retired; see the log for the item ${n === 1 ? "id" : "ids"}.`,
           );
+          told = true;
         } catch (e) {
-          log("warn", "could not alert the owner about an unrenderable digest group", { error: String(e) });
+          log("error", "could not tell the owner about an unrenderable digest group; rows left for the next run", {
+            day: g.day,
+            archetype: g.archetype,
+            error: String(e),
+          });
+          // Same flood-control backoff the renderable send path has. Review
+          // found this branch had neither the backoff nor the pacing, and the
+          // condition that makes MANY groups unrenderable at once is a
+          // template or payload regression — precisely when this runs for
+          // every category in turn. Measured: five unrenderable groups against
+          // a 429 produced five back-to-back sends, while three renderable
+          // groups against the same 429 produced one and returned.
+          //
+          // Returning, not continuing: the rows keep sent_at NULL and the next
+          // run retries them unchanged, which is what `told = false` already
+          // guarantees below.
+          if (e instanceof TelegramError && e.retryAfter !== null) return;
+        }
+        log("error", "digest group unrenderable", {
+          day: g.day,
+          archetype: g.archetype,
+          rows: skipped.length,
+          retired: told,
+          itemIds: held.results.map((h) => h.item_id),
+        });
+        if (told) {
+          await env.DB.prepare(
+            `UPDATE digest_items SET sent_at = ?1 WHERE id IN (${skipped.map(() => "?").join(",")})`,
+          )
+            .bind(iso(now), ...skipped)
+            .run()
+            .catch(() => {});
         }
       }
       continue;
@@ -273,9 +295,11 @@ export async function pushDigests(env: Env, now: Date, budget: TickBudget = newT
           itemIds: held.results.filter((h) => skipped.includes(h.id)).map((h) => h.item_id),
         });
       }
-      // Pacing is applied at the send (see sendMessage's spacingMs / paceChat),
-      // so the chat is held across concurrent jobs rather than only across
-      // this loop's own iterations.
+      // Pacing is applied at the send (sendMessage's spacingMs -> paceChat),
+      // so the chat is held across CONCURRENT jobs rather than only across
+      // this loop's own iterations. A sleep here paced the loop against
+      // itself, which stopped being equivalent when p4-12 made jobs run
+      // together.
     } catch (e) {
       // sent_at stays NULL: the next run retries this group unchanged.
       log("error", "digest send failed", { day: g.day, archetype: g.archetype, error: String(e) });
@@ -324,12 +348,28 @@ export async function promoteHeldItem(
     .run();
   if ((claimed.meta.changes ?? 0) === 0) return null; // someone already promoted it
 
-  const res = await enqueueForApproval(env, itemId, row.archetype as ArchetypeId, payload, row.source_url, now, undefined, {
-    bypassSalience: true,
-  });
-  if (res.queueId === 0) {
-    // Render failed or telegram never got it: put it back so the card is not lost.
-    await env.DB.prepare(`UPDATE items SET status = 'digested' WHERE id = ?1 AND status = 'new'`).bind(itemId).run().catch(() => {});
+  // enqueueForApproval calls renderForQueue, which THROWS on some payloads —
+  // documented in this same file for the digest path and then left unguarded
+  // here, which is the neighbouring-path mistake for the fourth time in this
+  // chunk. It also parks the item as 'logged' itself when a render merely
+  // declines, so a restore that only matches 'new' is dead code wearing a
+  // safety net's comment.
+  let res: Awaited<ReturnType<typeof enqueueForApproval>> | null = null;
+  try {
+    res = await enqueueForApproval(env, itemId, row.archetype as ArchetypeId, payload, row.source_url, now, undefined, {
+      bypassSalience: true,
+    });
+  } catch (e) {
+    log("error", "promotion threw; restoring the item so the button still works", { itemId, error: String(e) });
+  }
+  if (!res || res.queueId === 0) {
+    // Restore from WHATEVER state the failed attempt left: 'new' on a throw,
+    // 'logged' when enqueue parked an unrenderable payload. A second tap then
+    // retries instead of finding the item stranded outside every drain.
+    await env.DB.prepare(`UPDATE items SET status = 'digested' WHERE id = ?1 AND status IN ('new', 'logged')`)
+      .bind(itemId)
+      .run()
+      .catch(() => {});
     return null;
   }
   return { queueId: res.queueId, archetype: row.archetype };

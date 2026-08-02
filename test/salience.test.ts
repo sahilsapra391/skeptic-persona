@@ -7,6 +7,7 @@ import {
   DEFAULT_SALIENCE_FLOOR,
   DEFAULT_CAP_BYPASS_SCORE,
   DEFAULT_CATEGORY_CAPS,
+  DEFAULT_CATEGORY_CAP,
 } from "../src/salience";
 import { etDay, etDayStartUtc, holdForDigest, promoteHeldItem, pushDigests, pushedTodayByCategory } from "../src/digest";
 import { insertItem, SCORE_POSTABLE } from "../src/lib/db";
@@ -131,6 +132,23 @@ describe("no category can be unreachable (review HIGH)", () => {
     }
   });
 
+  it("...and the DAILY CAP does not re-suppress what the floor deliberately let through", () => {
+    // The round-one HIGH fixed one suppression mechanism and left its sibling.
+    // The floor carve-out's own reasoning — "reachable only in a 21:00 ET
+    // roll-up, up to 12.5h after an 08:30 ET print, while the committed TTLs
+    // give MACRO_PRINT 12h precisely because it is time-critical" — applies
+    // word for word to the cap, which held the third print of a heavy morning
+    // to an evening roll-up arriving after its own TTL expired.
+    //
+    // None of the four can reach DEFAULT_CAP_BYPASS_SCORE, so the cap is the
+    // only thing standing between them and the digest.
+    for (const id of ["MACRO_PRINT", "FED_PRESS", "TREASURY_AUCTION", "RATE_DECISION"] as const) {
+      expect(salienceFor(id, {}).score).toBeLessThan(DEFAULT_CAP_BYPASS_SCORE);
+      const { caps } = parseCategoryCaps(undefined);
+      expect(caps[id] ?? DEFAULT_CATEGORY_CAP).toBeGreaterThan(DEFAULT_CATEGORY_CAP);
+    }
+  });
+
   it("an out-of-range SALIENCE_FLOOR falls back instead of holding everything", async () => {
     const id = await (async () => {
       const res = await insertItem(env.DB, {
@@ -202,6 +220,19 @@ describe("the digest accounts for every held row (review rounds 2-3)", () => {
     expect(sends).toBeGreaterThan(before);
     const unsent = await env.DB.prepare(`SELECT COUNT(*) AS n FROM digest_items WHERE sent_at IS NULL`).first<{ n: number }>();
     expect(unsent?.n).toBe(0);
+  });
+
+  it("a promotion that THROWS restores the item so the button still works", async () => {
+    // The regression round three introduced: the claim flips 'digested' ->
+    // 'new' first, and renderForQueue can throw, so an unguarded failure
+    // stranded the item outside every drain with its digest row already sent.
+    // A payload with no renderable skeleton is the reachable trigger.
+    const id = await held("ACC-throws", { items: [{ code: "5.02" }] }, 40); // no title -> firstClause raises
+    const out = await promoteHeldItem(CURATED as never, id, NOW);
+    expect(out).toBeNull();
+    const row = await env.DB.prepare(`SELECT status FROM items WHERE id = ?1`).bind(id).first<{ status: string }>();
+    // Back to 'digested', not stranded in 'new' or parked as 'logged'.
+    expect(row?.status).toBe("digested");
   });
 
   it("promotion is idempotent — a second tap never builds a second card", async () => {
@@ -316,13 +347,44 @@ describe("the enqueue gate", () => {
   });
 
   it("a gate failure pushes the item — curation may cost noise, never silence", async () => {
+    // THIS TEST USED TO PROVE NOTHING. It built a circular payload so
+    // JSON.stringify would throw inside the gate, then asserted res.held was
+    // undefined. But {items:[{code:'4.02'}], self:<circular>} scores 95, so
+    // salienceHold took the `score >= bypass` branch and returned null BEFORE
+    // parseCategoryCaps, pushedTodayByCategory, holdForDigest or any log call
+    // that touches the payload. Nothing in the try block could throw, the
+    // catch was never entered, and the identical assertion passed for a plain
+    // non-circular payload. Third vacuous test found in this repo tonight.
+    //
+    // The gate can only fail where it touches D1, so break D1 — that is also
+    // the failure the fail-open rule exists for.
     const id = await seed("GATE-6");
-    // A payload that throws on JSON round-trip inside the gate's logging path
-    // must not swallow the item. Circular structure = JSON.stringify throws.
-    const circular: Record<string, unknown> = { items: [{ code: "4.02" }] };
-    circular["self"] = circular;
-    const res = await enqueueForApproval(CURATED, id, "FILING_8K", circular, "https://www.sec.gov/x", NOW);
-    // Either it rendered or it parked as unrenderable, but it was NOT held.
+    // Break ONLY the gate's own query. Poisoning the whole DB proves nothing
+    // useful: the gate would fail open correctly and then the render and the
+    // insert would throw anyway, so the assertion could not tell "the gate let
+    // it through" from "everything downstream also died".
+    const realPrepare = env.DB.prepare.bind(env.DB);
+    const brokenDb = {
+      prepare(sql: string) {
+        if (sql.includes("COUNT(*) AS n FROM queue")) throw new Error("D1_ERROR: gate query failed");
+        return realPrepare(sql);
+      },
+      batch: env.DB.batch.bind(env.DB),
+    };
+    // A score UNDER the bypass, so the gate must actually reach its D1 work
+    // rather than short-circuiting the way the old payload did.
+    const lowScore = { symbol: "AAPL", reasonCode: "T1", name: "Apple", reasonText: "News Pending", haltTimeEtShort: "09:30" };
+    expect(salienceFor("HALT", lowScore).score).toBeLessThan(DEFAULT_CAP_BYPASS_SCORE);
+
+    const res = await enqueueForApproval(
+      { ...CURATED, DB: brokenDb } as never,
+      id,
+      "HALT",
+      lowScore,
+      "https://www.nasdaqtrader.com/x",
+      NOW,
+    );
+    // Not held: a gate that cannot read D1 must let the item through.
     expect(res.held).toBeUndefined();
   });
 });
@@ -335,17 +397,8 @@ describe("concurrency must not breach the ceilings this stack exists to enforce 
     // halts_nasdaq + halts_nyse both push HALT, the ten rate_* jobs all push
     // RATE_DECISION, every FDA source pushes PRODUCT_RECALL — so two readers
     // land inside the same window and both see pushed < cap.
-    //
-    // Caps are small (HALT 2, DELISTING 1, default 2), so an overshoot of
-    // concurrency-1 is a 100-200% breach of the ceiling that p4-03 ships to
-    // cut 153 cards/day to 25.
     resetEnqueueLocks();
-    const capped = {
-      ...env,
-      CATEGORY_DAILY_CAPS: "HALT:1",
-      CAP_BYPASS_SCORE: "101", // nothing may bypass; the cap is the whole test
-      SALIENCE_FLOOR: "0",
-    } as never;
+    const capped = { ...env, CATEGORY_DAILY_CAPS: "HALT:1", CAP_BYPASS_SCORE: "101", SALIENCE_FLOOR: "0" } as never;
 
     const ids: number[] = [];
     for (let i = 0; i < 3; i++) {
@@ -368,24 +421,20 @@ describe("concurrency must not breach the ceilings this stack exists to enforce 
       ),
     );
 
-    const pushed = results.filter((r) => r.queueId > 0).length;
-    const held = results.filter((r) => r.held === "category_cap").length;
-    expect(pushed).toBe(1); // was 3 before the per-archetype lock
-    expect(held).toBe(2); // and the losers are held for the digest, not dropped
+    expect(results.filter((r) => r.queueId > 0).length).toBe(1); // was 3 before the lock
+    expect(results.filter((r) => r.held === "category_cap").length).toBe(2); // losers held, not dropped
   });
 });
 
 describe("Telegram per-chat pacing survives concurrent jobs (p4-12)", () => {
   it("paces the CHAT, not each caller against itself", async () => {
-    // The pacing sleep used to live in each drain loop, which paced a job
-    // against its own iterations. Concurrent jobs turned AAABBBCCC into
-    // ABCABCABC — three messages inside one window, 3x Telegram's documented
-    // ~1 msg/s per chat, and TICK_JOB_CONCURRENCY=6 would make it 6x.
+    // The sleep used to live in each drain loop, pacing a job against its own
+    // iterations. Concurrent jobs turned AAABBBCCC into ABCABCABC — three
+    // messages inside one window, 3x Telegram's documented ~1 msg/s per chat.
     resetChatPacing();
     const SPACING = 40;
     const at: number[] = [];
     const started = performance.now();
-    // Three "jobs" reaching the gate simultaneously.
     await Promise.all(
       [0, 1, 2].map(async () => {
         await paceChat("424242", SPACING);
@@ -394,7 +443,6 @@ describe("Telegram per-chat pacing survives concurrent jobs (p4-12)", () => {
     );
     at.sort((a, b) => a - b);
     expect(at[0]).toBeLessThan(SPACING); // the first send is not delayed
-    // ...and every later one waits a full window behind its predecessor.
     expect(at[1]! - at[0]!).toBeGreaterThanOrEqual(SPACING * 0.8);
     expect(at[2]! - at[1]!).toBeGreaterThanOrEqual(SPACING * 0.8);
   });

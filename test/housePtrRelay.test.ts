@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import MULTI from "./fixtures/house-ptr-multi.text.fixture?raw";
 import SINGLE from "./fixtures/house-ptr-single.text.fixture?raw";
 import { INGEST_PATH, PENDING_PATH } from "../src/ingestRelay";
-import { pollHousePtr, SOURCE as HOUSE_SOURCE } from "../src/ingesters/housePtr";
+import { HOUSE_RAW_TEXT_CAP, pollHousePtr, SOURCE as HOUSE_SOURCE } from "../src/ingesters/housePtr";
 import { insertItem, SCORE_LOG_ONLY } from "../src/lib/db";
 
 const URL_BASE = "https://worker.local";
@@ -200,6 +200,59 @@ describe("house_ptr extraction relay", () => {
     expect((await payloadOf("20260103")).transactions).not.toBeNull();
   });
 
+  it("applies the docs before a malformed one, so 422 does not mean nothing landed", async () => {
+    // The relay is NOT atomic, and this is the test that says so. A bundle
+    // whose third doc is malformed returns 422, but the first doc has already
+    // been applied and committed by then -- the throw happens mid-loop, not
+    // before it.
+    //
+    // That is survivable only because of the two properties asserted below:
+    // the un-applied doc is still listed by /pending, so the courier's next
+    // run picks it up, and re-applying is idempotent. If either ever stops
+    // being true, a partial bundle silently drops filings and the only
+    // symptom is a 422 the courier already expects to retry.
+    //
+    // This behaviour was investigated on 2026-07-28 in a scratch file that
+    // logged it and asserted nothing (test/zzRefuteScratch.test.ts, on main
+    // until 2026-08-01). Two tests, zero expects, counted green the whole
+    // time. The findings were right; they just were not pinned.
+    await seedIndexRow("30000200", NOW);
+    await seedIndexRow("30000201", NOW);
+
+    const res = await post({
+      source: HOUSE_SOURCE,
+      body: JSON.stringify({
+        docs: [
+          { docId: "30000200", text: SINGLE },
+          { docId: 12345, text: SINGLE }, // number, not string -> throws
+          { docId: "30000201", text: SINGLE },
+        ],
+      }),
+    });
+    expect(res.status).toBe(422);
+
+    // Applied despite the 422: it was processed before the bad doc.
+    expect((await payloadOf("30000200")).transactions).not.toBeNull();
+    // Never reached.
+    expect((await payloadOf("30000201")).transactions).toBeNull();
+
+    // The recovery path: /pending still offers ONLY the un-applied one.
+    const offered = (await (await pending()).json()) as { docs: { docId: string }[] };
+    expect(offered.docs.map((d) => d.docId)).toContain("30000201");
+    expect(offered.docs.map((d) => d.docId)).not.toContain("30000200");
+
+    // The courier's next run drains it with a well-formed bundle.
+    const res2 = await post({
+      source: HOUSE_SOURCE,
+      body: JSON.stringify({ docs: [{ docId: "30000201", text: SINGLE }] }),
+    });
+    expect(res2.status).toBe(200);
+    expect((await payloadOf("30000201")).transactions).not.toBeNull();
+
+    const after = (await (await pending()).json()) as { docs: { docId: string }[] };
+    expect(after.docs.map((d) => d.docId)).not.toContain("30000201");
+  });
+
   it("rejects a malformed bundle loudly rather than accepting nothing", async () => {
     expect((await post({ source: HOUSE_SOURCE, body: JSON.stringify({}) })).status).toBe(422);
     expect((await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: 1 }] }) })).status).toBe(422);
@@ -242,5 +295,87 @@ describe("house_ptr items past the relay's drain limit still reach the queue", (
       .bind(HOUSE_SOURCE, ...docs)
       .first<{ n: number }>();
     expect(after!.n).toBeLessThan(stranded!.n);
+  });
+});
+
+describe("the filing's own text is kept as grounding", () => {
+  async function rawOf(docId: string) {
+    return env.DB.prepare(`SELECT raw_text AS t, raw_meta AS m FROM items WHERE dedup_key = ?1`)
+      .bind(`${HOUSE_SOURCE}:${docId}`)
+      .first<{ t: string | null; m: string | null }>();
+  }
+
+  it("stores the extracted body, which cost no extra fetch", async () => {
+    // The courier already extracted this to parse transactions out of it, and
+    // it was discarded the moment parsing finished. CONGRESS_PTR is both the
+    // signature archetype and the deepest-exemplared one, so this is the
+    // highest-value grounding text in the pipeline and it is free.
+    await seedIndexRow("20260400", NOW);
+    await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260400", text: MULTI }] }) });
+
+    const row = await rawOf("20260400");
+    expect(row?.t).toBeTruthy();
+    expect(row!.t).toContain("Home Depot");
+    const meta = JSON.parse(row!.m!) as Record<string, unknown>;
+    expect(meta.mode).toBe("full");
+    expect(meta.host).toBe("disclosures-clerk.house.gov");
+    expect(meta.document).toBe("20260400.pdf");
+  });
+
+  it("scrubs the asset-type URL every House PTR carries", async () => {
+    // 100% of filings: all seven fixtures contain
+    // https://fd.house.gov/reference/asset-type-codes.aspx beneath the
+    // transaction table. Without scrubbing, raw_text puts a URL inside the
+    // SOURCE DOCUMENT block of a prompt that forbids URLs, and every variant
+    // echoing it is rejected -- burning both retries on the archetype with
+    // the deepest exemplar bank. The omission was untested in BOTH
+    // directions, which is why it survived.
+    expect(MULTI).toContain("https://fd.house.gov");
+    await seedIndexRow("20260500", NOW);
+    await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260500", text: MULTI }] }) });
+
+    const row = await env.DB.prepare(`SELECT raw_text AS t FROM items WHERE dedup_key = ?1`)
+      .bind(`${HOUSE_SOURCE}:20260500`)
+      .first<{ t: string }>();
+    expect(row!.t).not.toContain("fd.house.gov");
+    expect(row!.t).not.toMatch(/https?:\/\//);
+    // The filing itself must survive the scrub.
+    expect(row!.t).toContain("Home Depot");
+  });
+
+  it("strips the NUL bytes the font encoding injects", async () => {
+    // House PDFs carry NULs from a font quirk. A NUL reaching a generation
+    // prompt is invisible junk at best; at worst it is the byte that makes a
+    // downstream binary check fire on legitimate text.
+    await seedIndexRow("20260401", NOW);
+    await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260401", text: SINGLE }] }) });
+
+    const row = await rawOf("20260401");
+    expect(SINGLE).toContain("\u0000");
+    expect(row!.t).not.toContain("\u0000");
+    expect(row!.t).toContain("Ares Capital");
+  });
+
+  it("stores nothing when the extraction is refused", async () => {
+    // A filing held by the completeness gate must not leave grounding text
+    // behind: the body would license facts for a trade list we declined to
+    // publish precisely because we could not read all of it.
+    await seedIndexRow("20260402", NOW);
+    const truncated = MULTI.slice(0, MULTI.lastIndexOf("$")) + "$";
+    await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260402", text: truncated }] }) });
+
+    const row = await rawOf("20260402");
+    expect(row?.t).toBeNull();
+    expect(row?.m).toBeNull();
+  });
+
+  it("caps a long body at the same ceiling the generation path uses", async () => {
+    await seedIndexRow("20260403", NOW);
+    const padded = MULTI + " lorem ipsum".repeat(4_000);
+    await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260403", text: padded }] }) });
+
+    const row = await rawOf("20260403");
+    expect(row!.t!.length).toBe(HOUSE_RAW_TEXT_CAP);
+    expect(JSON.parse(row!.m!).truncated).toBe(true);
   });
 });
