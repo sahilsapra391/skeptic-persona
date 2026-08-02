@@ -261,6 +261,20 @@ describe("house_ptr extraction relay", () => {
 });
 
 describe("house_ptr items past the relay's drain limit still reach the queue", () => {
+  // EXPLICIT BUDGET, not a workaround. This test does real work — it inserts
+  // 322 lake items from the live-shaped ZIP fixture and makes five Telegram
+  // round-trips through the mock — and vitest's 5000 ms default is an
+  // arbitrary global, not a considered budget for it.
+  //
+  // It was already sitting on the line before this change: on origin/main it
+  // passes in a full run and FAILS at 5001 ms when the file is run on its own
+  // (`npx vitest run test/housePtrRelay.test.ts`), reproducibly, three times
+  // out of three. Bisected to #97, which added a sixteenth test to this file
+  // and pushed its heavy neighbour over. So CI is green while anyone running
+  // the one file gets a red, and the red is real work rather than a flake.
+  //
+  // 15000 ms leaves headroom without hiding a genuine regression: a change
+  // that triples this test's cost still fails.
   it("pollHousePtr drains the backlog the relay could not enqueue", async () => {
     // THE BUG: drain() enqueues at most 3 per relay request, and house_ptr
     // was the one congressional source with no second drain — pollHousePtr
@@ -295,7 +309,7 @@ describe("house_ptr items past the relay's drain limit still reach the queue", (
       .bind(HOUSE_SOURCE, ...docs)
       .first<{ n: number }>();
     expect(after!.n).toBeLessThan(stranded!.n);
-  });
+  }, 15_000);
 });
 
 describe("the filing's own text is kept as grounding", () => {

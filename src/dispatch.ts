@@ -206,7 +206,7 @@ export async function tick(env: Env, now: Date = new Date()): Promise<void> {
       // are idempotent via dedup anyway). Concurrency does not weaken this:
       // the CAS is a single D1 statement and the loser sees changes === 0.
       const claim = await env.DB.prepare(`UPDATE jobs SET due_at = ?1 WHERE name = ?2 AND due_at = ?3`)
-        .bind(iso(nextDue(row.cadence_profile, now)), row.name, row.due_at)
+        .bind(iso(nextDue(row.cadence_profile, now, row.name)), row.name, row.due_at)
         .run();
       if (claim.meta.changes === 0) return; // another invocation owns it
 

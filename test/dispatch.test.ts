@@ -17,6 +17,19 @@ beforeEach(async () => {
 
 const NOW = new Date("2026-07-22T14:00:00Z"); // Wed 10:00 EDT
 
+/** p4-20: due_at now carries a per-job PHASE inside the interval, so a job of
+ *  cadence `every_5m` reschedules somewhere near now+5m rather than to a round
+ *  now+5m. Asserting the exact instant would pin the hash rather than the
+ *  cadence, so assert the CONTRACT: advanced, and inside the one-time
+ *  transition bound of [interval/2, 1.5*interval). The dispersion and the
+ *  bound itself are pinned directly in test/cadence.test.ts. */
+function expectRescheduledWithin(actual: string, now: Date, intervalMs: number) {
+  const t = new Date(actual).getTime();
+  expect(t).toBeGreaterThanOrEqual(now.getTime() + intervalMs / 2);
+  expect(t).toBeLessThan(now.getTime() + intervalMs * 1.5);
+}
+
+
 async function seedJob(name: string, dueAt: string, profile = "every_5m", enabled = 1) {
   await env.DB.prepare("INSERT INTO jobs (name, due_at, cadence_profile, enabled) VALUES (?1, ?2, ?3, ?4)")
     .bind(name, dueAt, profile, enabled)
@@ -48,7 +61,7 @@ describe("tick", () => {
     await tick(env, NOW);
 
     expect(ran).toEqual(["a"]);
-    expect(await dueAtOf("a")).toBe("2026-07-22T14:05:00.000Z");
+    expectRescheduledWithin(await dueAtOf("a"), NOW, 5 * 60_000);
     expect(await dueAtOf("future")).toBe("2026-07-22T15:00:00.000Z");
   });
 
@@ -67,7 +80,7 @@ describe("tick", () => {
 
     expect(ran).toEqual(["ok"]);
     // Rescheduled BEFORE running: no every-minute retry hammering a source.
-    expect(await dueAtOf("boom")).toBe("2026-07-22T14:05:00.000Z");
+    expectRescheduledWithin(await dueAtOf("boom"), NOW, 5 * 60_000);
   });
 
   it("caps work per tick at MAX_JOBS_PER_TICK, oldest due first", async () => {
@@ -120,7 +133,7 @@ describe("tick", () => {
     await tick(env, NOW);
     expect(await dueAtOf("disabled")).toBe("2026-07-22T13:00:00.000Z");
     // Orphan still gets rescheduled (so a bad deploy can't hot-loop it).
-    expect(await dueAtOf("orphan")).toBe("2026-07-22T14:05:00.000Z");
+    expectRescheduledWithin(await dueAtOf("orphan"), NOW, 5 * 60_000);
   });
 
   it("a job due exactly at now runs (due_at <= now, not <)", async () => {
@@ -131,7 +144,7 @@ describe("tick", () => {
     await seedJob("exact", "2026-07-22T14:00:00.000Z"); // == NOW
     await tick(env, NOW);
     expect(ran).toEqual(["exact"]);
-    expect(await dueAtOf("exact")).toBe("2026-07-22T14:05:00.000Z");
+    expectRescheduledWithin(await dueAtOf("exact"), NOW, 5 * 60_000);
   });
 
   it("overlapping invocations cannot double-run a job (atomic claim)", async () => {
@@ -172,6 +185,24 @@ describe("tick", () => {
 
     expect(ran).toEqual([]);
     expect(await dueAtOf("a")).toBe("2026-07-22T13:00:00.000Z");
+  });
+});
+
+describe("the dispatcher must actually pass the job name to nextDue (p4-20)", () => {
+  it("two same-cadence jobs rescheduled by one tick do not land on the same due_at", async () => {
+    // WIRING, not arithmetic. test/cadence.test.ts proves nextDue disperses
+    // when handed a key — and every one of those tests passes the key itself,
+    // so all of them stay green if the DISPATCHER stops passing row.name.
+    // Deleting that argument was a mutation that nothing caught, which is the
+    // same "fixed the call site, never pinned it" hole this repo has produced
+    // four times tonight. This is the test that fails when the wiring goes.
+    for (const n of ["twinjob_a", "twinjob_b", "twinjob_c"]) {
+      registry[n] = async () => {};
+      await seedJob(n, "2026-07-22T13:50:00.000Z"); // same cadence, same due_at
+    }
+    await tick(env, NOW);
+    const due = await Promise.all(["twinjob_a", "twinjob_b", "twinjob_c"].map((n) => dueAtOf(n)));
+    expect(new Set(due).size).toBe(3);
   });
 });
 
