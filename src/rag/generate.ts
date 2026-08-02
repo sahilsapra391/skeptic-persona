@@ -418,7 +418,27 @@ export async function runGeneration(
     //
     // Recorded as a generations row, not skipped in silence: a variant that
     // was never requested has to be distinguishable from one that failed.
-    const verdict = commentaryVerdict(fallback);
+    // THE FLOOR ANCHORS ON THE CANONICAL RENDER, never on the owner's edit.
+    //
+    // `fallback` is `edited_text ?? draft_text`, re-rendered ONLY when it
+    // fails fitsInPost. The register check runs later, at the fallback stage —
+    // so an owner edit that FITS THE BUDGET BUT FAILS THE REGISTER slips
+    // between the two gates and becomes the anchor, with its first line being
+    // whatever he typed rather than the record's fact block.
+    //
+    // Both directions exist and one is harmful: a longer line than the
+    // canonical fact block raises the floor and rejects commentary
+    // unnecessarily (conservative, self-correcting), while a SHORTER one
+    // lowers the floor and admits thin commentary against an item whose record
+    // is real. That second direction is precisely what this rule exists to
+    // prevent, so it must not be reachable through the owner's keyboard.
+    //
+    // draft_text is the template render of the record, which is definitionally
+    // "what the record supports"; edited_text is what the owner wants to post,
+    // a different question. When a re-render happened, `fallback` IS the
+    // canonical compressed render, so it is the right anchor then.
+    const floorAnchor = fallbackRerendered ? fallback : row.draft_text;
+    const verdict = commentaryVerdict(floorAnchor);
     const wanted: readonly Variant[] = verdict === "ok" ? VARIANTS : VARIANTS.filter((v) => v !== "commentary");
     if (verdict !== "ok") {
       // Two DIFFERENT facts, two statuses. "no_room" is arithmetic: the
@@ -430,7 +450,7 @@ export async function runGeneration(
       const status = verdict === "no_room" ? "skipped_record_too_thin" : "skipped_record_unmeasurable";
       await insertGeneration(env.DB, { queueId: row.queue_id, variant: "commentary", text: "", status, attempt }, now);
       log("info", "commentary withheld", {
-        queueId: row.queue_id, archetype: archetypeId, verdict, floor: commentaryFloor(fallback),
+        queueId: row.queue_id, archetype: archetypeId, verdict, floor: commentaryFloor(floorAnchor),
       });
     }
 
@@ -442,7 +462,7 @@ export async function runGeneration(
       if (!budget.take(1, { reserved: true })) break;
       let content: string;
       try {
-        const prompt = buildPrompt(archetypeId, payload, bank, feedback, { source, contextLines: context.lines }, fallback);
+        const prompt = buildPrompt(archetypeId, payload, bank, feedback, { source, contextLines: context.lines }, floorAnchor);
         content = await chatComplete(env.OPENROUTER_API_KEY, env.OPENROUTER_MODEL, [
           { role: "system", content: prompt.system },
           { role: "user", content: prompt.user },
@@ -482,6 +502,7 @@ export async function runGeneration(
           payload,
           grounding,
           templateDraft: fallback,
+          floorAnchor,
           skeletonHash: skeletonHash(text),
           openerHash: openerHash(text),
           corpusPopulated,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OWNER_EXEMPLARS } from "../src/rag/stylepack";
-import { MIN_TAKE_WEIGHTED, TARGET_TAKE_WEIGHTED, commentaryFloor, commentaryVerdict } from "../src/rag/validate";
+import { MIN_TAKE_WEIGHTED, TARGET_TAKE_WEIGHTED, commentaryFloor, commentaryVerdict, lengthCheck } from "../src/rag/validate";
 import { weightedLength } from "../src/templates/length";
 
 /** Every exemplar's take, in weighted chars — segments after the fact block. */
@@ -63,5 +63,44 @@ describe("a degraded render does not buy a cheap take", () => {
   it("and the two withholding reasons stay distinct", () => {
     expect(commentaryVerdict("8-K, per SEC.")).toBe("ok");
     expect(commentaryVerdict("x".repeat(280))).toBe("no_room");
+  });
+});
+
+describe("an owner edit cannot lower the floor", () => {
+  // The reachable gap, traced by review: `fallback` is `edited_text ??
+  // draft_text`, re-rendered ONLY when it fails fitsInPost — and the register
+  // check runs later, at the fallback stage. So an owner edit that FITS THE
+  // BUDGET BUT FAILS THE REGISTER slips between the two gates and would have
+  // become the floor anchor, with its first line being whatever he typed.
+  //
+  // The harmful direction is a SHORTER first line: floor drops, thin
+  // commentary is admitted against an item whose record is real.
+  const CANONICAL = "8-K, Item 4.02: prior financial statements for fiscal 2025 should no longer be relied upon, filed after the close, per SEC.";
+  const OWNER_EDIT_SHORT_FIRST_LINE = "Non-reliance.\n\n8-K item 4.02, per SEC.";
+
+  it("the canonical render sets a materially higher floor than a short edit", () => {
+    expect(commentaryFloor(CANONICAL)).toBeGreaterThan(commentaryFloor(OWNER_EDIT_SHORT_FIRST_LINE) + 50);
+  });
+
+  it("lengthCheck reads floorAnchor, not templateDraft, when both are given", () => {
+    // A take that would pass against the owner's short line must still fail
+    // against the record's own fact block.
+    const thin = `${CANONICAL}\n\nRelied upon until it wasn't.`;
+    expect(
+      lengthCheck(thin, "commentary", OWNER_EDIT_SHORT_FIRST_LINE),
+      "against the owner edit as anchor: passes, which is the bug",
+    ).toEqual([]);
+    expect(
+      lengthCheck(thin, "commentary", CANONICAL).map((i) => i.rule),
+      "against the canonical render: rejected, which is correct",
+    ).toEqual(["length"]);
+  });
+
+  it("the two fields answer different questions and must not be merged again", () => {
+    // templateDraft = what must not be echoed (the text that would post).
+    // floorAnchor  = what the record supports (the template render).
+    // They briefly shared one field, which is the mutable-slot shape all over
+    // again: one value, two readers, different correct answers.
+    expect(commentaryFloor(CANONICAL)).not.toBe(commentaryFloor(OWNER_EDIT_SHORT_FIRST_LINE));
   });
 });
