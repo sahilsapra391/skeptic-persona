@@ -21,6 +21,10 @@ export interface Env {
   MIN_ISSUER_FLOAT_USD?: string;
   /** Ms between batched queue notifications (Telegram asks ≤1 msg/s per chat). Default 1100; tests use 0. */
   QUEUE_NOTIFY_SPACING_MS?: string;
+  THIRTEENF_INLINE_MAX_BYTES?: string;
+  SANITY_MAX_TOTAL_USD?: string;
+  SANITY_MAX_POSITION_USD?: string;
+  SANITY_MIN_TOTAL_USD?: string;
   /** Shared secret for the GitHub Actions ingest relay (blocked sources). */
   INGEST_SECRET?: string;
   /** Jobs run concurrently per tick (default 3, max 6 — the Workers outbound-connection ceiling). */
