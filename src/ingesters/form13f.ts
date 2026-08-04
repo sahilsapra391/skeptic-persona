@@ -4,6 +4,7 @@ import { buildUserAgent, politeFetch } from "../lib/http";
 import { decodeEntities, extractAll, extractAllNs, extractAttr, extractFirst, extractFirstNs, stripBom } from "../lib/xml";
 import { getSourceState, putSourceState, recordSourceError } from "../lib/db";
 import { resolveCusipBatch } from "../lib/figi";
+import { runDiffFor } from "./form13fDiff";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -227,6 +228,85 @@ export function sanityCheck(
   return { ok: true, reason: null, parsedTotal };
 }
 
+export interface Filing13fMeta {
+  id: number;          // filings_13f.id
+  cik: string;
+  accession: string;
+}
+
+/**
+ * Parse + sanity-gate + store one 13F filing's holdings. ONE implementation:
+ * the live poll drain calls this after fetching; the backfill relay route
+ * calls it with courier-delivered bytes. Two callers, one parser — the relay
+ * principle (a second implementation is a second set of bugs).
+ *
+ * Returns the resulting status. Also records coverage_start for the manager
+ * on first observation (COALESCE — never overwrites an earlier start).
+ */
+export async function parseAndStore13f(
+  env: Env,
+  meta: Filing13fMeta,
+  primaryXml: string,
+  tableXml: string,
+  tableBytes: number,
+  now: Date,
+): Promise<string> {
+  const period = normalizePeriod(extractFirstNs(primaryXml, "periodOfReport"));
+  const declaredTotalRaw = (extractFirstNs(primaryXml, "tableValueTotal") ?? "").replace(/[,\s]/g, "");
+  const declaredTotal = Number.isFinite(Number(declaredTotalRaw)) && declaredTotalRaw !== "" ? Number(declaredTotalRaw) : null;
+  const declaredEntriesRaw = (extractFirstNs(primaryXml, "tableEntryTotal") ?? "").replace(/[,\s]/g, "");
+  const declaredEntries = Number.isFinite(Number(declaredEntriesRaw)) && declaredEntriesRaw !== "" ? Number(declaredEntriesRaw) : null;
+  const amendmentType = (extractFirstNs(primaryXml, "amendmentType") ?? "").trim() || null;
+
+  if (!/<\w*:?informationTable/i.test(tableXml)) throw new Error("document is not an informationTable");
+  const holdings = parseInfotable(tableXml);
+  const verdict = sanityCheck(holdings, declaredTotal, env);
+
+  if (!verdict.ok) {
+    await env.DB.prepare(
+      `UPDATE filings_13f SET status = 'quarantined', quarantine_reason = ?2, period = ?3,
+              amendment_type = ?4, infotable_bytes = ?5, table_value_total = ?6,
+              table_entry_total = ?7, parsed_value_total = ?8 WHERE id = ?1`,
+    )
+      .bind(meta.id, verdict.reason, period, amendmentType, tableBytes, declaredTotal, declaredEntries, verdict.parsedTotal)
+      .run();
+    log("error", "13F filing failed sanity checks", {
+      accession: meta.accession, cik: meta.cik, reason: verdict.reason,
+      parsedTotal: verdict.parsedTotal, declaredTotal,
+    });
+    return "quarantined";
+  }
+
+  const stmts = holdings.map((h) =>
+    env.DB.prepare(
+      `INSERT OR REPLACE INTO holdings_13f
+       (filing_id, cusip, put_call, issuer, class, value_usd, shares, sh_prn_type,
+        discretion, voting_sole, voting_shared, voting_none)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+    ).bind(meta.id, h.cusip, h.putCall, h.issuer, h.cls, h.valueUsd, h.shares, h.shPrnType, h.discretion, h.votingSole, h.votingShared, h.votingNone),
+  );
+  stmts.push(
+    env.DB.prepare(
+      `UPDATE filings_13f SET status = 'parsed', period = ?2, amendment_type = ?3,
+              infotable_bytes = ?4, table_value_total = ?5, table_entry_total = ?6,
+              parsed_value_total = ?7 WHERE id = ?1`,
+    ).bind(meta.id, period, amendmentType, tableBytes, declaredTotal, declaredEntries, verdict.parsedTotal),
+  );
+  // Observation of this manager starts at the first filing WE hold — never
+  // overwritten (COALESCE), never the filing's period (backfill != watching).
+  stmts.push(
+    env.DB.prepare(
+      `UPDATE managers_13f SET coverage_start = COALESCE(coverage_start, ?2) WHERE cik = ?1`,
+    ).bind(meta.cik, iso(now)),
+  );
+  await env.DB.batch(stmts);
+  log("info", "13F filing parsed", {
+    accession: meta.accession, cik: meta.cik, positions: holdings.length,
+    parsedTotal: verdict.parsedTotal, period,
+  });
+  return "parsed";
+}
+
 interface PendingFiling {
   id: number;
   cik: string;
@@ -324,75 +404,28 @@ export async function pollForm13f(
         // 2. primary_doc: period, declared totals, amendment type.
         const priRes = await politeFetch(`${dirUrl}/${primaryName}`, { userAgent, timeoutMs: 20_000 });
         if (!priRes.ok) throw new Error(`primary_doc ${priRes.status}`);
-        const period = normalizePeriod(extractFirstNs(priRes.body, "periodOfReport"));
-        const declaredTotalRaw = (extractFirstNs(priRes.body, "tableValueTotal") ?? "").replace(/[,\s]/g, "");
-        const declaredTotal = Number.isFinite(Number(declaredTotalRaw)) && declaredTotalRaw !== "" ? Number(declaredTotalRaw) : null;
-        const declaredEntriesRaw = (extractFirstNs(priRes.body, "tableEntryTotal") ?? "").replace(/[,\s]/g, "");
-        const declaredEntries = Number.isFinite(Number(declaredEntriesRaw)) && declaredEntriesRaw !== "" ? Number(declaredEntriesRaw) : null;
-        const amendmentType = (extractFirstNs(priRes.body, "amendmentType") ?? "").trim() || null;
 
-        // 3. infotable: pick by size within the inline ceiling, sniff content.
+        // 3. infotable: pick by size within the inline ceiling.
         const sized = tableCandidates
           .map((f) => ({ name: f.name, size: Number(f.size ?? 0) || 0 }))
           .sort((a, b) => b.size - a.size);
         const chosen = sized[0];
         if (!chosen) throw new Error("no infotable candidate in index");
         if (chosen.size > inlineMax) {
+          const period = normalizePeriod(extractFirstNs(priRes.body, "periodOfReport"));
           await env.DB.prepare(
-            `UPDATE filings_13f SET status = 'deferred_heavy', period = ?2, amendment_type = ?3,
-                    infotable_bytes = ?4, table_value_total = ?5, table_entry_total = ?6 WHERE id = ?1`,
+            `UPDATE filings_13f SET status = 'deferred_heavy', period = ?2, infotable_bytes = ?3 WHERE id = ?1`,
           )
-            .bind(row.id, period, amendmentType, chosen.size, declaredTotal, declaredEntries)
+            .bind(row.id, period, chosen.size)
             .run();
           log("warn", "13F infotable deferred to heavy lane", { accession: row.accession, bytes: chosen.size });
           return;
         }
         const tblRes = await politeFetch(`${dirUrl}/${chosen.name}`, { userAgent, timeoutMs: 20_000 });
         if (!tblRes.ok) throw new Error(`infotable ${tblRes.status}`);
-        if (!/<\w*:?informationTable/i.test(tblRes.body)) throw new Error("candidate is not an informationTable");
 
-        const holdings = parseInfotable(tblRes.body);
-        const verdict = sanityCheck(holdings, declaredTotal, env);
-
-        if (!verdict.ok) {
-          await env.DB.prepare(
-            `UPDATE filings_13f SET status = 'quarantined', quarantine_reason = ?2, period = ?3,
-                    amendment_type = ?4, infotable_bytes = ?5, table_value_total = ?6,
-                    table_entry_total = ?7, parsed_value_total = ?8 WHERE id = ?1`,
-          )
-            .bind(row.id, verdict.reason, period, amendmentType, chosen.size, declaredTotal, declaredEntries, verdict.parsedTotal)
-            .run();
-          // No figures quoted beyond the log, by design: a quarantined filing
-          // must never contribute numbers anywhere downstream.
-          log("error", "13F filing failed sanity checks", {
-            accession: row.accession, cik: row.cik, reason: verdict.reason,
-            parsedTotal: verdict.parsedTotal, declaredTotal,
-          });
-          return;
-        }
-
-        // Batch: holdings + status flip travel together — a partial insert
-        // must not leave a filing half-parsed under status 'parsed'.
-        const stmts = holdings.map((h) =>
-          env.DB.prepare(
-            `INSERT OR REPLACE INTO holdings_13f
-             (filing_id, cusip, put_call, issuer, class, value_usd, shares, sh_prn_type,
-              discretion, voting_sole, voting_shared, voting_none)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
-          ).bind(row.id, h.cusip, h.putCall, h.issuer, h.cls, h.valueUsd, h.shares, h.shPrnType, h.discretion, h.votingSole, h.votingShared, h.votingNone),
-        );
-        stmts.push(
-          env.DB.prepare(
-            `UPDATE filings_13f SET status = 'parsed', period = ?2, amendment_type = ?3,
-                    infotable_bytes = ?4, table_value_total = ?5, table_entry_total = ?6,
-                    parsed_value_total = ?7 WHERE id = ?1`,
-          ).bind(row.id, period, amendmentType, chosen.size, declaredTotal, declaredEntries, verdict.parsedTotal),
-        );
-        await env.DB.batch(stmts);
-        log("info", "13F filing parsed", {
-          accession: row.accession, cik: row.cik, positions: holdings.length,
-          parsedTotal: verdict.parsedTotal, period,
-        });
+        const status = await parseAndStore13f(env, { id: row.id, cik: row.cik, accession: row.accession }, priRes.body, tblRes.body, chosen.size, now);
+        if (status === "parsed") await runDiffFor(env, row.cik, now);
       } catch (e) {
         // Park rather than retry-forever: the drain is ORDER BY id LIMIT n,
         // so a permanently-failing filing would head-of-line block the lane
