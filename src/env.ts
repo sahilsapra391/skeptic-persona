@@ -25,6 +25,7 @@ export interface Env {
   SANITY_MAX_TOTAL_USD?: string;
   SANITY_MAX_POSITION_USD?: string;
   SANITY_MIN_TOTAL_USD?: string;
+  OPENFIGI_API_KEY?: string;
   /** Shared secret for the GitHub Actions ingest relay (blocked sources). */
   INGEST_SECRET?: string;
   /** Jobs run concurrently per tick (default 3, max 6 — the Workers outbound-connection ceiling). */

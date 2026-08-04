@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import FEED from "./fixtures/13f-current.atom.fixture?raw";
 import INFOTABLE from "./fixtures/13f-infotable-meridian.xml.fixture?raw";
 import PRIMARY from "./fixtures/13f-primary-meridian.xml.fixture?raw";
+import BATCH1 from "./fixtures/openfigi-batch1.json.fixture?raw";
 import {
   ALLOWED_FORMS,
   normalizePeriod,
@@ -172,6 +173,7 @@ describe("pollForm13f end to end", () => {
     await env.DB.prepare("DELETE FROM filings_13f").run();
     await env.DB.prepare("DELETE FROM holdings_13f").run();
     await env.DB.prepare("DELETE FROM managers_13f").run();
+    await env.DB.prepare("DELETE FROM cusip_map").run();
   });
 
   const SEC = "https://www.sec.gov";
@@ -231,6 +233,10 @@ describe("pollForm13f end to end", () => {
       .get("https://www.sec.gov")
       .intercept({ path: "/Archives/edgar/data/806097/000080609726000004/13f0626table.xml" })
       .reply(200, INFOTABLE as string);
+    fetchMock
+      .get("https://api.openfigi.com")
+      .intercept({ path: "/v3/mapping", method: "POST" })
+      .reply(200, BATCH1 as string);
 
     await pollForm13f(env as never, NOW, newTickBudget());
 
@@ -242,6 +248,12 @@ describe("pollForm13f end to end", () => {
     expect(filing?.period).toBe("2026-06-30"); // MM-DD-YYYY normalized
     expect(filing?.table_value_total).toBe(445550203);
     expect(filing?.parsed_value_total).toBe(445550203);
+
+    // The 13F-02 resolver drain fires in the same tick: mock one openFIGI
+    // batch and assert the WIRING, not just the lib (deleting the drain from
+    // pollForm13f must turn this red).
+    const mapped = await env.DB.prepare(`SELECT COUNT(*) AS n FROM cusip_map`).first<{ n: number }>();
+    expect(mapped?.n).toBeGreaterThan(0);
 
     const n = await env.DB.prepare(
       `SELECT COUNT(*) AS n, SUM(value_usd) AS total FROM holdings_13f`,

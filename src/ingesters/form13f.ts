@@ -3,6 +3,7 @@ import { fetchPool, newTickBudget, SEC_POOL_CONCURRENCY, type TickBudget } from 
 import { buildUserAgent, politeFetch } from "../lib/http";
 import { decodeEntities, extractAll, extractAllNs, extractAttr, extractFirst, extractFirstNs, stripBom } from "../lib/xml";
 import { getSourceState, putSourceState, recordSourceError } from "../lib/db";
+import { resolveCusipBatch } from "../lib/figi";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -404,4 +405,24 @@ export async function pollForm13f(
     },
     SEC_POOL_CONCURRENCY,
   );
+
+  // CUSIP resolution drain (13F-02): one openFIGI batch per tick against
+  // holdings whose cusip is not yet in cusip_map. Budget-aware; misses are
+  // cached so the set strictly shrinks. ~84 distinct CUSIPs per new filing
+  // resolve inside ~9 ticks (~4.5h at every_30m), well ahead of any card.
+  if (budget.take(1)) {
+    const unmapped = await env.DB.prepare(
+      `SELECT DISTINCT h.cusip FROM holdings_13f h
+       LEFT JOIN cusip_map m ON m.cusip = h.cusip
+       WHERE m.cusip IS NULL LIMIT 10`,
+    ).all<{ cusip: string }>();
+    if (unmapped.results.length > 0) {
+      try {
+        const n = await resolveCusipBatch(env, unmapped.results.map((r) => r.cusip), now);
+        if (n > 0) log("info", "cusip batch resolved", { resolved: n });
+      } catch (e) {
+        log("warn", "cusip resolution failed; retried next tick", { error: String(e) });
+      }
+    }
+  }
 }
