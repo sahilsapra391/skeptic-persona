@@ -1,4 +1,5 @@
 import { fmtNum, fmtUsd } from "../ingesters/shared";
+import { POST_TEXT_LIMIT, weightedLength } from "./length";
 import { RATE_ATTRIBUTION } from "../ingesters/rateAttribution";
 import { PRESS_ATTRIBUTION } from "../ingesters/pressAttribution";
 import type { Archetype, ArchetypeId, Payload, PendingBeat } from "./types";
@@ -616,9 +617,13 @@ const treasuryAuction: Archetype = {
 // ---------------------------------------------------------------------------
 // PRODUCT_RECALL (FDA drug enforcement)
 
+/** Declared once so recall.firmFirst can measure the FINISHED head line
+ *  against the post budget instead of reserving a guessed allowance. */
+const RECALL_ATTRIBUTION = "per FDA";
+
 const productRecall: Archetype = {
   id: "PRODUCT_RECALL",
-  attribution: "per FDA",
+  attribution: RECALL_ATTRIBUTION,
   skeletons: [
     {
       id: "recall.full",
@@ -634,7 +639,26 @@ const productRecall: Archetype = {
         const cls = str(p, "classification");
         const reason = str(p, "reason");
         if (!firm || !cls || !reason) return null;
-        return { lines: [`${firm} is recalling product. ${cls}, reason: ${reason}`] };
+        // THE LENGTH WINDOW (p5-04). Measured 2026-08-05 against production:
+        // 100 recall items, FDA `reason` strings running 14 to 454 characters
+        // and `factLine` to 623. Thirty-five of the 100 cannot render
+        // recall.full at all, and the long-reason ones blew this skeleton too,
+        // so the archetype could reach over_budget with no shape left.
+        //
+        // The reason is included only when the FINISHED line still fits, and
+        // is OMITTED rather than truncated when it does not. A half-sentence
+        // FDA reason ("...due to undeclared") reads as a different claim from
+        // the one the agency made, which is the fabrication class this repo
+        // closes twice over. Dropping it states less; truncating it states
+        // something else.
+        //
+        // The budget is computed, not guessed: this archetype's own
+        // attribution is a fixed string, so the exact finished head line can
+        // be measured here rather than approximated with a reserve constant.
+        const withReason = `${firm} is recalling product. ${cls}, reason: ${reason}`;
+        const finished = `${withReason}, ${RECALL_ATTRIBUTION}`;
+        if (weightedLength(finished) <= POST_TEXT_LIMIT) return { lines: [withReason] };
+        return { lines: [`${firm} is recalling product. ${cls}`] };
       },
     },
   ],
@@ -643,7 +667,9 @@ const productRecall: Archetype = {
     // finding out, both dates parsed from the record.
     {
       id: "recall.lag",
-      text: "Initiated {initiatedIso}. Published {reportedIso}.",
+      // :date, not the raw ISO (p5-04). persona.md specifies this beat as
+      // "Initiated {d1}. Published {d2}." — a human date was always the ask.
+      text: "Initiated {initiatedIso:date}. Published {reportedIso:date}.",
       tier: "base",
       when: {
         op: "all",
@@ -873,7 +899,16 @@ const regulatoryNews: Archetype = {
         const authority = str(p, "authority");
         const title = str(p, "title");
         if (!authority || !title) return null;
-        return { lines: [`${title}. Announced by ${authority}`] };
+        // NO "Announced by {authority}" (p5-04). render.ts appends the
+        // resolved attribution to this head line, so stating the authority
+        // here produced it twice in live drafts:
+        //   "... (Projections for Aug.). Announced by Bank of Japan, per the
+        //    Bank of Japan"
+        // The authority gate stays: this skeleton is only offered for items
+        // that HAVE an attributable authority, which is what makes the
+        // appended citation correct. It is the restatement that goes, not the
+        // requirement.
+        return { lines: [title] };
       },
     },
   ],
@@ -888,7 +923,11 @@ const regulatoryNews: Archetype = {
     },
     {
       id: "reg.dateStamped",
-      text: "Published {publishedIso}.",
+      // :date, not the raw ISO (p5-04). publishedIso is ALWAYS a full
+      // timestamp (regulatoryPress.ts returns d.toISOString() on both paths),
+      // so this beat printed "Published 2026-08-04T01:00:00.000Z." into
+      // copy-ready drafts. persona.md specifies it as "Published {date}.".
+      text: "Published {publishedIso:date}.",
       tier: "base",
       when: { op: "has", field: "publishedIso" },
     },

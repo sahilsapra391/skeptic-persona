@@ -51,17 +51,63 @@ export function seedHash(seed: string): number {
 
 /** Interpolate `{slot}` markers. Fails CLOSED on a missing slot.
  *  Checks `undefined || ""` and NEVER falsiness: a parsed 0 is a real value. */
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const;
+
+/**
+ * Slot formatters. `{field}` still substitutes String(raw) exactly as before;
+ * `{field:date}` renders a stored ISO timestamp as a human date.
+ *
+ * WHY THIS EXISTS (p5-04). Two beats interpolated full ISO timestamps
+ * verbatim: `Published {publishedIso}.` and
+ * `Initiated {initiatedIso}. Published {reportedIso}.` Live production drafts
+ * carried the result into copy-ready text, e.g.
+ *   "Bank of Japan: ... , per the Bank of Japan\n\nPublished 2026-08-04T01:00:00.000Z."
+ *
+ * The fix belongs HERE and not in the payload: CLAUDE.md mandates ISO-8601
+ * storage because four feed dialects arrive in four conventions and ISO is
+ * what makes them comparable, so changing what is stored would trade a real
+ * invariant for a symptom. persona.md agrees the draft side is the right end:
+ * it specifies these beats as `Published {date}.` and
+ * `Initiated {d1}. Published {d2}.` A human date is what the voice authority
+ * asked for all along; the raw ISO was an implementation choice.
+ *
+ * UTC, deliberately. Stored timestamps are UTC by the same CLAUDE.md rule, and
+ * formatting in local time would silently shift the printed day.
+ *
+ * An unknown format renders NOTHING (null), so the beat is dropped rather than
+ * falling back to the raw value. A formatter typo must not reintroduce exactly
+ * the string this exists to remove.
+ */
+function formatSlot(raw: unknown, format: string | undefined): string | null {
+  if (format === undefined) return String(raw);
+  if (format === "date") {
+    const t = Date.parse(String(raw));
+    if (Number.isNaN(t)) return null;
+    const d = new Date(t);
+    return `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCDate()}`;
+  }
+  return null;
+}
+
 export function fillSlots(text: string, payload: Payload): string | null {
-  const markers = text.match(/\{([a-zA-Z0-9_.]+)\}/g);
+  const markers = text.match(/\{[a-zA-Z0-9_.]+(?::[a-z]+)?\}/g);
   if (!markers) return text;
   let out = text;
   for (const marker of markers) {
-    const field = marker.slice(1, -1);
+    const body = marker.slice(1, -1);
+    const sep = body.indexOf(":");
+    const field = sep === -1 ? body : body.slice(0, sep);
+    const format = sep === -1 ? undefined : body.slice(sep + 1);
     const raw = field.includes(".")
       ? field.split(".").reduce<unknown>((acc, k) => (acc && typeof acc === "object" ? (acc as Record<string, unknown>)[k] : undefined), payload)
       : payload[field];
     if (raw === undefined || raw === null || raw === "") return null;
-    out = out.split(marker).join(String(raw));
+    const rendered = formatSlot(raw, format);
+    if (rendered === null) return null;
+    out = out.split(marker).join(rendered);
   }
   return out;
 }
@@ -151,12 +197,19 @@ export function renderPost(
   // verbose variant must not sink an otherwise publishable filing.
   let chosen: (typeof pool)[number] | null = null;
   let factBlock = "";
+  // Split reasons (p5-04): these two failures are reported separately because
+  // they send the owner to different places. "over_budget" means trim the
+  // text; "blocked_blending" means a payload field carries a blank line and no
+  // amount of trimming will help. Collapsed into one string, a blending
+  // rejection reads as a length problem and the real cause stays invisible.
+  let triedAny = false;
   for (let i = 0; i < pool.length; i++) {
     const candidate = pool[(seed + i) % pool.length]!;
     const lines = [...candidate.out.lines];
     // BLENDING GUARD: a blank line inside the fact block would create a
     // second beat-position line and misplace attribution.
     if (lines.some((l) => l.includes("\n\n"))) continue;
+    triedAny = true;
     // Attribution attaches to the HEAD line — the claim — not to whatever
     // item title happens to be last (persona.md §6).
     lines[0] = `${lines[0]}, ${attribution}`;
@@ -167,7 +220,7 @@ export function renderPost(
       break;
     }
   }
-  if (!chosen) return { ok: false, reason: "over_budget" };
+  if (!chosen) return { ok: false, reason: triedAny ? "over_budget" : "blocked_blending" };
 
   let text = factBlock;
   if (picked) {

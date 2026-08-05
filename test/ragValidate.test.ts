@@ -837,3 +837,32 @@ describe("dateCheck consumes what it validates", () => {
     expect(remainder).not.toMatch(/June|07-18/);
   });
 });
+
+describe("p5-04: the formatted date beat clears the validator", () => {
+  const PRESS = {
+    authority: "Bank of Japan",
+    title: "Bank of Japan Accounts (July 31)",
+    publishedIso: "2026-08-04T01:00:00.000Z",
+  };
+
+  it("'Published August 4.' passes, which is the whole justification for the change", () => {
+    // The claim the p4 session asserted and this pins: payloadFacts stores a
+    // month-day form alongside the full one, and dateCheck accepts a date with
+    // no year, so the human rendering of a stored ISO validates.
+    expect(numberCheck("Published August 4.", PRESS)).toEqual([]);
+  });
+
+  it("...and a date the payload does NOT state is still refused", () => {
+    // The fix must not have widened what a draft may claim. It removes a slot;
+    // it does not license new dates.
+    const issues = numberCheck("Published August 5.", PRESS);
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues[0]!.rule).toBe("number");
+  });
+
+  it("the month-day form is genuinely derived from the payload's own timestamp", () => {
+    const facts = payloadFacts(PRESS);
+    expect(facts.dates.has("8-4")).toBe(true);
+    expect(facts.dates.has("2026-8-4")).toBe(true);
+  });
+});
