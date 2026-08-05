@@ -1,5 +1,6 @@
-import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { env, fetchMock } from "cloudflare:test";
+import { beforeAll, describe, expect, it } from "vitest";
+import { notifyRetry, MAX_NOTIFY_ATTEMPTS } from "../src/jobs";
 import {
   applyEditReply,
   createQueueEntry,
@@ -202,5 +203,83 @@ describe("ttlCutoffs env parsing", () => {
     expect(hoursAgo(cuts.byArchetype["CONGRESS_PTR"]!)).toBe(96);
     expect(hoursAgo(cuts.byArchetype["MACRO_PRINT"]!)).toBe(12);
     expect(hoursAgo(cuts.byArchetype["FILING_8K"]!)).toBe(2);
+  });
+});
+
+describe("notify_retry: an undelivered card is recovered, not lost (2026-08-05)", () => {
+  const NOW = new Date("2026-08-05T18:00:00.000Z");
+  const SENT: Array<Record<string, unknown>> = [];
+  let failNext = false;
+
+  beforeAll(() => {
+    fetchMock.activate();
+    fetchMock.disableNetConnect();
+    fetchMock
+      .get("https://api.telegram.org")
+      .intercept({ path: /\/botTEST:TOKEN\/sendMessage/, method: "POST" })
+      .reply(() => {
+        if (failNext) return { statusCode: 500, data: JSON.stringify({ ok: false, error_code: 500, description: "boom" }) };
+        SENT.push({});
+        return { statusCode: 200, data: JSON.stringify({ ok: true, result: { message_id: 7000 + SENT.length } }) };
+      })
+      .persist();
+  });
+
+  async function seedUndelivered(externalId: string, createdAt: string, attempts = 0): Promise<number> {
+    const item = await insertItem(env.DB, {
+      source: "senate_ptr", externalId, category: "congress", eventAt: createdAt,
+      sourceUrl: `https://efdsearch.senate.gov/${externalId}`,
+      payload: { member: "Jane Roe" }, score: SCORE_POSTABLE,
+    });
+    await env.DB.prepare(
+      `INSERT INTO queue (item_id, archetype, draft_text, state, created_at, telegram_message_id, notify_attempts)
+       VALUES (?1,'CONGRESS_PTR','Draft, per Senate eFD','pending',?2,NULL,?3)`,
+    ).bind(item.id, createdAt, attempts).run();
+    const q = await env.DB.prepare(`SELECT id FROM queue WHERE item_id = ?1`).bind(item.id).first<{ id: number }>();
+    return q!.id;
+  }
+
+  it("re-sends a card whose notification never landed, and records the message id", async () => {
+    // The exact production state: row created, send failed, nothing retried.
+    const qid = await seedUndelivered("nr-recover", "2026-08-05T17:30:00.000Z");
+    const before = SENT.length;
+    await notifyRetry({ ...env, TELEGRAM_BOT_TOKEN: "TEST:TOKEN", TELEGRAM_CHAT_ID: "424242" } as never, NOW);
+    expect(SENT.length).toBe(before + 1);
+    const row = await env.DB.prepare(`SELECT telegram_message_id t, notify_attempts a FROM queue WHERE id = ?1`)
+      .bind(qid).first<{ t: number | null; a: number }>();
+    expect(row!.t).not.toBeNull();
+    expect(row!.a).toBe(1);
+  });
+
+  it("gives up after MAX_NOTIFY_ATTEMPTS so one poison row cannot starve the rest", async () => {
+    const qid = await seedUndelivered("nr-exhausted", "2026-08-05T17:30:00.000Z", MAX_NOTIFY_ATTEMPTS);
+    const before = SENT.length;
+    await notifyRetry({ ...env, TELEGRAM_BOT_TOKEN: "TEST:TOKEN", TELEGRAM_CHAT_ID: "424242" } as never, NOW);
+    expect(SENT.length).toBe(before);
+    const row = await env.DB.prepare(`SELECT notify_attempts a FROM queue WHERE id = ?1`).bind(qid).first<{ a: number }>();
+    expect(row!.a).toBe(MAX_NOTIFY_ATTEMPTS); // untouched
+  });
+
+  it("does NOT resurrect a card that is already past its TTL", async () => {
+    // Handing back something the owner can no longer act on is the same
+    // mistake queue_expiry exists to prevent.
+    await seedUndelivered("nr-stale", "2026-08-01T00:00:00.000Z");
+    const before = SENT.length;
+    await notifyRetry({ ...env, TELEGRAM_BOT_TOKEN: "TEST:TOKEN", TELEGRAM_CHAT_ID: "424242" } as never, NOW);
+    expect(SENT.length).toBe(before);
+  });
+
+  it("counts the attempt BEFORE sending, so a throw cannot retry forever", async () => {
+    const qid = await seedUndelivered("nr-throws", "2026-08-05T17:30:00.000Z");
+    failNext = true;
+    try {
+      await notifyRetry({ ...env, TELEGRAM_BOT_TOKEN: "TEST:TOKEN", TELEGRAM_CHAT_ID: "424242" } as never, NOW);
+    } finally {
+      failNext = false;
+    }
+    const row = await env.DB.prepare(`SELECT telegram_message_id t, notify_attempts a FROM queue WHERE id = ?1`)
+      .bind(qid).first<{ t: number | null; a: number }>();
+    expect(row!.t).toBeNull();
+    expect(row!.a).toBe(1); // the failure was counted, not swallowed
   });
 });

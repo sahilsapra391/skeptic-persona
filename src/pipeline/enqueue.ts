@@ -13,6 +13,15 @@ import {
 } from "../salience";
 import { holdForDigest, pushedTodayByCategory } from "../digest";
 
+/** Per-chat Telegram spacing, resolved once so the first notify and the
+ *  notify_retry recovery path can never drift to different values. Telegram
+ *  allows ~1 message/second per chat; an unparseable override falls back
+ *  rather than sending unpaced. */
+export function notifySpacingMs(env: Env): number {
+  const raw = Number(env.QUEUE_NOTIFY_SPACING_MS ?? 1100);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 1100;
+}
+
 /**
  * Decide whether an item is held for the digest. Returns the hold reason, or
  * null to push.
@@ -249,8 +258,7 @@ async function enqueueForApprovalInner(
   // The loops paced themselves, which was equivalent while jobs ran serially
   // and stopped being equivalent the moment they ran concurrently: three
   // draining jobs in one tick put three messages inside one 1100 ms window.
-  const spacingRaw = Number(env.QUEUE_NOTIFY_SPACING_MS ?? 1100);
-  const spacingMs = Number.isFinite(spacingRaw) && spacingRaw >= 0 ? spacingRaw : 1100;
+  const spacingMs = notifySpacingMs(env);
   try {
     const msg = await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, text, {
       spacingMs,

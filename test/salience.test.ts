@@ -1,5 +1,5 @@
 import { env, fetchMock } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   salienceFor,
   parseCategoryCaps,
@@ -16,7 +16,7 @@ import { insertItem, SCORE_POSTABLE } from "../src/lib/db";
 import { ARCHETYPES } from "../src/templates";
 import type { ArchetypeId, Payload } from "../src/templates/types";
 import { enqueueForApproval, resetEnqueueLocks } from "../src/pipeline/enqueue";
-import { paceChat, resetChatPacing } from "../src/lib/telegram";
+import { paceChat, resetChatPacing, MAX_PACE_WAIT_MS } from "../src/lib/telegram";
 
 const NOW = new Date("2026-08-03T18:00:00.000Z"); // Monday, 14:00 ET
 
@@ -521,5 +521,64 @@ describe("p5-03: the REGULATORY_NEWS tier", () => {
     expect(salienceFor("REGULATORY_NEWS", {}).score).toBe(70);
     expect(salienceFor("REGULATORY_NEWS", { authority: "Some Future Regulator" }).score).toBe(70);
     expect(salienceFor("REGULATORY_NEWS", { authority: 42 as unknown as string }).score).toBe(70);
+  });
+});
+
+describe("the pacing gate cannot outlive its invocation (2026-08-05 outage)", () => {
+  it("REGRESSION: a discarded timer from a previous invocation must not hang the next send", async () => {
+    // THE OUTAGE, reproduced. The old gate stored a PROMISE that resolved via
+    // setTimeout, and returned the PREVIOUS one to the next caller:
+    //
+    //   const hold = wait.then(() => new Promise((r) => setTimeout(r, spacingMs)));
+    //   chatGates.set(chatId, hold.catch(() => {}));
+    //   return wait;
+    //
+    // A Workers invocation does not run pending timers once it ends. When a
+    // tick's last act was a send, that timer never fired, the stored promise
+    // never resolved, and EVERY later send in the isolate awaited it forever:
+    // no message, no rejection, no log. The 1-minute cron kept the isolate
+    // warm so nothing evicted it, and only a deploy cleared it. Ten hours of
+    // approval cards were lost on 2026-08-05.
+    //
+    // vi.clearAllTimers() is exactly that event: timers scheduled by the
+    // previous invocation are discarded without firing.
+    resetChatPacing();
+    vi.useFakeTimers();
+    try {
+      await paceChat("outage-chat", 1100); // first send: immediate, installs a slot
+
+      vi.clearAllTimers(); // the invocation ends; its pending timer never runs
+
+      // The next invocation must still be able to send. Under the OLD
+      // implementation this was the discarded timer's promise, so advancing
+      // the clock resolved nothing and this test would time out rather than
+      // fail — which is precisely how the outage behaved in production.
+      const p = paceChat("outage-chat", 1100);
+      await vi.advanceTimersByTimeAsync(1100);
+      await expect(p).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("the cross-invocation state is a NUMBER, so a stale slot can only shorten a wait", async () => {
+    // The structural property that makes the above impossible to reintroduce:
+    // nothing awaited by one invocation is ever handed to another. A stale
+    // timestamp is either in the past (no wait at all) or bounded by the cap.
+    resetChatPacing();
+    await paceChat("cap-chat", 10_000_000); // absurd spacing reserves a far-future slot
+    const started = performance.now();
+    await paceChat("cap-chat", 10_000_000);
+    expect(performance.now() - started).toBeLessThanOrEqual(MAX_PACE_WAIT_MS + 250);
+  });
+
+  it("still serialises in ARRIVAL ORDER, which is why the chain existed", async () => {
+    // The reservation is synchronous, so concurrent callers take strictly
+    // successive slots exactly as the promise chain made them.
+    resetChatPacing();
+    const SPACING = 40;
+    const order: number[] = [];
+    await Promise.all([0, 1, 2].map(async (i) => { await paceChat("order-chat", SPACING); order.push(i); }));
+    expect(order).toEqual([0, 1, 2]);
   });
 });

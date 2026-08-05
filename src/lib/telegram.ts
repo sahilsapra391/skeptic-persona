@@ -86,36 +86,55 @@ async function tgCall<T>(token: string, method: string, payload: Record<string, 
  * concurrency argument: put the guarantee where it cannot be forgotten. This
  * also covers poster.ts, deliver.ts and generate.ts, which never paced at all.
  *
- * A promise chain, not a timestamp check, because the ordering matters as much
- * as the gap — chaining makes waiters serialise in arrival order instead of
- * all waking against the same stale `last`. Keyed by chat so an unrelated chat
- * is never delayed. State is module-level and therefore per-isolate, which is
- * the same scope the tick runs in; two overlapping cron invocations in
- * different isolates can still interleave, exactly as they could before.
+ * A RESERVED TIMESTAMP, not a promise chain. The original implementation
+ * chained promises, and the reasoning was sound (ordering matters as much as
+ * the gap) but the mechanism was not survivable:
+ *
+ *   const hold = wait.then(() => new Promise((r) => setTimeout(r, spacingMs)));
+ *   chatGates.set(chatId, hold.catch(() => {}));
+ *   return wait;
+ *
+ * A Workers invocation does NOT run pending timers once it ends. When a tick's
+ * last act was a send, the tick finished before that 1100 ms timer fired and
+ * the stored promise NEVER RESOLVED. Every later send in that isolate awaited
+ * it forever: no message, no rejection, no log. `crons = ["* * * * *"]` keeps
+ * the isolate warm every 60 s, so nothing ever evicted it, and only a deploy
+ * cleared it. On 2026-08-05 that silently cost ten hours of approval cards
+ * (see docs/verification/2026-08-05-telegram-delivery-hang.md).
+ *
+ * ORDERING IS PRESERVED, which is why the original chose a chain. The slot is
+ * reserved SYNCHRONOUSLY, before any await, so concurrent callers still
+ * serialise in arrival order: each takes a strictly later slot than the one
+ * before it.
+ *
+ * WHAT MAKES IT SURVIVABLE is that the cross-invocation state is a NUMBER. A
+ * timer created here is awaited only by the invocation that created it, so an
+ * invocation dying mid-wait harms only its own send. The next invocation reads
+ * an integer, and the worst a stale integer can do is make one caller wait up
+ * to MAX_PACE_WAIT_MS. It cannot hang.
  */
-const chatGates = new Map<string, Promise<void>>();
+const nextSlotAt = new Map<string, number>();
+
+/** Hard ceiling on any single pacing wait. Belt to the timestamp's braces: even
+ *  a corrupted or absurdly future slot can only cost one spacing window, never
+ *  a stalled tick. */
+export const MAX_PACE_WAIT_MS = 5_000;
 
 export function paceChat(chatId: string, spacingMs: number): Promise<void> {
   if (!(spacingMs > 0)) return Promise.resolve();
-  // Await the PREVIOUS sender's hold, then install our own for the next one.
-  // Returning `wait` rather than `hold` is what makes the first send on a
-  // quiet chat immediate: it pays only for the gap it must leave behind, not
-  // for a gap in front of it. Sleeping before every send would have cost a
-  // full spacing window per message, ~10 s across a nine-card tick, for
-  // nothing.
-  const wait = chatGates.get(chatId) ?? Promise.resolve();
-  const hold = wait.then(() => new Promise<void>((r) => setTimeout(r, spacingMs)));
-  // .catch so one rejected waiter cannot poison the chain for every later send.
-  chatGates.set(
-    chatId,
-    hold.catch(() => {}),
-  );
-  return wait;
+  const now = Date.now();
+  // Reserve first, await second. The first send on a quiet chat sees a slot in
+  // the past and goes immediately, paying only for the gap it leaves behind.
+  const slot = Math.max(now, nextSlotAt.get(chatId) ?? 0);
+  nextSlotAt.set(chatId, slot + spacingMs);
+  const waitMs = Math.min(slot - now, MAX_PACE_WAIT_MS);
+  if (waitMs <= 0) return Promise.resolve();
+  return new Promise<void>((r) => setTimeout(r, waitMs));
 }
 
 /** Test seam: drop pacing state so one suite's sends cannot delay the next. */
 export function resetChatPacing(): void {
-  chatGates.clear();
+  nextSlotAt.clear();
 }
 
 export async function sendMessage(
