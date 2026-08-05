@@ -341,6 +341,46 @@ describe("runGeneration end-to-end", () => {
       ).toBeGreaterThan(0);
     });
 
+    it("a Regenerate landing MID-RUN discards that run instead of closing the new cycle with stale output", async () => {
+      const qid = await seedApproved("P-cycle-race");
+      // The owner taps Regenerate while the model call is in flight. The mock
+      // bumps the cursor as the reply is served, so the run below finishes
+      // against a cycle that no longer exists.
+      let bumped = false;
+      nextReply = () => {
+        if (!bumped) {
+          bumped = true;
+          void env.DB.prepare(`UPDATE queue SET regen_cycle = regen_cycle + 1 WHERE id = ?1`).bind(qid).run();
+        }
+        return {
+          dry: "The senator knew exactly what was coming, per Senate eFD.",
+          sharp: "The senator knew exactly what was coming, per Senate eFD.",
+          commentary: "The senator knew exactly what was coming, per Senate eFD.",
+        };
+      };
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+      expect(bumped).toBe(true);
+
+      // Cycle 1 must be left OPEN. Closing it with a fallback_template built
+      // from the pre-regenerate input is the failure: the owner taps
+      // Regenerate and is handed a terminal card derived from what they just
+      // superseded.
+      const terminalNew = await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1 AND cycle = 1
+           AND (status = 'valid' OR status LIKE 'fallback%' OR status LIKE 'skipped%' OR status = 'rejected:payload')`,
+      ).bind(qid).first<{ n: number }>();
+      expect(terminalNew!.n).toBe(0);
+
+      // The next tick re-picks it at the live cycle and can settle normally.
+      nextReply = () => GOOD;
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+      expect(
+        (await env.DB.prepare(
+          `SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1 AND cycle = 1 AND status = 'valid'`,
+        ).bind(qid).first<{ n: number }>())!.n,
+      ).toBeGreaterThan(0);
+    });
+
     it("an unparseable payload stays terminal in EVERY cycle (no INSERT OR IGNORE swallow, no re-pick loop)", async () => {
       const qid = await seedApproved("P-cycle-badpayload");
       await env.DB.prepare(`UPDATE items SET payload = 'not json' WHERE id = (SELECT item_id FROM queue WHERE id = ?1)`)
