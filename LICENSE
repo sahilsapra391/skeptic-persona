@@ -1,0 +1,74 @@
+Skeptic Wire (skeptic-persona)
+Copyright (c) 2026 Sahil Sapra. All rights reserved.
+
+PROPRIETARY LICENSE
+
+This software, together with its source code, documentation, configuration,
+and every other file in this repository (the "Software"), is the exclusive
+property of Sahil Sapra (the "Owner"). The Software is published so that it
+may be read. It is not open source, and it is not free software.
+
+1. WHAT IS PERMITTED
+
+   You may view, read, and study the Software. You may clone or download a
+   copy for the sole purpose of reading and evaluating it, including
+   evaluation of the Owner's professional work by prospective employers,
+   clients, or collaborators.
+
+2. WHAT IS NOT PERMITTED
+
+   Except as stated in Section 1, and absent the Owner's prior written
+   permission, you may not:
+
+   a. use the Software, in whole or in part, for any purpose, whether
+      personal, academic, internal, or commercial;
+   b. copy, reproduce, publish, or redistribute the Software;
+   c. modify the Software or create derivative works from it;
+   d. incorporate the Software, or any portion of it, into any other
+      software, product, or service;
+   e. sell, license, sublicense, rent, or lease the Software;
+   f. remove or alter any copyright, attribution, or license notice; or
+   g. use the Software as training data for any machine learning or
+      artificial intelligence model or system.
+
+3. COMMERCIAL USE
+
+   The right to use the Software for commercial purposes is reserved
+   exclusively to the Owner. No other person or entity is granted any
+   commercial right in the Software under any circumstance.
+
+4. GITHUB PLATFORM RIGHTS
+
+   This repository is hosted publicly on GitHub. Under the GitHub Terms of
+   Service, publishing a public repository grants other GitHub users a
+   limited right to view and to fork the repository through GitHub's own
+   functionality. That platform right is acknowledged here and is neither
+   extended nor enlarged by this License. A fork made through GitHub carries
+   no rights beyond Section 1. It does not grant permission to use, modify,
+   redistribute, or commercially exploit the Software.
+
+5. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+6. NO LIABILITY
+
+   IN NO EVENT SHALL THE OWNER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING
+   FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+   Nothing in this repository, and nothing produced by the Software,
+   constitutes financial, investment, legal, or tax advice.
+
+7. TERMINATION
+
+   The permission granted in Section 1 terminates automatically and
+   immediately upon any breach of this License.
+
+8. CONTRIBUTIONS
+
+   This repository does not accept external contributions. Unsolicited pull
+   requests will not be merged.
