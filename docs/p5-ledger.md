@@ -32,7 +32,7 @@ through the owner's thumbs, not through code.
 | p5-02 | Branch protection + a main CI run | blocked-owner (D-10) | — | — |
 | p5-03 | REGULATORY_NEWS salience tier; drain pending cards | blocked-owner (D-13) — mechanism + BEA/ONS ruling merged; drain not achievable from that ruling | [#136](https://github.com/sahilsapra391/skeptic-persona/pull/136) | [2026-08-05-p5-03](verification/2026-08-05-p5-03-regulatory-news-tier.md) |
 | p5-04 | Polish bundle: attribution join, raw ISO in copy, PRODUCT_RECALL length window, over_budget split | merged-verified | [#137](https://github.com/sahilsapra391/skeptic-persona/pull/137) | [2026-08-05-p5-04](verification/2026-08-05-p5-04-polish-bundle.md) |
-| p5-05 | TTL-lake measurement; re-card policy decision | pending | — | — |
+| p5-05 | TTL-lake measurement; re-card policy decision | merged-verified (measurement delivered; policy is owner decision 6) | [#138](https://github.com/sahilsapra391/skeptic-persona/pull/138) | [2026-08-05-p5-05](verification/2026-08-05-p5-05-ttl-lake-measurement.md) |
 | p5-06 | Weekly digest north-star block (approval rate, post rate) | pending | — | — |
 
 Phase 0 acceptance: all six merged-verified AND the weekly digest shows the
@@ -86,6 +86,7 @@ All `blocked-gate` (needs 10 manual posts + Phase 0 complete). Two are also
 | 3 | NSE/BSE license: buy or park | park | blocked-owner | p5-13(a) memo informs it |
 | 4 | Non-US corporate filings: park or rank one | park | blocked-owner | p5-34 |
 | 5 | Bluesky app password: set it or lane stays frozen | — | blocked-owner | p5-25 |
+| 6 | Re-card policy for expired cards (raised by p5-05, not in the plan's original five) | (c) give expired items the promote path digested items already have | blocked-owner | nothing; expiry stays terminal until ruled |
 
 ## Owner tasks (hands, not rulings)
 
