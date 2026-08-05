@@ -9,23 +9,33 @@ import { log } from "../lib/log";
 // terminal generation state, the owner gets ONE Telegram card per CYCLE
 // carrying every valid variant (or the fallback), with Copy buttons.
 //
-// THE CYCLE TOKEN (added after the 30-agent card review broke the first
+// THE RENDER ID (added after the 30-agent card review broke the first
 // version's state machine): every button carries `MAX(generations.id)` for
 // the row at delivery time. AUTOINCREMENT ids are never reused, so a
-// Regenerate/Edit wipe followed by re-generation always mints a HIGHER
-// cycle. A tap whose cycle doesn't match the live cards row is answered as
+// Regenerate/Edit followed by re-generation always mints a HIGHER render id.
+// A tap whose render id doesn't match the live cards row is answered as
 // stale and does nothing — a leftover "✅ Posted" button from a superseded
 // card can no longer fabricate a post_log row (review CRITICAL #2), and the
-// deliverCards-vs-webhook wipe race resolves itself because delivery
-// replaces any cards row whose cycle is behind (INSERT OR REPLACE keyed on
-// queue_id; finding #23).
+// deliverCards-vs-webhook race resolves itself because delivery replaces any
+// cards row whose render id is behind (INSERT OR REPLACE keyed on queue_id;
+// finding #23).
+//
+// NOT THE SAME THING AS A GENERATION CYCLE, and the two used to share the
+// name "cycle" three lines apart in one query. This one is a per-DELIVERY
+// staleness token derived from a row id; `queue.regen_cycle` /
+// `generations.cycle` is the generation PASS number that p5-01 added. Reading
+// one as the other silently shows a superseded draft as copy-ready, so they
+// are named apart here. Two spellings stay `cycle` for compatibility and are
+// deliberately not renamed: the `cards.cycle` COLUMN (renaming it is a
+// migration for no behavioural gain) and the callback_data payload shape
+// `c:<v>:<qid>:<n>` (a live wire format under a 64-byte cap).
 //
 // Crash-safety is unchanged: a failed send writes nothing, the next tick
 // retries.
 
 export type CardVariant = "commentary" | "sharp" | "dry" | "template";
 
-/** callback_data stays tiny (64-byte API cap): c:<c|s|d|t>:<qid>:<cycle>. */
+/** callback_data stays tiny (64-byte API cap): c:<c|s|d|t>:<qid>:<renderId>. */
 export const VARIANT_CODE: Record<CardVariant, string> = { commentary: "c", sharp: "s", dry: "d", template: "t" };
 export const CODE_VARIANT: Record<string, CardVariant> = { c: "commentary", s: "sharp", d: "dry", t: "template" };
 
@@ -39,13 +49,33 @@ interface TerminalRow {
   queue_id: number;
   archetype: string;
   terminal_status: string;
-  cycle: number;
+  render_id: number;
   stale_card: number;
 }
 
 interface VariantRow {
   variant: string;
   text: string;
+}
+
+/**
+ * The row's LIVE generation pass. Every read of `generations` scopes to it, so
+ * it is looked up ONCE and bound as a value rather than repeated as a
+ * correlated subquery in each statement.
+ *
+ * THROWS on a missing queue row instead of returning a default. Inlined as
+ * `cycle = (SELECT regen_cycle FROM queue WHERE id = ?1)`, an absent row makes
+ * the comparison `cycle = NULL`, which is never true: buildCard would then find
+ * zero valid variants and fall through to the template branch, rendering a
+ * perfectly ordinary-looking "generation fell back" card for a row that
+ * actually has valid drafts. Silent, and copy-ready. A throw is the correct
+ * loudness for a state that cannot happen (both callers reach here through a
+ * FK to queue.id).
+ */
+async function liveCycle(db: D1Database, queueId: number): Promise<number> {
+  const q = await db.prepare(`SELECT regen_cycle FROM queue WHERE id = ?1`).bind(queueId).first<{ regen_cycle: number }>();
+  if (!q) throw new Error(`no queue row ${queueId}: cannot resolve its generation cycle`);
+  return q.regen_cycle;
 }
 
 /**
@@ -56,6 +86,7 @@ interface VariantRow {
  * card displayed the re-rendered fallback from generations).
  */
 export async function resolveVariantText(db: D1Database, queueId: number, variant: CardVariant): Promise<string | null> {
+  const cycle = await liveCycle(db, queueId);
   if (variant === "template") {
     // The fallback_template row carries the text generation actually settled
     // on (possibly re-rendered under the current budget); the raw queue text
@@ -64,10 +95,10 @@ export async function resolveVariantText(db: D1Database, queueId: number, varian
       .prepare(
         `SELECT text FROM generations
          WHERE queue_id = ?1 AND variant = 'none' AND status = 'fallback_template' AND text <> ''
-           AND cycle = (SELECT regen_cycle FROM queue WHERE id = ?1)
+           AND cycle = ?2
          ORDER BY id DESC LIMIT 1`,
       )
-      .bind(queueId)
+      .bind(queueId, cycle)
       .first<{ text: string }>();
     if (g) return g.text;
     const q = await db
@@ -80,10 +111,10 @@ export async function resolveVariantText(db: D1Database, queueId: number, varian
     .prepare(
       `SELECT text FROM generations
        WHERE queue_id = ?1 AND variant = ?2 AND status = 'valid'
-         AND cycle = (SELECT regen_cycle FROM queue WHERE id = ?1)
+         AND cycle = ?3
        ORDER BY attempt DESC LIMIT 1`,
     )
-    .bind(queueId, variant)
+    .bind(queueId, variant, cycle)
     .first<{ text: string }>();
   return g?.text ?? null;
 }
@@ -93,13 +124,13 @@ export async function buildCard(
   queueId: number,
   archetype: string,
   terminalStatus: string,
-  cycle: number,
+  renderId: number,
 ): Promise<CardContent> {
   const sections: string[] = [];
   const copyRow: TgInlineButton[] = [];
   const actionRow: TgInlineButton[] = [
-    { text: "✏️ Edit", callback_data: `ce:${queueId}:${cycle}` },
-    { text: "🔁 Regenerate", callback_data: `g:${queueId}:${cycle}` },
+    { text: "✏️ Edit", callback_data: `ce:${queueId}:${renderId}` },
+    { text: "🔁 Regenerate", callback_data: `g:${queueId}:${renderId}` },
   ];
 
   if (terminalStatus === "fallback_blocked") {
@@ -114,7 +145,7 @@ export async function buildCard(
     // terminal for generation, but the owner still gets a handle.
     return {
       text: `🛑 #${queueId} ${archetype}\n\nHELD: this item's stored payload does not parse, so nothing can be generated or rendered from it. This needs a code/data fix; Regenerate will retry after one lands.`,
-      buttons: [[{ text: "🔁 Regenerate", callback_data: `g:${queueId}:${cycle}` }]],
+      buttons: [[{ text: "🔁 Regenerate", callback_data: `g:${queueId}:${renderId}` }]],
       held: true,
     };
   }
@@ -128,10 +159,10 @@ export async function buildCard(
       .prepare(
         `SELECT variant, text FROM generations
          WHERE queue_id = ?1 AND status = 'valid' AND variant <> 'none'
-           AND cycle = (SELECT regen_cycle FROM queue WHERE id = ?1)
+           AND cycle = ?2
          ORDER BY attempt ASC`,
       )
-      .bind(queueId)
+      .bind(queueId, await liveCycle(db, queueId))
       .all<VariantRow>();
     const latest = new Map<string, string>();
     for (const r of rows.results) latest.set(r.variant, r.text);
@@ -140,7 +171,7 @@ export async function buildCard(
       const text = latest.get(v);
       if (!text) continue;
       sections.push(`— ${v} —\n${text}`);
-      copyRow.push({ text: `Copy ${v}`, callback_data: `c:${VARIANT_CODE[v]}:${queueId}:${cycle}` });
+      copyRow.push({ text: `Copy ${v}`, callback_data: `c:${VARIANT_CODE[v]}:${queueId}:${renderId}` });
     }
   }
 
@@ -151,7 +182,7 @@ export async function buildCard(
         ? `template draft (no exemplar for ${archetype} yet — write one to enable generation)`
         : "template draft (generation fell back)";
     sections.push(`— ${label} —\n${text ?? ""}`);
-    copyRow.push({ text: "Copy draft", callback_data: `c:t:${queueId}:${cycle}` });
+    copyRow.push({ text: "Copy draft", callback_data: `c:t:${queueId}:${renderId}` });
   }
 
   return {
@@ -165,18 +196,24 @@ export async function buildCard(
  *  answer records the text of the prompt the owner is actually answering —
  *  chosen_variant as a mutable slot let Copy A / Copy B / tap A's prompt
  *  record B's text (review finding #3). */
-export function postedButtons(queueId: number, cycle: number, variant: CardVariant): TgInlineButton[][] {
+export function postedButtons(queueId: number, renderId: number, variant: CardVariant): TgInlineButton[][] {
   const v = VARIANT_CODE[variant];
   return [[
-    { text: "✅ Posted", callback_data: `p:y:${queueId}:${cycle}:${v}` },
-    { text: "✏️ Posted, edited", callback_data: `p:m:${queueId}:${cycle}:${v}` },
-    { text: "⏭ Skipped", callback_data: `p:k:${queueId}:${cycle}:${v}` },
+    { text: "✅ Posted", callback_data: `p:y:${queueId}:${renderId}:${v}` },
+    { text: "✏️ Posted, edited", callback_data: `p:m:${queueId}:${renderId}:${v}` },
+    { text: "⏭ Skipped", callback_data: `p:k:${queueId}:${renderId}:${v}` },
   ]];
 }
 
 /**
  * Deliver cards for queue rows whose generation reached a terminal state and
- * whose live cards row (if any) belongs to an older cycle.
+ * whose live cards row (if any) carries an older render id.
+ *
+ * BOTH counters appear in the query below, which is why they are now spelled
+ * differently. `MAX(g.id) AS render_id` is the delivery staleness token;
+ * `g.cycle = q.regen_cycle` scopes the join to the row's live generation pass.
+ * `c.cycle` is the cards COLUMN, which still holds a render id under a legacy
+ * name.
  */
 export async function deliverCards(env: Env, now: Date, budget: TickBudget = newTickBudget()): Promise<void> {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
@@ -184,7 +221,7 @@ export async function deliverCards(env: Env, now: Date, budget: TickBudget = new
   const due = await env.DB.prepare(
     `SELECT q.id AS queue_id, q.archetype,
             g.status AS terminal_status,
-            MAX(g.id) AS cycle,
+            MAX(g.id) AS render_id,
             COALESCE(c.cycle, -1) <> MAX(g.id) AND c.queue_id IS NOT NULL AS stale_card
      FROM queue q
      JOIN generations g ON g.queue_id = q.id
@@ -201,7 +238,7 @@ export async function deliverCards(env: Env, now: Date, budget: TickBudget = new
 
   for (const row of due.results) {
     if (!budget.take(1, { reserved: true })) break;
-    const card = await buildCard(env.DB, row.queue_id, row.archetype, row.terminal_status, row.cycle);
+    const card = await buildCard(env.DB, row.queue_id, row.archetype, row.terminal_status, row.render_id);
     let messageId: number | null = null;
     try {
       const sent = await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, card.text, { buttons: card.buttons });
@@ -210,13 +247,14 @@ export async function deliverCards(env: Env, now: Date, budget: TickBudget = new
       log("error", "card delivery failed; will retry", { queueId: row.queue_id, error: String(e) });
       continue;
     }
-    // OR REPLACE: a stale-cycle row (including one INSERTed by a delivery
-    // that raced a Regenerate wipe) is superseded, never a blocker.
+    // OR REPLACE: a stale row (including one INSERTed by a delivery that raced
+    // a Regenerate) is superseded, never a blocker. `cards.cycle` is the
+    // legacy column name for what the code now calls a render id.
     await env.DB.prepare(
       `INSERT OR REPLACE INTO cards (queue_id, telegram_message_id, delivered_at, cycle) VALUES (?1, ?2, ?3, ?4)`,
     )
-      .bind(row.queue_id, messageId, iso(now), row.cycle)
+      .bind(row.queue_id, messageId, iso(now), row.render_id)
       .run();
-    log("info", "card delivered", { queueId: row.queue_id, cycle: row.cycle, held: card.held, replacedStale: Boolean(row.stale_card) });
+    log("info", "card delivered", { queueId: row.queue_id, renderId: row.render_id, held: card.held, replacedStale: Boolean(row.stale_card) });
   }
 }
