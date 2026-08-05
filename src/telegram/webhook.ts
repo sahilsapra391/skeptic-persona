@@ -3,6 +3,8 @@ import {
   answerCallbackQuery,
   editMessageText,
   sendMessage,
+  COPY_TEXT_LIMIT,
+  type TgInlineButton,
 } from "../lib/telegram";
 import {
   applyEditReply,
@@ -340,13 +342,30 @@ async function handleCardCopy(env: ConfiguredEnv, cb: TgCallbackQuery, variant: 
   await env.DB.prepare(`UPDATE cards SET chosen_variant = ?1, updated_at = ?2 WHERE queue_id = ?3`)
     .bind(variant, iso(new Date()), queueId)
     .run();
-  // The copyable text rides ALONE as a monospace pre block: long-press (or
-  // tap on most clients) copies it whole. The Posted? keyboard carries the
-  // VARIANT, so answering it records this text and no other.
+  // The copyable text rides ALONE as a monospace pre block. That block is the
+  // FALLBACK and stays unconditionally: it works at any length and on any
+  // client version.
   await sendMessage(token, env.TELEGRAM_CHAT_ID, text, { monospace: true });
-  await sendMessage(token, env.TELEGRAM_CHAT_ID, `#${queueId}: paste to X, then answer —`, {
-    buttons: postedButtons(queueId, cycle, variant),
-  });
+  // ...and a REAL copy button on top of it. A bot cannot write to the
+  // clipboard from a callback, so the old flow only ever PRESENTED text to
+  // long-press, which the owner reported as "Copy does not copy". Bot API 7.11
+  // added CopyTextButton, which the client copies natively on one tap.
+  //
+  // Length-gated, because the cap is 256 and a post may be 280. Sending an
+  // over-long copy_text is a 400 from Telegram, which would take the whole
+  // message down and leave the owner with nothing rather than with the
+  // long-press block he has today. Measured 2026-08-05: every valid generated
+  // variant in production fits; 40 of 1,141 template drafts do not.
+  const fits = text.length <= COPY_TEXT_LIMIT;
+  const copyRow: TgInlineButton[][] = fits ? [[{ text: "📋 Copy to clipboard", copy_text: { text } }]] : [];
+  await sendMessage(
+    token,
+    env.TELEGRAM_CHAT_ID,
+    fits
+      ? `#${queueId}: tap Copy, paste to X, then answer —`
+      : `#${queueId}: this draft is ${text.length} chars, over Telegram's ${COPY_TEXT_LIMIT}-char copy-button cap — long-press the block above to copy, paste to X, then answer —`,
+    { buttons: [...copyRow, ...postedButtons(queueId, cycle, variant)] },
+  );
 }
 
 async function handleCardPosted(

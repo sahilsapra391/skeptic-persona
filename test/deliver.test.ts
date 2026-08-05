@@ -2,6 +2,7 @@ import { env, fetchMock, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildCard, deliverCards, resolveVariantText } from "../src/rag/deliver";
 import { createQueueEntry, decideQueueEntry, insertItem, SCORE_POSTABLE } from "../src/lib/db";
+import { COPY_TEXT_LIMIT } from "../src/lib/telegram";
 import { iso } from "../src/lib/time";
 
 // The copy-out card + Posted? capture (p2r-05). Card delivery is tested
@@ -433,5 +434,65 @@ describe("p5-01: cycles are not blended, and history is retrievable", () => {
     expect((await SELF.fetch(`https://worker.local/admin/generations?queue_id=abc`, {
       headers: { "X-Admin-Key": "test-webhook-secret" },
     })).status).toBe(400);
+  });
+});
+
+describe("the Copy button actually copies (Bot API 7.11 CopyTextButton)", () => {
+  it("attaches a native copy_text button when the draft fits the 256-char cap", async () => {
+    // A bot CANNOT write to the clipboard from a callback, so the old flow only
+    // ever PRESENTED text to long-press. The owner reported it as "Copy does
+    // not copy", and he was right. CopyTextButton is the real thing.
+    const short = "SEC charges Alpha LLC, per SEC";
+    const qid = await seedTerminal("CB-fits", [{ variant: "commentary", text: short, status: "valid" }]);
+    await deliverCards(env, NOW);
+    const cy = await cycleOf(qid);
+    const before = snap();
+    await tap(`c:c:${qid}:${cy}`);
+
+    const sent = SEND.calls.slice(before.s);
+    // The monospace block still rides: it is the fallback and works at any
+    // length, on any client version.
+    expect(sent[0]!.text).toBe(short);
+    expect(JSON.stringify(sent[0]!.entities)).toContain('"pre"');
+    // ...and now a real copy button carrying the EXACT text.
+    const markup = JSON.stringify(sent[1]!.reply_markup);
+    expect(markup).toContain("copy_text");
+    expect(JSON.parse(markup).inline_keyboard[0][0].copy_text.text).toBe(short);
+    expect(String(sent[1]!.text)).toContain("tap Copy");
+  });
+
+  it("falls back to long-press when the draft EXCEEDS the cap, rather than 400ing", async () => {
+    // The cap is 256 and a post may be 280, so this boundary is real rather
+    // than theoretical. Sending an over-long copy_text is a 400 from Telegram,
+    // which would take the whole message down and leave the owner with nothing
+    // — strictly worse than the long-press block he already had.
+    const long = `${"x".repeat(COPY_TEXT_LIMIT + 1)}`;
+    const qid = await seedTerminal("CB-toolong", [{ variant: "commentary", text: long, status: "valid" }]);
+    await deliverCards(env, NOW);
+    const cy = await cycleOf(qid);
+    const before = snap();
+    await tap(`c:c:${qid}:${cy}`);
+
+    const sent = SEND.calls.slice(before.s);
+    expect(sent[0]!.text).toBe(long); // the block still carries the full text
+    const markup = JSON.stringify(sent[1]!.reply_markup);
+    expect(markup).not.toContain("copy_text");
+    // And it SAYS why, with the number, instead of silently offering less.
+    expect(String(sent[1]!.text)).toContain(`${long.length} chars`);
+    expect(String(sent[1]!.text)).toContain("long-press");
+  });
+
+  it("the Posted? keyboard still rides alongside the copy button", async () => {
+    // The copy button must not displace the capture flow: an added button that
+    // costs the post_log row would trade one silent gap for another.
+    const qid = await seedTerminal("CB-posted", [{ variant: "commentary", text: "short text, per SEC", status: "valid" }]);
+    await deliverCards(env, NOW);
+    const cy = await cycleOf(qid);
+    const before = snap();
+    await tap(`c:c:${qid}:${cy}`);
+    const markup = JSON.stringify(SEND.calls[before.s + 1]!.reply_markup);
+    expect(markup).toContain(`p:y:${qid}:${cy}:c`);
+    expect(markup).toContain(`p:m:${qid}:${cy}:c`);
+    expect(markup).toContain(`p:k:${qid}:${cy}:c`);
   });
 });
