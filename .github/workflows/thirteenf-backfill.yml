@@ -1,5 +1,19 @@
 # 13F-03: one-shot watchlist backfill (periods 2025-12-31 and 2026-03-31).
 #
+# STATUS 2026-08-05: EDGAR-BLOCKED — DO NOT EXPECT THIS TO WORK FOR /Archives.
+# Run 30963940519 measured the split exactly: browse-edgar (the atom search)
+# ANSWERS GitHub-hosted runners, and every /Archives/ byte fetch 403s — all 74
+# filings, uniformly, with the declared UA. The block is by path and IP class,
+# not by headers.
+#
+# The working backfill path is the one that made the courier unnecessary:
+# the WORKER's own /Archives egress is proven daily in production (the 8-K
+# body lane), so backfill = seed filings_13f rows as 'pending_parse' and let
+# the live drain fetch + parse them itself (2/tick, every_30m). That is how
+# the 2026-08-05 backfill actually ran. This file stays as the record and as
+# a template for NON-EDGAR heavy lanes; the deferred_heavy parse route must
+# NOT assume courier fetch from EDGAR either.
+#
 # DUMB COURIER, by doctrine: this job fetches bytes from EDGAR and forwards
 # them untouched to the Worker's /ingest, where parseAndStore13f — the same
 # single implementation the live poll uses — does ALL parsing, sanity-gating
