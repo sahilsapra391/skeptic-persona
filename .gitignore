@@ -22,3 +22,19 @@ test/zz*
 test/_scratch*
 test/*.probe.test.ts
 test/*.scratch.ts
+
+# Duplicate-file artifacts: "<name> 2.ext" beside "<name>.ext". Local tooling
+# produced these three times during one session (a stash/pop and two rebases),
+# and 21 of them reached main in #134 through a `git add -A`. They are not
+# harmless copies:
+#   - `.github/workflows/thirteenf-backfill 2.yml` registers a SECOND workflow
+#     on the same cron, so the 13F backfill would have run twice.
+#   - a duplicate migration made readD1Migrations run CREATE TABLE filings_13f
+#     twice, which broke local test collection outright.
+#   - duplicate *.test.ts files re-run whole suites under a second name.
+# Ignored rather than remembered, because every instance so far was noticed
+# only after it had already been committed or had already broken something.
+# Deliberately literal " 2." / " 3." and not a digit class: a pattern like
+# "* [0-9].*" would also swallow a legitimate "Q1 2.md".
+* 2.*
+* 3.*
