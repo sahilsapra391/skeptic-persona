@@ -28,7 +28,7 @@ through the owner's thumbs, not through code.
 
 | Chunk | Scope | Status | PR | Verification |
 |---|---|---|---|---|
-| p5-01 | Regenerate becomes append-only; history retrievable | in-progress | — | — |
+| p5-01 | Regenerate becomes append-only; history retrievable | merged-verified | [#133](https://github.com/sahilsapra391/skeptic-persona/pull/133) | [2026-08-04-p5-01](verification/2026-08-04-p5-01-append-only-regenerate.md) |
 | p5-02 | Branch protection + a main CI run | pending | — | — |
 | p5-03 | REGULATORY_NEWS salience tier; drain pending cards | pending | — | — |
 | p5-04 | Polish bundle: attribution join, raw ISO in copy, PRODUCT_RECALL length window, over_budget split | pending | — | — |

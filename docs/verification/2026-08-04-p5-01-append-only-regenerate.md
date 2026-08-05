@@ -100,7 +100,52 @@ Also confirmed while here: the 13F migrations were already applied at
 
 ## 5. Deployed behaviour matches merged code
 
-See section 7 below for the post-merge live check.
+Merged as `e45598b` (PR #133). Merged is not deployed, and this pipeline has
+been burned by that twice, so the deploy was proved rather than assumed.
+
+**Route probe, no secret required.** `GET /admin/generations` is new in this
+chunk. An unauthenticated request distinguishes the two bundles precisely:
+the old one has no such route (404), the new one has it behind auth (401).
+
+```
+02:14:30Z  GET /admin/generations?queue_id=1  -> 404   (old bundle still live)
+02:14:45Z  GET /admin/generations?queue_id=1  -> 401   (new bundle live, auth enforced)
+           GET /health                        -> 200
+```
+
+The 404 at 02:14:30 is the useful half: for roughly a minute after the merge
+reported success, production was still running the previous code.
+
+**The new SQL executes against the production schema.** The generation job
+ran clean AFTER the deploy:
+
+```
+SELECT name, last_ok_at, consecutive_failures, quarantined_at FROM jobs WHERE name='generation';
+-> generation | 2026-08-05T02:19:36Z | 0 | NULL
+```
+
+That tick is the real assertion. `runGeneration` now selects `q.regen_cycle`,
+joins on `g.cycle = q.regen_cycle`, and runs the combined counter aggregate.
+A missing column or a malformed predicate would surface as a failed run and a
+non-zero `consecutive_failures`; it is 0, and the job is not quarantined.
+
+**No row was orphaned by the new predicate.** Run against production with the
+deployed predicate spelled out:
+
+```
+SELECT COUNT(*) FROM queue q JOIN items i ON i.id=q.item_id
+WHERE q.state IN ('approved','edited') AND i.source<>'smoke_test'
+  AND NOT EXISTS (SELECT 1 FROM generations g
+                  WHERE g.queue_id=q.id AND g.cycle=q.regen_cycle
+                    AND (g.status='valid' OR g.status LIKE 'fallback%'
+                         OR g.status LIKE 'skipped%' OR g.status='rejected:payload'));
+-> 0
+```
+
+Zero selectable rows: all 11 approved rows hold a terminal generation at
+their current cycle. Nothing is stranded and nothing is caught in a re-pick
+loop, which were the two failure modes the cycle scoping could have
+introduced.
 
 ## 6. What CI did and did not prove
 
