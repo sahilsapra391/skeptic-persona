@@ -12,7 +12,7 @@ import {
   zeroEditStats,
   EDIT_DISTANCE_MAX_LEN,
 } from "../src/rag/learn";
-import { renderDigest, runVoiceDigest, DIGEST_WINDOW_DAYS } from "../src/rag/digest";
+import { renderDigest, runVoiceDigest, northStarStats, renderNorthStar, DIGEST_WINDOW_DAYS } from "../src/rag/digest";
 import { MAX_OWNER_FINALS, ownerFinalsAllowance } from "../src/rag/generate";
 import { deliverCards } from "../src/rag/deliver";
 import { createQueueEntry, decideQueueEntry, insertItem, SCORE_POSTABLE } from "../src/lib/db";
@@ -534,5 +534,75 @@ describe("a whitespace-only reply is not an edit", () => {
     expect(promoted!.text).toContain("46 days");
     // And what was stored is never byte-identical to the draft.
     expect(promoted!.text).not.toBe(row!.draft_text);
+  });
+});
+
+describe("p5-06: the north star", () => {
+  const NS = (o: Partial<{ cards: number; approvals: number; manualPosts: number; legacyAutoPosts: number }> = {}) => ({
+    cards: 0, approvals: 0, manualPosts: 0, legacyAutoPosts: 0, ...o,
+  });
+
+  it("zero posts out of real approvals is a MEASURED 0%, not a no-data branch", () => {
+    // The distinction the whole block turns on. Zero posts against 29
+    // approvals is the single most important fact the program has; hiding it
+    // behind "nothing to report" would suppress the finding this exists to
+    // surface.
+    const out = renderNorthStar(NS({ cards: 100, approvals: 29 }), NS(), 7).join("\n");
+    expect(out).toContain("Post rate: 0%");
+    expect(out).toContain("0 of 29 approval(s)");
+    expect(out).toContain("The Copy button is the constraint");
+  });
+
+  it("but a zero DENOMINATOR is genuinely no rate, and says so", () => {
+    const noCards = renderNorthStar(NS(), NS(), 7).join("\n");
+    expect(noCards).toContain("no approval rate to report");
+    expect(noCards).not.toContain("0%");
+
+    const noApprovals = renderNorthStar(NS({ cards: 40 }), NS(), 7).join("\n");
+    expect(noApprovals).toContain("nothing that could have been posted");
+  });
+
+  it("Threads-era automated posts are NAMED and kept out of the post rate", () => {
+    // Folding these in would report a 62% post rate for a desk that has
+    // published nothing by hand, on a platform it no longer posts to.
+    const out = renderNorthStar(NS({ cards: 100, approvals: 29, legacyAutoPosts: 18 }), NS(), 7).join("\n");
+    expect(out).toContain("Post rate: 0%");
+    expect(out).toContain("18 Threads-era automated post(s)");
+    expect(out).toContain("excluded from the post rate");
+  });
+
+  it("APPROVALS ARE A UNION of state and post_log, which is the #115 correction", async () => {
+    // Counting queue.state alone once reported press converting 23x better
+    // than everything else. A card that posted no longer carries 'approved',
+    // so state-only counting loses it.
+    const now = new Date("2026-08-05T12:00:00.000Z");
+    const item = await insertItem(env.DB, {
+      source: "senate_ptr", externalId: "ns-union", category: "congress",
+      eventAt: "2026-08-04T12:00:00.000Z", sourceUrl: "https://efdsearch.senate.gov/ns",
+      payload: { member: "Jane Roe" }, score: SCORE_POSTABLE,
+    });
+    const createdAt = "2026-08-04T12:00:00.000Z";
+    await env.DB.prepare(
+      `INSERT INTO queue (item_id, archetype, draft_text, state, created_at) VALUES (?1,'CONGRESS_PTR','d','pending',?2)`,
+    ).bind(item.id, createdAt).run();
+    const q = await env.DB.prepare(`SELECT id FROM queue WHERE item_id = ?1`).bind(item.id).first<{ id: number }>();
+    // State is 'pending', but it has a post_log row: it WAS approved.
+    await env.DB.prepare(
+      `INSERT INTO post_log (queue_id, posted_at, archetype, category, posted_manually) VALUES (?1,?2,'CONGRESS_PTR','congress',1)`,
+    ).bind(q!.id, "2026-08-04T13:00:00.000Z").run();
+
+    const { current } = await northStarStats(env.DB, now, DIGEST_WINDOW_DAYS);
+    expect(current.approvals).toBeGreaterThanOrEqual(1);
+    expect(current.manualPosts).toBeGreaterThanOrEqual(1);
+  });
+
+  it("the block survives the digest's EARLY RETURNS, which is where it matters most", () => {
+    // renderDigest returns early when there are no posts — precisely the state
+    // the north star is reporting on. If it were appended at the end it would
+    // be invisible exactly when it is the only measurable thing.
+    const stats = { posted: 0, unedited: 0, edited: 0, rate: null, meanEditRatio: null, uncaptured: 0, templateFallbacks: 0 };
+    const text = renderDigest(stats as never, [], 7, renderNorthStar(NS({ cards: 100, approvals: 29 }), NS(), 7));
+    expect(text).toContain("Post rate: 0%");
+    expect(text).toContain("no posts published in the window"); // the zero-edit branch still ran
   });
 });

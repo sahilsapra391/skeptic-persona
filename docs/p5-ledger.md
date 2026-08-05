@@ -33,10 +33,20 @@ through the owner's thumbs, not through code.
 | p5-03 | REGULATORY_NEWS salience tier; drain pending cards | blocked-owner (D-13) — mechanism + BEA/ONS ruling merged; drain not achievable from that ruling | [#136](https://github.com/sahilsapra391/skeptic-persona/pull/136) | [2026-08-05-p5-03](verification/2026-08-05-p5-03-regulatory-news-tier.md) |
 | p5-04 | Polish bundle: attribution join, raw ISO in copy, PRODUCT_RECALL length window, over_budget split | merged-verified | [#137](https://github.com/sahilsapra391/skeptic-persona/pull/137) | [2026-08-05-p5-04](verification/2026-08-05-p5-04-polish-bundle.md) |
 | p5-05 | TTL-lake measurement; re-card policy decision | merged-verified (measurement delivered; policy is owner decision 6) | [#138](https://github.com/sahilsapra391/skeptic-persona/pull/138) | [2026-08-05-p5-05](verification/2026-08-05-p5-05-ttl-lake-measurement.md) |
-| p5-06 | Weekly digest north-star block (approval rate, post rate) | pending | — | — |
+| p5-06 | Weekly digest north-star block (approval rate, post rate) | merged-verified | [#139](https://github.com/sahilsapra391/skeptic-persona/pull/139) | [2026-08-05-p5-06](verification/2026-08-05-p5-06-north-star.md) |
 
 Phase 0 acceptance: all six merged-verified AND the weekly digest shows the
 two rates. No Phase 2 branch may be created before this.
+
+**Status 2026-08-05: NOT met. Five of six are merged-verified and the digest
+does now show both rates, but p5-02 is `blocked-owner` (D-10, CI is
+`disabled_manually` and that chunk's deliverable is a main CI run). p5-03's
+mechanism merged but its remaining source rulings are also owner-blocked.
+Phase 2 stays shut.**
+
+North star measured 2026-08-05, from the shipped query: last 7 days 651 cards,
+10 approvals (2%), 0 manual posts. Prior 7 days 418 cards, 19 approvals (5%),
+0 manual posts. Card volume is rising while the approval rate halves.
 
 ## Phase 1 — Access and hygiene
 
