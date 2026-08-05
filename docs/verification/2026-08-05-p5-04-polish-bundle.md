@@ -164,3 +164,36 @@ In `ragValidate.test.ts`:
 - the month-day form is genuinely derived from the payload's own timestamp
 
 Suite: **1,033 passing**, 1 pre-existing failure (D-6, red on main).
+
+## 7. Deploy status, and a live residue the fix does not reach
+
+Merged as `223dbca` (PR #137). Workers Builds passed and the generation job ran
+clean at 03:19:36, 03:24:36 and 03:29:36 UTC, all post-merge,
+`consecutive_failures = 0`, no quarantine.
+
+As with p5-03, that proves the bundle deployed, not that the changed code ran:
+no press item has been ingested since the deploy (03:16 UTC / 23:16 ET, feeds
+are quiet overnight), and `draft_text` is written once at enqueue.
+
+**The residue, measured rather than assumed.** Seven pending cards were
+rendered by the OLD code and still carry the raw timestamp:
+
+```
+SELECT COUNT(*) FROM queue WHERE state='pending' AND draft_text LIKE '%T0%:%:%Z.%';
+-> 7
+
+960  '...hnologies Ltd, per SEBI\n\nPublished 2026-08-03T00:00:00.000Z.'
+990  '..., per the Bank of Japan\n\nPublished 2026-08-04T01:00:00.000Z.'
+1012 '...the European Commission\n\nPublished 2026-08-04T08:02:27.000Z.'
+1018 '..., per the Bank of Japan\n\nPublished 2026-08-04T06:30:00.000Z.'
+```
+
+Those seven are copy-ready **now**. The fix is forward-only, for the same
+structural reason as p5-03: `draft_text` is produced at enqueue and nothing
+re-renders a queue row afterwards.
+
+Deliberately NOT mass-corrected. Rewriting seven rows in the owner's live queue
+is a mutation of cards he may already have read, and the queue TTL is 48h so
+all seven age out on their own. Tapping Regenerate on any of them re-renders
+under the new code, and p5-01 made that safe: the prior draft is preserved
+rather than destroyed.
