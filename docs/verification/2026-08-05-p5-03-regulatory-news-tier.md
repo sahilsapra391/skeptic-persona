@@ -28,7 +28,9 @@ measured.
 
 Card ages: 62 at ~12h, 6 at ~24h, 41 at ~36h, 25 at ~46h. All inside
 `QUEUE_TTL_HOURS=48`, so nothing is stuck. "Draining" cannot mean unsticking a
-backlog; it can only mean not carding them in the first place.
+backlog; it can only mean not carding them in the first place — and see the
+correction in section 3, which establishes that it cannot mean re-scoring the
+existing ones either.
 
 ## 2. The ruling is implemented, and keyed correctly
 
@@ -66,8 +68,25 @@ Pending REGULATORY_NEWS by authority, live:
 TOTAL 80    affected by the tier: 1    untiered (unchanged): 79
 ```
 
-**One card of eighty.** That BEA card moves 70 -> 55 and loses its exemption.
-It still cards, because a data print at MACRO tier is what the ruling asks for.
+**One card of eighty comes from a source this tier now covers.**
+
+### CORRECTION (same day, before any status was reported as done)
+
+An earlier draft of this section said that BEA card "moves 70 -> 55 and loses
+its exemption". **That was wrong, and the error mattered.** `salienceFor` is
+called from exactly one place, `pipeline/enqueue.ts`, at enqueue time, where it
+decides push-versus-digest once. Nothing re-scores a queue row afterwards.
+
+So the tier changes **zero** of the 134 pending cards. The 1 above is not a
+card that moves; it is one card whose source is now covered, meaning an
+equivalent item arriving from BEA tomorrow would score 55 instead of 70.
+
+This makes the chunk's second acceptance clause structurally, not just
+numerically, unreachable: **"drain the 133 pending cards through it" would need
+a re-scoring pass over existing queue rows, and no such mechanism exists.**
+Salience is a one-shot admission gate by design. Building a retroactive
+re-score is a different chunk with its own risks (it would move cards the owner
+has already seen), and it is not in this one.
 
 The two ruled sources barely reach the queue at all:
 
