@@ -502,10 +502,15 @@ async function handleCardRegenerate(env: ConfiguredEnv, cb: TgCallbackQuery, que
     await answerCallbackQuery(token, cb.id, `#${queueId}: a Posted-edited reply is pending — answer that prompt first.`);
     return;
   }
-  // Clean slate: the generation lifecycle re-picks the row (no terminal row)
-  // and delivery re-fires with a HIGHER cycle, so every old button goes stale.
+  // APPEND-ONLY (p5-01). This used to DELETE the row's generations to make the
+  // lifecycle re-pick it; that destroyed every prior draft, including valid
+  // ones the owner might have wanted back. Bumping regen_cycle re-opens the
+  // row for selection with a full attempt budget and leaves the history in
+  // place. The cards row is still deleted, because that is DELIVERY state, not
+  // draft history: dropping it is what makes the old message's buttons stale
+  // so a superseded draft cannot be copied during the regeneration window.
   await env.DB.batch([
-    env.DB.prepare(`DELETE FROM generations WHERE queue_id = ?1`).bind(queueId),
+    env.DB.prepare(`UPDATE queue SET regen_cycle = regen_cycle + 1 WHERE id = ?1`).bind(queueId),
     env.DB.prepare(`DELETE FROM cards WHERE queue_id = ?1`).bind(queueId),
   ]);
   await answerCallbackQuery(token, cb.id, `#${queueId} regenerating; a fresh card lands within ~5 minutes.`);
@@ -692,13 +697,23 @@ async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promis
         return;
       }
       // ONE atomic batch: the edit, the rotation-field reset (hand-written
-      // text has no skeleton — same rule as applyEditReply), and the clean
-      // slate. A redelivery re-runs it harmlessly.
+      // text has no skeleton — same rule as applyEditReply), and the new
+      // cycle. A redelivery re-runs it harmlessly.
+      //
+      // APPEND-ONLY (p5-01): this path shares Regenerate's mechanism and had
+      // the identical defect, so it gets the identical fix. An edit opens a
+      // new generation cycle; it does not erase what the row said before.
       await env.DB.batch([
-        env.DB.prepare(`UPDATE queue SET edited_text = ?1, state = 'edited', skeleton_id = NULL, beat_id = NULL WHERE id = ?2 AND state IN ('approved','edited')`)
+        env.DB.prepare(`UPDATE queue SET edited_text = ?1, state = 'edited', skeleton_id = NULL, beat_id = NULL, regen_cycle = regen_cycle + 1 WHERE id = ?2 AND state IN ('approved','edited')`)
           .bind(msg.text, editTarget.queue_id),
-        env.DB.prepare(`DELETE FROM generations WHERE queue_id = ?1`).bind(editTarget.queue_id),
-        env.DB.prepare(`DELETE FROM cards WHERE queue_id = ?1`).bind(editTarget.queue_id),
+        // SAME state guard as the UPDATE above. Unguarded, a row that has
+        // moved out of approved/edited loses its card row without opening a
+        // new cycle, so delivery re-sends the IDENTICAL card while the owner
+        // has just been told the edit was accepted.
+        env.DB.prepare(
+          `DELETE FROM cards WHERE queue_id = ?1
+             AND EXISTS (SELECT 1 FROM queue q WHERE q.id = ?1 AND q.state IN ('approved','edited'))`,
+        ).bind(editTarget.queue_id),
       ]);
       // Post-transition ack: caught, so it can never reach the 500-redelivery
       // path (the replay would find the cards row gone and go silent).

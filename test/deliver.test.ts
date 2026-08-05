@@ -222,11 +222,15 @@ describe("card flows through the real webhook", () => {
 
   it("STALE-CYCLE tap does nothing (the review's fabricated-post CRITICAL)", async () => {
     const { qid, cy } = await delivered("W-stale");
-    // Regenerate wipes; re-seed + redeliver mints a HIGHER cycle.
+    // Regenerate opens cycle 1; re-seed + redeliver mints a HIGHER card cycle.
+    // The new draft is stamped cycle 1 with attempt 2, mirroring the generator:
+    // attempt numbering is global per row, so it cannot reuse 1. Under the old
+    // wiping behaviour this insert reused attempt 1 and only worked because the
+    // prior row had been deleted.
     await tap(`g:${qid}:${cy}`);
     await env.DB.prepare(
-      `INSERT INTO generations (queue_id, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
-       VALUES (?1,'commentary','fresh text, per Senate eFD','sk','op','valid',1,?2)`,
+      `INSERT INTO generations (queue_id, cycle, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
+       VALUES (?1,1,'commentary','fresh text, per Senate eFD','sk','op','valid',2,?2)`,
     ).bind(qid, iso(NOW)).run();
     await deliverCards(env, NOW);
     const newCy = await cycleOf(qid);
@@ -299,10 +303,20 @@ describe("card flows through the real webhook", () => {
     expect((await env.DB.prepare(`SELECT final_text FROM post_log WHERE queue_id = ?1`).bind(qid).first<{ final_text: string }>())!.final_text).toBe("the text as actually posted");
   });
 
-  it("Regenerate: wipes for a fresh cycle; refuses after posted; EDIT refuses after posted too", async () => {
+  it("Regenerate: APPEND-ONLY new cycle, history kept; refuses after posted; EDIT refuses after posted too", async () => {
     const { qid, cy } = await delivered("W-regen");
     await tap(`g:${qid}:${cy}`);
-    expect((await env.DB.prepare(`SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1`).bind(qid).first<{ n: number }>())!.n).toBe(0);
+    // p5-01: the prior draft SURVIVES. This assertion is inverted from what it
+    // was; a regression here means drafts are being destroyed again.
+    expect((await env.DB.prepare(`SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1`).bind(qid).first<{ n: number }>())!.n).toBe(1);
+    expect((await env.DB.prepare(`SELECT regen_cycle AS n FROM queue WHERE id = ?1`).bind(qid).first<{ n: number }>())!.n).toBe(1);
+    // The surviving row belongs to the OLD cycle, so it cannot hold the row
+    // shut: nothing is terminal at cycle 1 and the generator re-picks it.
+    expect(
+      (await env.DB.prepare(`SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1 AND cycle = 1`).bind(qid).first<{ n: number }>())!.n,
+    ).toBe(0);
+    // The cards row is DELIVERY state, not history: it still goes, so the old
+    // message's buttons are stale during the regeneration window.
     expect(await env.DB.prepare(`SELECT * FROM cards WHERE queue_id = ?1`).bind(qid).first()).toBeNull();
 
     const { qid: qid2, cy: cy2 } = await delivered("W-regen2");
@@ -338,7 +352,86 @@ describe("card flows through the real webhook", () => {
     // Hand-written text has no skeleton (same rule as applyEditReply).
     const rot = await env.DB.prepare(`SELECT skeleton_id, beat_id FROM queue WHERE id = ?1`).bind(qid).first<{ skeleton_id: string | null; beat_id: string | null }>();
     expect(rot).toEqual({ skeleton_id: null, beat_id: null });
-    expect((await env.DB.prepare(`SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1`).bind(qid).first<{ n: number }>())!.n).toBe(0);
+    // p5-01: an edit opens a new cycle, it does not erase what the row said
+    // before. The pre-edit draft is still there and still readable.
+    expect((await env.DB.prepare(`SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1`).bind(qid).first<{ n: number }>())!.n).toBe(1);
+    expect((await env.DB.prepare(`SELECT regen_cycle AS n FROM queue WHERE id = ?1`).bind(qid).first<{ n: number }>())!.n).toBe(1);
     expect(await env.DB.prepare(`SELECT * FROM cards WHERE queue_id = ?1`).bind(qid).first()).toBeNull();
+  });
+});
+
+describe("p5-01: cycles are not blended, and history is retrievable", () => {
+  async function seedTwoCycles(externalId: string): Promise<number> {
+    const item = await insertItem(env.DB, {
+      source: "senate_ptr",
+      externalId,
+      category: "congress",
+      eventAt: iso(NOW),
+      sourceUrl: `https://efdsearch.senate.gov/${externalId}`,
+      payload: { member: "Jane Roe", lagDays: 45, tradeDate: "2026-06-03", chamber: "senate" },
+      score: SCORE_POSTABLE,
+    });
+    const qid = await createQueueEntry(env.DB, item.id ?? 0, "CONGRESS_PTR", "Draft text, per Senate eFD", NOW);
+    await decideQueueEntry(env.DB, qid, "approved", NOW);
+    await env.DB.batch([
+      // Cycle 0: the pass the owner threw away. It had a commentary.
+      env.DB.prepare(
+        `INSERT INTO generations (queue_id, cycle, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
+         VALUES (?1,0,'commentary','DISCARDED commentary, per Senate eFD','sk0','op0','valid',1,?2)`,
+      ).bind(qid, iso(NOW)),
+      // Cycle 1: the live pass produced only a dry.
+      env.DB.prepare(
+        `INSERT INTO generations (queue_id, cycle, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
+         VALUES (?1,1,'dry','LIVE dry, per Senate eFD','sk1','op1','valid',2,?2)`,
+      ).bind(qid, iso(NOW)),
+      env.DB.prepare(`UPDATE queue SET regen_cycle = 1 WHERE id = ?1`).bind(qid),
+    ]);
+    return qid;
+  }
+
+  it("the card shows ONE cycle, never a mix of the live pass and a discarded one", async () => {
+    const qid = await seedTwoCycles("W-noblend");
+    const card = await buildCard(env.DB, qid, "CONGRESS_PTR", "valid", 99);
+    expect(card.text).toContain("LIVE dry");
+    // The discarded commentary must not be paired with the live dry and
+    // presented as one draft set. Commentary is the deliverable, so a blend
+    // here is the version most likely to actually get posted.
+    expect(card.text).not.toContain("DISCARDED");
+    expect(JSON.stringify(card.buttons)).not.toContain("Copy commentary");
+    // Copy resolves against the live cycle too, not just the card render.
+    expect(await resolveVariantText(env.DB, qid, "commentary")).toBeNull();
+    expect(await resolveVariantText(env.DB, qid, "dry")).toBe("LIVE dry, per Senate eFD");
+  });
+
+  it("GET /admin/generations returns every cycle, flags the current one, and is auth-gated", async () => {
+    const qid = await seedTwoCycles("W-history");
+    const url = `https://worker.local/admin/generations?queue_id=${qid}`;
+
+    expect((await SELF.fetch(url)).status).toBe(401);
+    expect((await SELF.fetch(url, { headers: { "X-Admin-Key": "wrong" } })).status).toBe(401);
+
+    const res = await SELF.fetch(url, { headers: { "X-Admin-Key": "test-webhook-secret" } });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      current_cycle: number;
+      returned_rows: number;
+      truncated: boolean;
+      cycles: Array<{ cycle: number; current: boolean; drafts: Array<{ text: string }> }>;
+    };
+    expect(body.current_cycle).toBe(1);
+    expect(body.returned_rows).toBe(2);
+    expect(body.truncated).toBe(false);
+    expect(body.cycles.map((c) => c.cycle)).toEqual([0, 1]);
+    expect(body.cycles.find((c) => c.cycle === 0)!.current).toBe(false);
+    expect(body.cycles.find((c) => c.cycle === 1)!.current).toBe(true);
+    // The whole point: the discarded draft is still readable after the regen.
+    expect(body.cycles.find((c) => c.cycle === 0)!.drafts[0]!.text).toContain("DISCARDED commentary");
+
+    expect((await SELF.fetch(`https://worker.local/admin/generations?queue_id=999999`, {
+      headers: { "X-Admin-Key": "test-webhook-secret" },
+    })).status).toBe(404);
+    expect((await SELF.fetch(`https://worker.local/admin/generations?queue_id=abc`, {
+      headers: { "X-Admin-Key": "test-webhook-secret" },
+    })).status).toBe(400);
   });
 });

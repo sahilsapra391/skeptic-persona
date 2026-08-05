@@ -1,0 +1,53 @@
+-- p5-01: Regenerate becomes append-only.
+--
+-- WHAT WAS WRONG. Regenerate (and the card-Edit reply, which shares the
+-- mechanism) ran `DELETE FROM generations WHERE queue_id = ?`. Every prior
+-- draft for that row was destroyed to make the generation lifecycle re-pick
+-- it, because selection keys on "has no terminal row". Production shows the
+-- cost directly: 47 surviving generation rows against MAX(id) = 96, so
+-- roughly 49 drafts have already been deleted and are not recoverable. A
+-- valid draft the owner might have wanted back is gone the moment they tap
+-- Regenerate, and the learning loop never sees what was discarded.
+--
+-- WHY A CYCLE COLUMN, and not "just stop deleting". Two invariants were
+-- carried by the DELETE, and both have to be re-created explicitly or
+-- append-only silently breaks generation:
+--
+--   1. SELECTION. The lifecycle picks rows with no terminal generations row.
+--      If prior terminal rows survive, the row is never re-picked and
+--      Regenerate becomes a no-op that reports success. Terminal-ness has to
+--      become a property of the CURRENT cycle, not of the row's whole life.
+--
+--   2. THE ATTEMPT BUDGET. attemptsLeft = MAX_ATTEMPTS - MAX(attempt) over
+--      the whole row. A regenerated row has already spent its four attempts,
+--      so with history preserved and the budget untouched, every regenerate
+--      would skip the LLM entirely and fall straight to the template. The
+--      budget has to be spent per cycle.
+--
+-- queue.regen_cycle is the cursor; generations.cycle stamps which pass a row
+-- belongs to. A row is terminal when a terminal generations row exists AT
+-- q.regen_cycle. Regenerate increments the cursor instead of deleting, which
+-- makes the row selectable again with its full budget restored, and leaves
+-- every prior draft in place and readable.
+--
+-- BOTH DEFAULT 0, which is what makes this additive rather than a rewrite.
+-- Every existing generations row is cycle 0 and every existing queue row has
+-- cursor 0, so the invariant "terminal at the current cycle" is already true
+-- for all 47 live rows the moment the migration lands. No back-fill, no
+-- recomputation, and no window where a deployed reader disagrees with the
+-- data. The ~49 already-deleted rows stay deleted; nothing here invents them.
+--
+-- attempt is deliberately NOT reset per cycle. It stays globally monotonic
+-- per queue row so UNIQUE(queue_id, variant, attempt) keeps holding without
+-- touching that constraint, which SQLite cannot drop in place anyway. The
+-- cycle column carries grouping; attempt carries the audit trail. Resetting
+-- attempt to 1 each cycle would collide on the second pass and INSERT OR
+-- IGNORE would swallow it, which is the exact silent-success class this
+-- pipeline has been bitten by twice.
+ALTER TABLE queue ADD COLUMN regen_cycle INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE generations ADD COLUMN cycle INTEGER NOT NULL DEFAULT 0;
+
+-- The hot path is "does a terminal row exist for this queue_id at this
+-- cycle", run per queue row on every generation tick, plus the per-cycle
+-- attempt count. Both key on (queue_id, cycle).
+CREATE INDEX IF NOT EXISTS idx_generations_queue_cycle ON generations(queue_id, cycle);
