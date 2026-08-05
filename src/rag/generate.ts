@@ -574,6 +574,31 @@ export async function runGeneration(
       attempt += 1;
     }
 
+    // DID THE ROW MOVE UNDER US? `row.regen_cycle` was read by the picker and
+    // may be up to RUN_TIME_CAP_MS old by now, so a Regenerate or card-Edit
+    // landing mid-run means everything above was generated for a cycle the
+    // owner has already superseded (and, after an Edit, from text they have
+    // already replaced). The drafts written above stay as history for that
+    // older cycle; what must NOT happen is closing the NEW cycle with a
+    // terminal row derived from stale input, because that would hand the owner
+    // a template built from the text they just edited away.
+    //
+    // Leaving no terminal row is exactly right: the next tick re-picks the row
+    // at its current cycle with a full budget. This costs one discarded LLM
+    // run, which is why it is logged rather than passed over in silence.
+    const liveCycle = await env.DB.prepare(`SELECT regen_cycle AS n FROM queue WHERE id = ?1`)
+      .bind(row.queue_id)
+      .first<{ n: number }>();
+    if ((liveCycle?.n ?? row.regen_cycle) !== row.regen_cycle) {
+      log("warn", "generation run discarded: the row was regenerated or edited mid-run", {
+        queueId: row.queue_id,
+        ranForCycle: row.regen_cycle,
+        liveCycle: liveCycle?.n,
+        validVariants: valid.size,
+      });
+      continue;
+    }
+
     if (valid.size > 0) continue; // at least one variant made it; the card has options
 
     // PER CYCLE, not per row (p5-01). This guard asks "does this row still
