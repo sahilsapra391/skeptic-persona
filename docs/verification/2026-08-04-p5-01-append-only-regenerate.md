@@ -164,3 +164,36 @@ file is absent and the test passes, which is why it was never noticed.
 Not re-enabled unilaterally: disabling was a deliberate manual act with
 Actions-minutes cost, and ci.yml's own comment cites account-wide private-repo
 minutes as the reason it is already PR-only. Owner decision, feeding p5-02.
+
+## 7. Follow-up: the three recorded findings, applied and deployed
+
+PRs #134 (the three fixes) and #135 (cleanup of duplicate files #134's
+`git add -A` swept in). Deployed and verified the same way as the chunk
+itself, not on the merge.
+
+```
+02:34:18Z  GET /health                        -> 200
+           GET /admin/generations?queue_id=1  -> 401
+02:39:36Z  jobs.generation last_ok_at, consecutive_failures 0, not quarantined
+           all enabled jobs: 64 total, 0 failing, 0 quarantined
+```
+
+The 02:39:36 tick is what proves the follow-up code, not just the merge: it
+is the first generation run after the deploy, and it exercises the renamed
+`render_id` selection, the `liveCycle()` lookup that now throws on a missing
+queue row, and the mid-run cursor re-check. A throw or a bad column would
+have surfaced as a failed run; failures are 0 across all 64 enabled jobs.
+
+### What #135 was cleaning up
+
+`git add -A` in #134 committed 21 `<name> 2.ext` duplicates. Most were inert
+(the test copies end in `.test 2.ts`, which vitest does not collect, and the
+duplicated sources are imported by nothing), but
+`.github/workflows/thirteenf-backfill 2.yml` registers a SECOND workflow on
+the same cron. The 13F backfill was scheduled twice. Today that lane 403s on
+every fetch anyway, so the effect was two failing runs rather than one; after
+p5-10 it would have been two real backfills racing the same rows.
+
+Third recurrence in one session (a stash/pop, a rebase, then this), and one
+of the earlier batches broke local test collection by running `CREATE TABLE
+filings_13f` twice. `.gitignore` now blocks `* 2.*` and `* 3.*`.
