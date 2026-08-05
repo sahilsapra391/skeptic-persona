@@ -176,3 +176,31 @@ Six added, all against the real `PRESS_SOURCES` registry rather than fixtures:
 - an unknown or non-string authority is untouched, never accidentally demoted
 
 Suite: 1,024 passing, 1 pre-existing failure (D-6, red on main).
+
+## 7. Deploy status, stated exactly
+
+Merged as `8dc2a2a` (PR #136). Workers Builds passed, and the generation job
+ran clean at 02:54:36, 02:59:36 and 03:04:36 UTC, all after the merge, with
+`consecutive_failures = 0` and no quarantine.
+
+**What that does and does not prove.** It proves the bundle deployed and the
+Worker is healthy on it. It does NOT prove the tier executed, and this doc will
+not claim otherwise: `salienceFor` runs only when an item is enqueued, and no
+press item has been ingested since the deploy —
+
+```
+SELECT source, status, COUNT(*) FROM items
+WHERE source LIKE 'press_%' AND fetched_at > '2026-08-05T02:51:00';
+-> (no rows)
+```
+
+That is expected at 03:05 UTC (23:05 ET); the press feeds are quiet overnight.
+The tier is unit-verified against the real `PRESS_SOURCES` registry and
+deployed, and its first live execution will be the next press item enqueued.
+Because 24 of the 26 sources are untiered no-ops and the two tiered ones are
+BEA and ONS, the first live exercise of a tiered branch specifically waits on
+BEA or ONS publishing.
+
+Recorded this way rather than as "verified live" because the difference is the
+whole point of the merged-versus-deployed discipline, and overstating it here
+would be the same class of error as the section 3 correction above.
