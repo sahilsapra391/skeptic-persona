@@ -1,6 +1,6 @@
 import { env, fetchMock } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildPrompt, eligibleBeats, runGeneration, MAX_GENERATIONS_PER_RUN } from "../src/rag/generate";
+import { buildPrompt, eligibleBeats, runGeneration, MAX_ATTEMPTS, MAX_GENERATIONS_PER_RUN } from "../src/rag/generate";
 import { parseVariants } from "../src/rag/openrouter";
 import { registerJobs } from "../src/jobs";
 import { registry } from "../src/dispatch";
@@ -234,6 +234,93 @@ describe("runGeneration end-to-end", () => {
       { attempt: 1, status: "rejected:number" },
       { attempt: 2, status: "valid" },
     ]);
+  });
+
+  describe("p5-01: append-only cycles", () => {
+    it("a REGENERATED row is re-picked and gets a FULL attempt budget back", async () => {
+      const qid = await seedApproved("P-cycle-budget");
+      // Cycle 0, fully spent: MAX_ATTEMPTS attempts burned and closed off with
+      // a terminal template row. Seeded directly rather than driven through
+      // the model, because the point under test is the BUDGET ARITHMETIC and
+      // it has to bind exactly at the boundary, not near it.
+      const seeded = [];
+      for (let a = 1; a <= MAX_ATTEMPTS; a++) {
+        seeded.push(
+          env.DB.prepare(
+            `INSERT INTO generations (queue_id, cycle, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
+             VALUES (?1, 0, 'dry', '', '', '', 'rejected:number', ?2, ?3)`,
+          ).bind(qid, a, iso(NOW)),
+        );
+      }
+      seeded.push(
+        env.DB.prepare(
+          `INSERT INTO generations (queue_id, cycle, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
+           VALUES (?1, 0, 'none', 'template stood in', '', '', 'fallback_template', ?2, ?3)`,
+        ).bind(qid, MAX_ATTEMPTS, iso(NOW)),
+      );
+      await env.DB.batch(seeded);
+
+      // Terminal at cycle 0, so the lifecycle leaves it alone.
+      const before = orCalls;
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+      expect(orCalls).toBe(before);
+
+      // The Regenerate tap, in DB terms. THIS is the defect that would have
+      // shipped silently: with history preserved but the budget still counted
+      // over the row's whole life, MAX(attempt) is already MAX_ATTEMPTS here,
+      // attemptsLeft computes to 0, and the row would skip the model entirely
+      // and fall straight back to the template. The owner taps Regenerate and
+      // gets the same template back, with nothing anywhere saying why.
+      await env.DB.prepare(`UPDATE queue SET regen_cycle = regen_cycle + 1 WHERE id = ?1`).bind(qid).run();
+      nextReply = () => GOOD;
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+      expect(orCalls).toBeGreaterThan(before);
+
+      // The new cycle produced a real valid draft, and cycle 0 SURVIVES intact.
+      const c1 = await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1 AND cycle = 1 AND status = 'valid'`,
+      ).bind(qid).first<{ n: number }>();
+      expect(c1!.n).toBeGreaterThan(0);
+      const c0 = await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1 AND cycle = 0`,
+      ).bind(qid).first<{ n: number }>();
+      expect(c0!.n).toBe(MAX_ATTEMPTS + 1);
+      // Numbering is GLOBAL even though the budget is per cycle: cycle 1 picks
+      // up above cycle 0's highest, which is what keeps UNIQUE intact.
+      const minC1 = await env.DB.prepare(
+        `SELECT MIN(attempt) AS n FROM generations WHERE queue_id = ?1 AND cycle = 1`,
+      ).bind(qid).first<{ n: number }>();
+      expect(minC1!.n).toBeGreaterThan(MAX_ATTEMPTS);
+    });
+
+    it("an unparseable payload stays terminal in EVERY cycle (no INSERT OR IGNORE swallow, no re-pick loop)", async () => {
+      const qid = await seedApproved("P-cycle-badpayload");
+      await env.DB.prepare(`UPDATE items SET payload = 'not json' WHERE id = (SELECT item_id FROM queue WHERE id = ?1)`)
+        .bind(qid).run();
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+      expect(
+        (await env.DB.prepare(
+          `SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1 AND cycle = 0 AND status = 'rejected:payload'`,
+        ).bind(qid).first<{ n: number }>())!.n,
+      ).toBe(1);
+
+      // Regenerate. The marker row used to be written with a hardcoded
+      // attempt of 1; under append-only that collides with cycle 0's row on
+      // UNIQUE(queue_id, variant, attempt), INSERT OR IGNORE drops it, the
+      // cycle ends with NO terminal row, and the lifecycle re-picks the row
+      // on every tick forever. Silent, and it burns the budget doing nothing.
+      await env.DB.prepare(`UPDATE queue SET regen_cycle = regen_cycle + 1 WHERE id = ?1`).bind(qid).run();
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+      expect(
+        (await env.DB.prepare(
+          `SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1 AND cycle = 1 AND status = 'rejected:payload'`,
+        ).bind(qid).first<{ n: number }>())!.n,
+      ).toBe(1);
+      // Terminal again, so the next tick leaves it alone.
+      const before = orCalls;
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+      expect(orCalls).toBe(before);
+    });
   });
 
   it("all variants failing on doctrine falls back to a register-checked template (per-variant reasons asserted)", async () => {
