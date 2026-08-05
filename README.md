@@ -1,169 +1,199 @@
-# skeptic-persona (Skeptic Wire)
+# Skeptic Wire
 
-Automated market-intelligence wire for **X ([@SkepticTrades](https://x.com/SkepticTrades))**,
-run by a Cloudflare Workers pipeline: primary-source pollers → D1 item store →
-Telegram approval queue → commentary generation → **manual posting by the
-owner**. Doctrine and engineering rules live in [CLAUDE.md](CLAUDE.md); live
-endpoint verification records live in [docs/verification/](docs/verification/).
+An automated market-intelligence desk that reads primary financial filings,
+drafts short commentary, and refuses to make anything up.
 
-> **Threads is parked (2026-07-28).** The Threads account was banned by Meta on
-> suspected bot activity. The publish path is off behind `THREADS_PARKED` in
-> [src/poster.ts](src/poster.ts) and both jobs rows are disabled; the client is
-> kept on disk pending appeal. Incident and un-park steps:
-> [docs/verification/2026-07-28-threads-ban.md](docs/verification/2026-07-28-threads-ban.md).
-> The replan is [docs/p2r-plan.md](docs/p2r-plan.md).
+Skeptic Wire polls 59 primary sources (SEC EDGAR, congressional trade
+disclosures, central bank rate pages, federal regulators, market-structure
+feeds), scores what it finds for salience, generates commentary with an LLM
+constrained to parsed fields, and delivers finished cards to a Telegram
+approval queue. A human approves each card and posts it manually to X
+([@SkepticTrades](https://x.com/SkepticTrades)).
 
-## Architecture (P1)
+The whole pipeline runs on **one Cloudflare Worker, one cron trigger, and zero
+runtime npm dependencies**.
 
-- **One Worker, one cron** (`* * * * *`). The free plan allows 5 cron
-  triggers per account; all real scheduling is the D1 `jobs` table plus the
-  dispatcher in [src/dispatch.ts](src/dispatch.ts), which runs up to 12 due
-  jobs per tick (raised from 4 for the paid tier; `TICK_TIME_BUDGET_MS` is
-  the real governor) and reschedules via cadence profiles
-  ([src/cadence.ts](src/cadence.ts)).
-- **D1** (`migrations/`): items with UNIQUE dedup keys (dedup is in D1, not
-  KV — KV free tier caps writes at 1k/day), insider trades, approval queue,
-  post log, per-source polling state, jobs, release calendar.
-- **KV**: low-write state only (kill switch now; template rotation and
-  autonomy counters later).
-- **Zero runtime dependencies**: free-tier CPU is 10 ms/invocation; feed
-  parsing is regex-first ([src/lib/xml.ts](src/lib/xml.ts)).
+## The constraint that shaped everything
+
+Every number in every post has to come from a field an ingester actually
+parsed. If a field did not parse, the post does not claim it. That single rule
+is why this codebase looks the way it does: the LLM never sees a blank page, it
+receives parsed facts and a template, and machine gates check the output
+against the source record before a human ever reads it.
+
+Four other rules follow from it:
+
+- **Primary sources only.** Filed, printed, or released by an official body.
+  Nothing sourced to "reportedly."
+- **Honest identity.** The account is transparently a brand desk, never a fake
+  human, and it never denies being automated.
+- **No vendor-data republishing.**
+- **No advice language.**
+
+## How it works
+
+```mermaid
+flowchart TD
+    A["26 ingester modules<br/>59 registered sources"] --> B[("D1 item store<br/>UNIQUE dedup_key")]
+    R["GitHub Actions courier<br/>(sources that block Worker egress)"] -->|POST /ingest| B
+    B --> C["Salience scoring"]
+    C --> D["Commentary generation<br/>(OpenRouter)"]
+    D --> E["Doctrine validators<br/>fact gates, length, rotation"]
+    E --> F["Telegram approval queue"]
+    F --> G["Owner approves, edits, or rejects"]
+    G --> H["Manual post to X"]
+```
+
+### Scheduling without cron triggers
+
+Cloudflare's free plan allows five cron triggers per **account**, not per
+Worker. So this project spends exactly one (`* * * * *`) and builds a real
+scheduler on top of it: a D1 `jobs` table plus a dispatcher
+([src/dispatch.ts](src/dispatch.ts)).
+
+Each tick selects up to `MAX_JOBS_PER_TICK` (24) due jobs by priority, runs
+them at `TICK_JOB_CONCURRENCY` (3) in parallel, and stops at a
+`TICK_TIME_BUDGET_MS` (45s) wall-clock budget. Jobs reschedule themselves
+through cadence profiles ([src/cadence.ts](src/cadence.ts)). Sources that fail
+repeatedly are auto-quarantined.
+
+### Deduplication lives in D1, not KV
+
+KV's free tier caps writes at 1,000 per day, which a 59-source poller would
+burn through before lunch. Dedup is a `UNIQUE` constraint on `items.dedup_key`
+with `INSERT OR IGNORE`, so the database enforces it in one statement. KV holds
+only low-write state: template rotation, autonomy counters, and the kill
+switch.
+
+### Zero runtime dependencies
+
+Parsing is regex-first on hot paths ([src/lib/xml.ts](src/lib/xml.ts)). This
+started as a hard requirement under the free tier's 10ms CPU limit, which
+killed the first posts outright. The project moved to Workers Paid on
+2026-07-27, but the discipline stayed because it is what keeps ticks inside
+budget.
+
+### The courier pattern
+
+Five sources answer a residential connection normally and fail from Cloudflare
+Worker egress, each in a different way: Senate eFD 403s datacenter IP ranges,
+NSE India resets on the declared User-Agent, treasury.gov fails the TLS
+handshake with a 525, and www.cftc.gov returns 403.
+
+For those, a GitHub Actions workflow fetches the raw bytes and POSTs them to
+the Worker's authenticated `/ingest` endpoint. The workflow is a **dumb
+courier**. It holds no parsing logic, no state, and no judgement beyond a date
+window. The Worker parses courier-delivered bytes with the same tested code
+every direct poller uses, because a second implementation of the parser is
+exactly the failure this design exists to prevent.
+
+## Sources
+
+| Family | Coverage |
+|---|---|
+| SEC EDGAR | 8-K (plus body text), Form 4, Form 144, Form 25, Schedule 13D/G, 13F holdings and quarter-over-quarter diffs, daily index reconciliation |
+| Congress | House Clerk PTRs (PDF extraction), Senate eFD PTRs |
+| Central banks | Fed press releases, plus policy rates from BoE, ECB, RBA, BoI, Norges Bank, BoJ, BCB and others |
+| Macro | BLS release calendar and watch |
+| Market structure | Nasdaq and NYSE trading halts, Reg SHO threshold list, CFTC Commitments of Traders |
+| Regulatory | Federal Register, FDA recalls (drug, device, food), FTC and GAO press |
+| Other | Treasury auctions, NOAA storm events |
+
+Every endpoint is live-verified during the chunk that adds it, and the evidence
+is committed to [docs/verification/](docs/verification/). No endpoint is
+trusted from memory.
+
+Any source that is failing, parked, quarantined, or retired is listed with a
+status and a date in [docs/SOURCE_REGISTRY.md](docs/SOURCE_REGISTRY.md). A
+source missing from that file and from the failure list is working. There is no
+third state.
+
+## Repo layout
+
+```
+src/
+  index.ts          Worker entry: routes + scheduled handler
+  dispatch.ts       The real scheduler (D1 jobs table)
+  cadence.ts        Reschedule profiles
+  ingesters/        26 source-specific parsers
+  rag/              Grounded generation, validators, echo detection
+  templates/        Archetypes, gates, length, rendering
+  telegram/         Approval-queue webhook and schema guard
+  lib/              XML, HTML, HTTP, ZIP, time, logging helpers
+migrations/         65 D1 migrations, applied in order
+docs/verification/  Dated evidence for every endpoint claim
+test/               vitest against real workerd with D1 and KV simulators
+```
 
 ## Local development
 
 ```bash
 npm install
-npm run typecheck
-npm test          # vitest + @cloudflare/vitest-pool-workers (real workerd, real D1/KV sims)
 ```
 
-## Deploy (owner, one-time setup)
+```bash
+npm run typecheck
+```
 
-1. `wrangler d1 create skeptic-wire` → paste `database_id` into wrangler.toml.
-2. `wrangler kv namespace create KV` → paste `id` into wrangler.toml.
-3. `wrangler d1 migrations apply skeptic-wire --remote`.
-4. `npm run deploy`.
+```bash
+npm test
+```
 
-Secrets are set via `wrangler secret put <NAME>` only — never committed.
-Current secrets/vars by phase:
+Tests run under `@cloudflare/vitest-pool-workers`, which executes them in real
+workerd with real D1 and KV simulators rather than mocks.
 
-| Name | Kind | Phase | Notes |
-|---|---|---|---|
-| `CONTACT_EMAIL` | var | P1 | goes into the polling User-Agent (SEC/BLS require a declared contact) |
-| `POSTING_ENABLED` | var | P1 | master poster gate; `false` since the 2026-07-28 park (`THREADS_PARKED` outranks it) |
-| `TELEGRAM_BOT_TOKEN` | secret | PR-2 | |
-| `TELEGRAM_CHAT_ID` | var | PR-2 | only this chat may approve |
-| `TELEGRAM_WEBHOOK_SECRET` | secret | PR-2 | generated by us, checked on the webhook route |
-| `QUEUE_TTL_HOURS` | var | PR-2 | pending drafts expire after this (default 6) |
-| `BLS_API_KEY` | secret | PR-6 | optional confirmation-pass key |
-| `THREADS_APP_ID` | secret | P2 | **parked** — Threads App ID; unread while `THREADS_PARKED` |
-| `THREADS_APP_SECRET` | secret | P2 | **parked** — Threads App Secret; unread while `THREADS_PARKED` |
-| `POST_DAILY_CAP` | var, optional | P2 | **parked** — editorial posts/day budget (default 25) |
-| `OPENROUTER_API_KEY` | secret | P2-R | generation LLM key; unset = generation holds, queue accumulates |
-| `OPENROUTER_MODEL` | var | P2-R | model id (config, never code), e.g. a current frontier model on OpenRouter |
+Copy `.dev.vars.example` to `.dev.vars` for local `wrangler dev`. `.dev.vars`
+is gitignored and must never be committed.
 
-## Telegram approval queue setup (owner, one-time)
+## Configuration
 
-1. **Create the bot:** in Telegram, open **@BotFather** → `/newbot` → pick a
-   display name and a unique username ending in `bot`. Copy the token.
-2. **DM your bot** (open its profile, press Start, send any message).
-3. **Find your chat id** (must happen BEFORE the webhook is set —
-   `getUpdates` and webhooks are mutually exclusive):
-   ```bash
-   curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | python3 -m json.tool | grep -A2 '"chat"'
-   ```
-   Your numeric id is `result[].message.chat.id`.
-4. **Set the secrets** (after the Worker is deployed):
-   ```bash
-   wrangler secret put TELEGRAM_BOT_TOKEN
-   wrangler secret put TELEGRAM_WEBHOOK_SECRET   # e.g. openssl rand -hex 32
-   ```
-   and put `TELEGRAM_CHAT_ID = "<your id>"` under `[vars]` in wrangler.toml,
-   then redeploy.
-5. **Point the webhook at the Worker:**
-   ```bash
-   curl -s "https://api.telegram.org/bot<TOKEN>/setWebhook" \
-     -d url="https://<worker-subdomain>.workers.dev/tg/webhook" \
-     -d secret_token="<same secret as TELEGRAM_WEBHOOK_SECRET>" \
-     -d allowed_updates='["message","callback_query"]'
-   ```
-6. **Verify:** send `/start` to the bot — it replies with your chat id.
-   `getWebhookInfo` shows delivery errors if anything is off.
-7. **Smoke test the full loop** (message + buttons + decision round-trip):
-   ```bash
-   curl -s -X POST "https://skeptic-persona.sahilsapra391.workers.dev/admin/seed-test" \
-     -H "X-Admin-Key: <same value as TELEGRAM_WEBHOOK_SECRET>"
-   ```
-   A fake draft appears in the chat; Approve/Edit/Reject all work and the
-   decisions round-trip through D1.
+Secrets are set with `wrangler secret put <NAME>` and are never committed.
+Non-secret configuration lives in `[vars]` in `wrangler.toml`, deliberately,
+because Workers Builds re-applies `[vars]` on every merge deploy and a
+dashboard-set value would be silently wiped.
 
-## Threads onboarding — PARKED 2026-07-28
+| Name | Kind | Purpose |
+|---|---|---|
+| `CONTACT_EMAIL` | var | Declared contact in the polling User-Agent (SEC and BLS require one) |
+| `POSTING_ENABLED` | var | Master poster gate |
+| `QUEUE_TTL_HOURS` | var | How long an unapproved card survives |
+| `OPENROUTER_MODEL` | var | Generation model id. Empty means generation holds and the queue accumulates |
+| `TELEGRAM_BOT_TOKEN` | secret | Approval bot |
+| `TELEGRAM_WEBHOOK_SECRET` | secret | Checked on the webhook route and on admin routes |
+| `OPENROUTER_API_KEY` | secret | Generation |
+| `INGEST_SECRET` | secret | Authenticates the GitHub Actions courier |
 
-The Threads account (@skeptictradess) was banned by Meta on suspected bot
-activity. Publishing is manual on X, so the onboarding flow that used to live
-here has been removed and its OAuth routes are unrouted in
-[src/index.ts](src/index.ts). The client itself is kept on disk for the appeal.
+Owner setup, deployment, and incident procedures are in
+[docs/RUNBOOK.md](docs/RUNBOOK.md).
 
-Full incident record, including how we know it was a ban and not an expired
-token: [docs/verification/2026-07-28-threads-ban.md](docs/verification/2026-07-28-threads-ban.md).
+## Operations
 
-**To un-park, if the appeal succeeds** (deliberately three steps, because a
-banned account cannot be probed back to life):
-
-1. Flip `THREADS_PARKED` to `false` in [src/poster.ts](src/poster.ts) and
-   restore the two OAuth routes in [src/index.ts](src/index.ts), plus the
-   `poster` / `threads_token_refresh` entries in [src/jobs.ts](src/jobs.ts).
-2. Re-enable the jobs rows:
-   ```bash
-   wrangler d1 execute skeptic-wire --remote --command "UPDATE jobs SET enabled = 1 WHERE name IN ('poster','threads_token_refresh')"
-   ```
-3. Re-run the OAuth flow in a browser. This step is not optional: the
-   long-lived token expires 2026-09-25 and a dead token cannot be refreshed.
-
-Then set `POSTING_ENABLED = "true"` in wrangler.toml via PR.
-
-Kill switch (note `--remote` — without it wrangler v4 writes to LOCAL
-simulated storage and production keeps running):
+Kill switch (note `--remote`, since without it wrangler v4 writes to local
+simulated storage while production keeps running):
 
 ```bash
 wrangler kv key put kill_switch 1 --binding KV --remote
 ```
 
-Resume with:
+Resume:
 
 ```bash
 wrangler kv key delete kill_switch --binding KV --remote
 ```
 
-## Ingest relay (blocked sources)
+## Platform history
 
-Five sources answer from a residential connection and fail from Cloudflare
-Worker egress, each differently: Senate eFD 403s datacenter IPs, NSE India
-resets on our declared UA, treasury.gov fails the TLS handshake (525) on two
-hosts, and www.cftc.gov 403s. See `docs/verification/` for the evidence.
+Planned for X, moved to Threads on 2026-07-26 when X withdrew its free tier,
+then moved back to X as a manual publishing flow on 2026-07-28 after Meta
+banned the Threads account on suspected bot activity. The Threads client is
+parked rather than deleted, behind `THREADS_PARKED` in
+[src/poster.ts](src/poster.ts). The incident record, including how the ban was
+distinguished from an expired token, is in
+[docs/verification/2026-07-28-threads-ban.md](docs/verification/2026-07-28-threads-ban.md).
 
-For those, GitHub Actions fetches the bytes and POSTs them to the Worker,
-which parses them with the same code every other source uses. The Action is a
-courier; no parsing logic is duplicated in CI.
+## License
 
-### Owner setup (one-time, when the Actions quota resets 2026-08-01)
+Proprietary. All rights reserved. You may read this code; you may not use it.
+See [LICENSE](LICENSE).
 
-1. Generate a secret and set it on the Worker:
-
-   ```bash
-   openssl rand -hex 32
-   ```
-
-   ```bash
-   npx wrangler secret put INGEST_SECRET
-   ```
-
-2. Add the same value as a GitHub repository secret named `INGEST_SECRET`,
-   plus `WORKER_URL` set to `https://skeptic-persona.sahilsapra391.workers.dev`
-   (Settings -> Secrets and variables -> Actions).
-
-3. Uncomment the `schedule:` block in
-   `.github/workflows/ingest-relay.yml`.
-
-Until step 1 is done the endpoint returns 503 and ingests nothing, so
-deploying this ahead of the secret is safe.
+Nothing here is financial advice.
