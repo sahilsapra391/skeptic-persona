@@ -13,8 +13,26 @@ export const TG_TEXT_LIMIT = 4096;
 
 export interface TgInlineButton {
   text: string;
-  callback_data: string; // 1-64 BYTES per the API
+  /** 1-64 BYTES per the API. Exactly one of callback_data / copy_text is set. */
+  callback_data?: string;
+  /** CopyTextButton (Bot API 7.11, verified against core.telegram.org on
+   *  2026-08-05): a NATIVE one-tap clipboard copy. See COPY_TEXT_LIMIT. */
+  copy_text?: { text: string };
 }
+
+/**
+ * Hard cap on CopyTextButton.text, quoted verbatim from the Bot API reference:
+ *
+ *   CopyTextButton — "This object represents an inline keyboard button that
+ *   copies specified text to the clipboard."
+ *   text  String  "The text to be copied to the clipboard; 1-256 characters"
+ *
+ * This is SHORTER than a post can be. X allows 280 weighted characters, so a
+ * long draft cannot ride in a copy button and needs the monospace fallback.
+ * Measured against production 2026-08-05: 26 of 26 valid generated variants
+ * fit (longest 241), and 1,101 of 1,141 template drafts fit (longest 471).
+ */
+export const COPY_TEXT_LIMIT = 256;
 
 export interface TgMessageResult {
   message_id: number;
