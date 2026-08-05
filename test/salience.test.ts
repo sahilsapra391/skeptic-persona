@@ -8,7 +8,9 @@ import {
   DEFAULT_CAP_BYPASS_SCORE,
   DEFAULT_CATEGORY_CAPS,
   DEFAULT_CATEGORY_CAP,
+  REGULATORY_NEWS_TIER,
 } from "../src/salience";
+import { PRESS_SOURCES } from "../src/ingesters/regulatoryPress";
 import { etDay, etDayStartUtc, holdForDigest, promoteHeldItem, pushDigests, pushedTodayByCategory } from "../src/digest";
 import { insertItem, SCORE_POSTABLE } from "../src/lib/db";
 import { ARCHETYPES } from "../src/templates";
@@ -453,5 +455,71 @@ describe("Telegram per-chat pacing survives concurrent jobs (p4-12)", () => {
     const started = performance.now();
     await paceChat("chat-b", 200);
     expect(performance.now() - started).toBeLessThan(100);
+  });
+});
+
+describe("p5-03: the REGULATORY_NEWS tier", () => {
+  const MACRO_TIER = salienceFor("MACRO_PRINT", {}).score;
+
+  it("PARITY: every tier key is a real press authority, so a typo cannot silently do nothing", () => {
+    // The failure this exists to catch: `REGULATORY_NEWS_TIER` is keyed on a
+    // string, an absent key is a deliberate no-op, and so a misspelled key is
+    // INDISTINGUISHABLE from a source we chose not to tier. The map would look
+    // correct in review and change nothing in production.
+    const authorities = new Set(PRESS_SOURCES.map((s) => s.authority));
+    for (const key of Object.keys(REGULATORY_NEWS_TIER)) {
+      expect(authorities.has(key), `${key} is not any press source's authority`).toBe(true);
+    }
+  });
+
+  it("a BEA data print cards at the MACRO tier, exactly", () => {
+    const bea = salienceFor("REGULATORY_NEWS", {
+      authority: "Bureau of Economic Analysis",
+      title: "U.S. International Trade in Goods and Services, June 2026",
+    });
+    expect(bea.score).toBe(MACRO_TIER);
+    expect(bea.score).toBeGreaterThanOrEqual(DEFAULT_SALIENCE_FLOOR); // it still cards
+    expect(bea.reasons.join(",")).toContain("DATA_PRINT");
+  });
+
+  it("an ONS release-calendar entry is digest-only and can never reach a card", () => {
+    const ons = salienceFor("REGULATORY_NEWS", {
+      authority: "UK ONS",
+      title: "Consumer price inflation, UK: July 2026",
+    });
+    expect(ons.score).toBe(0);
+    expect(ons.score).toBeLessThan(DEFAULT_SALIENCE_FLOOR);
+    expect(ons.reasons.join(",")).toContain("RELEASE_CALENDAR");
+  });
+
+  it("a tiered source LOSES the ceiling exemption; an untiered one keeps it", () => {
+    // The exemption was written for "enforcement actions". Establishing that a
+    // source is a statistics feed is establishing it is not one of those, so
+    // it cannot keep riding the exemption its archetype grants by proxy.
+    expect(CEILING_EXEMPT.has("REGULATORY_NEWS")).toBe(true);
+    expect(salienceFor("REGULATORY_NEWS", { authority: "Bureau of Economic Analysis" }).exempt).toBe(false);
+    expect(salienceFor("REGULATORY_NEWS", { authority: "UK ONS" }).exempt).toBe(false);
+    // DOJ is untiered, so nothing about it changes.
+    expect(salienceFor("REGULATORY_NEWS", { authority: "DOJ" }).exempt).toBe(true);
+  });
+
+  it("the 24 untiered sources are byte-identical to before: base 70, exempt, above the floor", () => {
+    // The guard on scope creep. If a later edit tiers a source the owner has
+    // not ruled on, this fails and names it.
+    const tiered = new Set(Object.keys(REGULATORY_NEWS_TIER));
+    const untiered = PRESS_SOURCES.filter((s) => !tiered.has(s.authority));
+    expect(untiered.length).toBe(PRESS_SOURCES.length - tiered.size);
+    for (const s of untiered) {
+      const got = salienceFor("REGULATORY_NEWS", { authority: s.authority, title: "x" });
+      expect(got.score, `${s.id} changed score`).toBe(70);
+      expect(got.exempt, `${s.id} changed exemption`).toBe(true);
+      expect(got.score, `${s.id} fell below the floor`).toBeGreaterThanOrEqual(DEFAULT_SALIENCE_FLOOR);
+    }
+  });
+
+  it("an unknown or missing authority is untouched, never accidentally demoted", () => {
+    expect(salienceFor("REGULATORY_NEWS", {}).score).toBe(70);
+    expect(salienceFor("REGULATORY_NEWS", { authority: "Some Future Regulator" }).score).toBe(70);
+    expect(salienceFor("REGULATORY_NEWS", { authority: 42 as unknown as string }).score).toBe(70);
   });
 });

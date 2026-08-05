@@ -80,6 +80,50 @@ const DEFAULT_BASE = 40;
  *  filled the day is the failure mode to avoid." */
 export const CEILING_EXEMPT: ReadonlySet<string> = new Set(["CONGRESS_PTR", "REGULATORY_NEWS", "POLICY_ACTION"]);
 
+/**
+ * REGULATORY_NEWS tiers (p5-03), per the BEA/ONS ruling in the P5 plan:
+ *
+ *   > data prints card at MACRO tier; release-calendar entries are
+ *   > ledger/digest only
+ *
+ * WHY A TIER AT ALL. The owner's exemption says "enforcement actions"; the
+ * code says REGULATORY_NEWS. With the original six press sources those picked
+ * out nearly the same set. Press then went 6 -> 26, so the exemption silently
+ * grew to cover ONS release-calendar entries, GAO reports and BEA statistical
+ * releases. The wording never changed; the population under it did. Measured
+ * consequence: every press item scores a flat 70 against a floor of 45 and
+ * pushes uncapped, and REGULATORY_NEWS is 80 of the 134 pending cards.
+ *
+ * KEYED ON AUTHORITY, which resolves per SOURCE: test/globalWire.test.ts pins
+ * "each source its own authority, so no two sources share a citation key".
+ * payload.authority is already on every press payload, so this needs no
+ * signature change and no ingester change.
+ *
+ * ONLY THE TWO SOURCES THE RULING NAMES ARE LISTED, and both are objective
+ * rather than editorial:
+ *   - UK ONS's endpoint IS a release calendar
+ *     (https://www.ons.gov.uk/releasecalendar?rss). The source declares what
+ *     it is; nobody is judging it.
+ *   - BEA's feed carries the statistical releases themselves. Live payloads
+ *     read "U.S. International Trade in Goods and Services, June 2026" and
+ *     "Gross Domestic Product by Metropolitan Area, 2016".
+ *
+ * THE OTHER 24 SOURCES ARE DELIBERATELY ABSENT and keep today's behaviour
+ * exactly. Tiering them is the editorial call the p4 session correctly
+ * refused to make for the owner, and the handoff's proposed shortcut does not
+ * survive contact: it suggested promoting regulatoryPress.ts's own prose
+ * grouping, but "GLOBAL WIRE FANOUT, batch 1" records WHEN a URL was probed,
+ * not what the source is. press_doj sits inside that batch while press_boj
+ * sits under "Enforcement wire", so promoting it would rank DOJ enforcement
+ * below Bank of Japan press releases. An absent key is a no-op, never a guess.
+ */
+export type RegulatoryNewsTier = "DATA_PRINT" | "RELEASE_CALENDAR";
+
+export const REGULATORY_NEWS_TIER: Readonly<Record<string, RegulatoryNewsTier>> = {
+  "Bureau of Economic Analysis": "DATA_PRINT",
+  "UK ONS": "RELEASE_CALENDAR",
+};
+
 export interface Salience {
   /** 0-100. Higher asks louder. */
   score: number;
@@ -147,6 +191,8 @@ export function salienceFor(archetype: ArchetypeId | string, payload: Payload): 
   const base = CATEGORY_BASE[archetype] ?? DEFAULT_BASE;
   const reasons: string[] = [`base:${archetype}=${base}`];
   let magnitude = 0;
+  /** Set by the REGULATORY_NEWS case; also decides the ceiling exemption. */
+  let regNewsTier: RegulatoryNewsTier | undefined;
 
   switch (archetype) {
     case "FILING_8K": {
@@ -242,12 +288,39 @@ export function salienceFor(archetype: ArchetypeId | string, payload: Payload): 
       }
       break;
     }
+    case "REGULATORY_NEWS": {
+      const authority = typeof payload["authority"] === "string" ? (payload["authority"] as string) : "";
+      regNewsTier = REGULATORY_NEWS_TIER[authority];
+      if (regNewsTier === "DATA_PRINT") {
+        // "cards at MACRO tier" taken literally: land on the MACRO_PRINT base
+        // rather than near it. The only numbers in play are two that already
+        // exist, so no coefficient is invented here.
+        magnitude += CATEGORY_BASE["MACRO_PRINT"]! - base;
+        reasons.push(`regnews.tier:DATA_PRINT=MACRO_PRINT(${CATEGORY_BASE["MACRO_PRINT"]})`);
+      } else if (regNewsTier === "RELEASE_CALENDAR") {
+        // "ledger/digest only": zero, the structural bottom of the scale,
+        // which is a STATEMENT that this never asks for attention rather than
+        // a tuned distance below the floor. Picking some number just under 45
+        // would be exactly the invented constant this layer forbids.
+        magnitude -= base;
+        reasons.push("regnews.tier:RELEASE_CALENDAR=digest_only");
+      }
+      break;
+    }
     default:
       break;
   }
 
   const score = Math.max(0, Math.min(100, base + magnitude));
-  return { score, reasons, exempt: CEILING_EXEMPT.has(String(archetype)) };
+  // EXEMPT FROM THE TIER, not from the archetype. The owner's amendment
+  // exempted "enforcement actions"; REGULATORY_NEWS was merely the nearest
+  // code-level proxy when press was six enforcement feeds. A tiered source is
+  // one we have now established is NOT an enforcement action, so it carries no
+  // claim on that exemption: a BEA data print at MACRO tier takes the ceiling
+  // like any other macro item, and a release-calendar entry must not ride an
+  // exemption past a cap it should never reach. Untiered sources are untouched.
+  const exempt = CEILING_EXEMPT.has(String(archetype)) && regNewsTier === undefined;
+  return { score, reasons, exempt };
 }
 
 /** Default floor. Items below this never push; they land in the day's digest.
