@@ -245,8 +245,8 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{observedDate\}/g, "{date}")
         .replace(/\{indirectPct\}/g, "{n}")
         .replace(/\{allocationPercentage\}/g, "{n}")
-        .replace(/\{initiatedIso\}/g, "{d1}")
-        .replace(/\{reportedIso\}/g, "{d2}")
+        .replace(/\{initiatedIso(?::date)?\}/g, "{d1}")
+        .replace(/\{reportedIso(?::date)?\}/g, "{d2}")
         .replace(/\{disclosureLagDays\}/g, "{n}")
         .replace(/\{signingDate\}/g, "{d1}")
         .replace(/\{publicationDate\}/g, "{d2}")
@@ -254,7 +254,7 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{openInterest\}/g, "{n}")
         .replace(/\{dateOfEvent\}/g, "{date}")
         .replace(/\{topPercent\}/g, "{n}")
-        .replace(/\{publishedIso\}/g, "{date}")
+        .replace(/\{publishedIso(?::date)?\}/g, "{date}")
         .replace(/\{listSize\}/g, "{n}")
         .replace(/\{ruleProvision\}/g, "{rule}")
         .replace(/\{intensityKt\}/g, "{n}");
@@ -781,5 +781,107 @@ describe("doctrine: the advice guard is narrow on purpose", () => {
     for (const t of advice) {
       expect(checkRegister(t).map((i) => i.rule), t).toContain("advice");
     }
+  });
+});
+
+describe("p5-04: the polish bundle", () => {
+  it("a {field:date} slot renders a human date, never the stored ISO", () => {
+    expect(fillSlots("Published {publishedIso:date}.", { publishedIso: "2026-08-04T01:00:00.000Z" })).toBe(
+      "Published August 4.",
+    );
+    // UTC, not local: formatting in local time silently shifts the printed day
+    // for anything published near midnight UTC.
+    expect(fillSlots("{d:date}", { d: "2026-01-31T23:59:59.000Z" })).toBe("January 31");
+    // The plain form is untouched.
+    expect(fillSlots("Lag {lagDays} days.", { lagDays: 45 })).toBe("Lag 45 days.");
+  });
+
+  it("an unparseable or unknown-format slot drops the beat instead of leaking the raw value", () => {
+    // A formatter typo must not fall back to String(raw) — that is exactly the
+    // string this change exists to remove from copy.
+    expect(fillSlots("{d:date}", { d: "not a timestamp" })).toBeNull();
+    expect(fillSlots("{d:nosuchformat}", { d: "2026-08-04T01:00:00.000Z" })).toBeNull();
+  });
+
+  it("NO live beat can emit a raw ISO timestamp into copy", () => {
+    // The regression pin. Both offenders were found by grepping for `Iso}`, so
+    // this asserts the property directly rather than naming the two beats:
+    // any beat whose rendered text still contains a `T..:..` timestamp fails.
+    const ISO_TIMESTAMP = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+    const probe = {
+      publishedIso: "2026-08-04T01:00:00.000Z",
+      initiatedIso: "2026-07-02T00:00:00.000Z",
+      reportedIso: "2026-08-01T00:00:00.000Z",
+    };
+    for (const { archetype, beat } of allBeats()) {
+      const rendered = fillSlots(beat.text, { ...probe });
+      if (rendered === null) continue;
+      expect(rendered, `${archetype.id}/${beat.id} leaks an ISO timestamp`).not.toMatch(ISO_TIMESTAMP);
+    }
+  });
+
+  it("REGULATORY_NEWS no longer states its authority twice", () => {
+    // Live production draft before this change:
+    //   "... (Projections for Aug.). Announced by Bank of Japan, per the Bank of Japan"
+    const out = renderPost(
+      ARCHETYPES.REGULATORY_NEWS,
+      { authority: "Bank of Japan", title: "Sources of Changes in Current Account Balances" },
+      { seed: "reg-dup" },
+    );
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.text).not.toContain("Announced by");
+    // The citation is still there — the restatement went, not the attribution.
+    expect(out.text).toContain("per the Bank of Japan");
+  });
+
+  it("PRODUCT_RECALL keeps a long FDA reason out of the post rather than truncating it", () => {
+    const firm = "Example Foods Inc.";
+    const cls = "Class I";
+    // Real production reasons run to 454 characters.
+    const longReason = "undeclared allergen ".repeat(22).trim();
+    const long = renderPost(ARCHETYPES.PRODUCT_RECALL, { firm, classification: cls, reason: longReason }, { seed: "r1" });
+    expect(long.ok).toBe(true);
+    if (!long.ok) return;
+    expect(weightedLength(long.text)).toBeLessThanOrEqual(POST_TEXT_LIMIT);
+    // Omitted whole, never cut mid-phrase into a different claim.
+    expect(long.text).not.toContain("reason:");
+    expect(long.text).not.toContain("undeclared allergen");
+    expect(long.text).toContain(firm);
+    expect(long.text).toContain(cls);
+
+    // A short reason still rides, so the window costs nothing when it fits.
+    const short = renderPost(
+      ARCHETYPES.PRODUCT_RECALL,
+      { firm, classification: cls, reason: "undeclared milk" },
+      { seed: "r1" },
+    );
+    expect(short.ok).toBe(true);
+    if (!short.ok) return;
+    expect(short.text).toContain("undeclared milk");
+  });
+
+  it("over_budget and blocked_blending are different answers to different problems", () => {
+    // A blank line inside a payload field trips the blending guard on every
+    // skeleton. Before the split this reported "over_budget", sending the
+    // owner to trim text that was never too long.
+    const blended = renderPost(
+      ARCHETYPES.REGULATORY_NEWS,
+      { authority: "SEC", title: "Title\n\nwith a blank line", factLine: "SEC: Title\n\nwith a blank line" },
+      { seed: "b1" },
+    );
+    expect(blended.ok).toBe(false);
+    if (blended.ok) return;
+    expect(blended.reason).toBe("blocked_blending");
+
+    // Genuinely too long stays over_budget.
+    const huge = renderPost(
+      ARCHETYPES.REGULATORY_NEWS,
+      { authority: "SEC", title: "x".repeat(400), factLine: "y".repeat(400) },
+      { seed: "b2" },
+    );
+    expect(huge.ok).toBe(false);
+    if (huge.ok) return;
+    expect(huge.reason).toBe("over_budget");
   });
 });
