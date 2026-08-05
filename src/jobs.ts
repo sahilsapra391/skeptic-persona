@@ -29,7 +29,8 @@ import { deliverCards } from "./rag/deliver";
 import { newTickBudget, type TickBudget } from "./lib/budget";
 import { expirePendingBefore } from "./lib/db";
 import { pushDigests } from "./digest";
-import { editMessageText } from "./lib/telegram";
+import { notifySpacingMs } from "./pipeline/enqueue";
+import { editMessageText, sendMessage } from "./lib/telegram";
 import { iso } from "./lib/time";
 import { log } from "./lib/log";
 
@@ -77,6 +78,82 @@ export function ttlCutoffs(env: Env, now: Date): { default: Date; byArchetype: R
   const byArchetype: Record<string, Date> = {};
   for (const [arch, h] of Object.entries(hours)) byArchetype[arch] = at(h);
   return { default: at(ttlHours), byArchetype };
+}
+
+/** Attempts before a card is declared undeliverable and left for the sweep.
+ *  Bounded so one permanently-rejected row cannot spend the notify budget
+ *  every tick and starve every fresh card behind it. */
+export const MAX_NOTIFY_ATTEMPTS = 5;
+/** Rows re-notified per run. Small: this is a recovery path, not a drain. */
+export const NOTIFY_RETRY_LIMIT = 5;
+
+/**
+ * notify_retry (migration 0064, cadence every_5m): re-send approval cards whose
+ * Telegram notification never landed.
+ *
+ * WHY THIS EXISTS. enqueueForApproval writes the queue row and THEN notifies.
+ * A failed notify left the row with telegram_message_id NULL and no retry
+ * anywhere, so the card was invisible to the owner and aged out at TTL. The
+ * comment in enqueue.ts described that as acceptable: "the expiry job will
+ * sweep it if nobody notices." On 2026-08-05 nobody noticed for ten hours.
+ *
+ * The specific bug that caused it is fixed at its root in lib/telegram.ts.
+ * This job exists because that was not the only way to lose a card: Telegram
+ * can 429, 5xx, or be down, and every one of those must degrade to DELIVERED
+ * LATE rather than LOST.
+ *
+ * Only rows still inside their TTL are retried. Re-notifying a card that is
+ * about to expire would hand the owner something he cannot act on, which is
+ * the "stale content is worthless" rule queue_expiry already encodes.
+ */
+export async function notifyRetry(env: Env, now: Date, budget: TickBudget = newTickBudget()): Promise<void> {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return;
+  const cutoffs = ttlCutoffs(env, now);
+  const rows = await env.DB.prepare(
+    `SELECT q.id, q.archetype, COALESCE(q.edited_text, q.draft_text) AS draft_text,
+            q.created_at, i.source_url
+     FROM queue q JOIN items i ON i.id = q.item_id
+     WHERE q.state = 'pending'
+       AND q.telegram_message_id IS NULL
+       AND q.notify_attempts < ?1
+     ORDER BY q.id ASC
+     LIMIT ?2`,
+  )
+    .bind(MAX_NOTIFY_ATTEMPTS, NOTIFY_RETRY_LIMIT)
+    .all<{ id: number; archetype: string; draft_text: string; created_at: string; source_url: string }>();
+
+  for (const row of rows.results) {
+    // Inside its own TTL, using the same per-archetype cutoffs the sweep uses,
+    // so the two jobs can never disagree about what is still live.
+    const cutoff = cutoffs.byArchetype[row.archetype] ?? cutoffs.default;
+    if (new Date(row.created_at) <= cutoff) continue;
+    if (!budget.take(1)) break;
+    // Count the attempt BEFORE sending. A send that throws after Telegram has
+    // already accepted the message would otherwise retry forever and deliver
+    // the same card repeatedly, which is worse than dropping it.
+    await env.DB.prepare(`UPDATE queue SET notify_attempts = notify_attempts + 1 WHERE id = ?1`).bind(row.id).run();
+    try {
+      const msg = await sendMessage(
+        env.TELEGRAM_BOT_TOKEN,
+        env.TELEGRAM_CHAT_ID,
+        `#${row.id} · ${row.archetype}\n\n${row.draft_text}\n\nSource: ${row.source_url}`,
+        {
+          spacingMs: notifySpacingMs(env),
+          buttons: [
+            [
+              { text: "✅ Approve", callback_data: `a:${row.id}` },
+              { text: "✏️ Edit", callback_data: `e:${row.id}` },
+              { text: "❌ Reject", callback_data: `r:${row.id}` },
+            ],
+          ],
+        },
+      );
+      await env.DB.prepare(`UPDATE queue SET telegram_message_id = ?1 WHERE id = ?2`).bind(msg.message_id, row.id).run();
+      log("info", "undelivered card recovered", { queueId: row.id, archetype: row.archetype });
+    } catch (e) {
+      log("error", "notify retry failed", { queueId: row.id, error: String(e) });
+    }
+  }
 }
 
 /**
@@ -132,6 +209,7 @@ async function queueExpiry(env: Env, now: Date, budget: TickBudget = newTickBudg
 /** Idempotent; called once at Worker module init. Ingester PRs add theirs here. */
 export function registerJobs(): void {
   registry["queue_expiry"] = queueExpiry;
+  registry["notify_retry"] = notifyRetry;
   registry["edgar_8k"] = pollEdgar8k;
   registry["edgar_form4"] = pollForm4;
   registry["sec_form144"] = pollForm144;
