@@ -731,6 +731,38 @@ describe("echo + collisions", () => {
     // Same-queue variants are alternatives, never collisions:
     expect(await collisionCheck(env.DB, q!.id, "SKEL1", "OPEN1")).toEqual([]);
   });
+
+  it("p5-01: a SUPERSEDED draft is history, not precedent — it cannot cause a collision", async () => {
+    await env.DB.prepare(
+      `INSERT INTO items (dedup_key, source, external_id, category, fetched_at, source_url, payload, score, status)
+       VALUES ('t:sup','edgar_8k','xsup','filing',?1,'https://s/sup','{}',2,'queued')`,
+    ).bind(iso(NOW)).run();
+    const item = await env.DB.prepare(`SELECT id FROM items WHERE dedup_key='t:sup'`).first<{ id: number }>();
+    // regen_cycle 1: this row has been regenerated once, so cycle-0 drafts are
+    // the discarded pass and cycle-1 drafts are its live answer.
+    await env.DB.prepare(
+      `INSERT INTO queue (item_id, archetype, draft_text, state, created_at, regen_cycle) VALUES (?1,'HALT','d','approved',?2,1)`,
+    ).bind(item!.id, iso(NOW)).run();
+    const q = await env.DB.prepare(`SELECT id FROM queue WHERE item_id=?1`).bind(item!.id).first<{ id: number }>();
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO generations (queue_id, cycle, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
+         VALUES (?1,0,'dry','discarded','DEADSKEL','DEADOPEN','valid',1,?2)`,
+      ).bind(q!.id, iso(NOW)),
+      env.DB.prepare(
+        `INSERT INTO generations (queue_id, cycle, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
+         VALUES (?1,1,'dry','live','LIVESKEL','LIVEOPEN','valid',2,?2)`,
+      ).bind(q!.id, iso(NOW)),
+    ]);
+
+    // The shape the owner threw away must NOT block a new draft. Before p5-01
+    // a regenerate deleted it, so this window only ever saw survivors; now it
+    // survives on disk and has to be excluded deliberately.
+    expect(await collisionCheck(env.DB, 0, "DEADSKEL", "DEADOPEN")).toEqual([]);
+    // The row's LIVE draft still counts, so the gate is scoped, not disabled.
+    expect((await collisionCheck(env.DB, 0, "LIVESKEL", "fresh")).map((i) => i.rule)).toEqual(["skeleton_collision"]);
+    expect((await collisionCheck(env.DB, 0, "fresh", "LIVEOPEN")).map((i) => i.rule)).toEqual(["opener_collision"]);
+  });
 });
 
 describe("validateVariant assembly (finding #13: the wiring itself)", () => {

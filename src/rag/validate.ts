@@ -1285,15 +1285,31 @@ export async function collisionCheck(
   const issues: ValidationIssue[] = [];
   // queue_id <> this row: the three variants of ONE item are alternatives
   // (only one posts); two different POSTS sharing a shape is the pattern.
+  //
+  // g.cycle = q.regen_cycle (p5-01): only drafts that are still a row's LIVE
+  // answer count as "used". Before history was append-only, a regenerate
+  // deleted the discarded drafts and this window saw only survivors. Reading
+  // unscoped now would quietly change the gate in two ways: a shape the owner
+  // threw away would block a new draft, and the 40-row window would cover
+  // fewer distinct items than it claims. Superseded drafts are history, not
+  // precedent.
   const recentSkeletons = await db
-    .prepare(`SELECT skeleton_hash FROM generations WHERE status = 'valid' AND queue_id <> ?1 ORDER BY id DESC LIMIT 40`)
+    .prepare(
+      `SELECT g.skeleton_hash FROM generations g JOIN queue q ON q.id = g.queue_id
+       WHERE g.status = 'valid' AND g.queue_id <> ?1 AND g.cycle = q.regen_cycle
+       ORDER BY g.id DESC LIMIT 40`,
+    )
     .bind(queueId)
     .all<{ skeleton_hash: string }>();
   if (recentSkeletons.results.some((r) => r.skeleton_hash === skeletonHash)) {
     issues.push({ rule: "skeleton_collision", detail: "shape matches one of the last 40 valid variants" });
   }
   const recentOpeners = await db
-    .prepare(`SELECT opener_hash FROM generations WHERE status = 'valid' AND queue_id <> ?1 ORDER BY id DESC LIMIT 20`)
+    .prepare(
+      `SELECT g.opener_hash FROM generations g JOIN queue q ON q.id = g.queue_id
+       WHERE g.status = 'valid' AND g.queue_id <> ?1 AND g.cycle = q.regen_cycle
+       ORDER BY g.id DESC LIMIT 20`,
+    )
     .bind(queueId)
     .all<{ opener_hash: string }>();
   if (recentOpeners.results.some((r) => r.opener_hash === openerHash)) {

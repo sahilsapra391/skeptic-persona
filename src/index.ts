@@ -10,7 +10,7 @@ import {
   PENDING_PATH,
   PRESS_PENDING_PATH,
 } from "./ingestRelay";
-import { handleSeedTest } from "./admin";
+import { handleGenerationHistory, handleSeedTest } from "./admin";
 // src/threadsOauth.ts is intentionally left on disk but UNROUTED: the Threads
 // account is banned (poster.ts THREADS_PARKED). Re-import and re-add the two
 // routes below if the appeal succeeds; reconnecting needs a manual browser
@@ -46,6 +46,9 @@ export default {
     }
     if (request.method === "POST" && url.pathname === "/admin/seed-test") {
       return handleSeedTest(request, env);
+    }
+    if (request.method === "GET" && url.pathname === "/admin/generations") {
+      return handleGenerationHistory(request, env);
     }
     log("debug", "unhandled request", { path: url.pathname, method: request.method });
     return new Response("not found", { status: 404 });

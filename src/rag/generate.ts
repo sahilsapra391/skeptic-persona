@@ -32,9 +32,17 @@ import { checkGroundingProvenance, type GroundingProvenance, corpusHasData, vali
 //   stranding the row forever (finding #8), and a transient OpenRouter
 //   429/5xx retries on the 5-minute cadence instead of permanently
 //   downgrading the row to the template (finding #9). Runaway retries are
-//   capped: MAX_ATTEMPTS total LLM attempts per row, then fallback.
+//   capped: MAX_ATTEMPTS LLM attempts per CYCLE, then fallback.
 //   Attempt numbers CONTINUE across runs (max existing + 1) so the audit
 //   trail never collides with UNIQUE(queue_id, variant, attempt).
+//
+//   CYCLES (p5-01): terminal-ness is scoped to q.regen_cycle, and generation
+//   history is append-only. Regenerate and the card-Edit reply increment the
+//   cursor rather than deleting the row's drafts, so a re-picked row starts
+//   its new cycle with a full MAX_ATTEMPTS budget while every prior draft
+//   stays readable. Numbering is global per row; the BUDGET is per cycle.
+//   Those two must not be conflated: shared numbering is what keeps the
+//   UNIQUE constraint intact without a table rebuild.
 //
 // OVERLAP (finding #7): the dispatcher's CAS prevents double-claiming a due
 // slot but not a run outliving its own cadence window. RUN_TIME_CAP_MS stops
@@ -96,14 +104,20 @@ const VARIANTS: readonly Variant[] = ["dry", "sharp", "commentary"];
 export const COMMENTARY_FACT_BUDGET = 120;
 export const COMMENTARY_TAKE_BUDGET = 155;
 
+// Terminal-ness is a property of the CURRENT cycle, not of the row's whole
+// life (p5-01). Regenerate used to delete the row's history so that this
+// predicate would stop matching; it now increments q.regen_cycle instead, and
+// the prior cycle's terminal rows stay in place without holding the row shut.
 const TERMINAL_PREDICATE = `
   SELECT 1 FROM generations g
   WHERE g.queue_id = q.id
+    AND g.cycle = q.regen_cycle
     AND (g.status = 'valid' OR g.status LIKE 'fallback%' OR g.status LIKE 'skipped%' OR g.status = 'rejected:payload')`;
 
 interface GenRow {
   queue_id: number;
   item_id: number;
+  regen_cycle: number;
   archetype: string;
   draft_text: string;
   edited_text: string | null;
@@ -214,16 +228,17 @@ export function buildPrompt(
 
 async function insertGeneration(
   db: D1Database,
-  row: { queueId: number; variant: Variant | "none"; text: string; status: string; attempt: number },
+  row: { queueId: number; cycle: number; variant: Variant | "none"; text: string; status: string; attempt: number },
   now: Date,
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT OR IGNORE INTO generations (queue_id, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+      `INSERT OR IGNORE INTO generations (queue_id, cycle, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
     )
     .bind(
       row.queueId,
+      row.cycle,
       row.variant,
       row.text,
       row.text === "" ? "" : skeletonHash(row.text),
@@ -295,7 +310,7 @@ export async function runGeneration(
 
   // Rows without a TERMINAL generations row (see LIFECYCLE above).
   const rows = await env.DB.prepare(
-    `SELECT q.id AS queue_id, q.item_id, q.archetype, q.draft_text, q.edited_text,
+    `SELECT q.id AS queue_id, q.item_id, q.archetype, q.draft_text, q.edited_text, q.regen_cycle,
             i.payload, i.source_url, i.source, i.raw_text, i.raw_meta
      FROM queue q
      JOIN items i ON i.id = q.item_id
@@ -340,12 +355,41 @@ export async function runGeneration(
       break;
     }
     const archetypeId = row.archetype as ArchetypeId;
+
+    // Attempt numbering continues across runs AND across cycles (finding #8's
+    // UNIQUE-collision corollary, widened by p5-01): a retried row picks up
+    // where its audit trail left off. This is computed HERE, above the two
+    // early-exit branches below, because both used to write attempt: 1
+    // literally. That was safe only while Regenerate deleted history. With
+    // history preserved, a second cycle re-writing (queue_id, 'none', 1)
+    // collides with the first cycle's row, INSERT OR IGNORE drops it, the
+    // row ends the cycle with no terminal row, and the lifecycle re-picks it
+    // every tick forever. Silent, and expensive.
+    //
+    // ONE round trip for both numbers, not two: this runs per row on every
+    // generation tick, and the same reasoning that made schemaGuard batch its
+    // probes applies to the hot path here.
+    const counters = await env.DB.prepare(
+      `SELECT COALESCE(MAX(attempt), 0) AS highest,
+              COUNT(DISTINCT CASE WHEN cycle = ?2 THEN attempt END) AS spent
+       FROM generations WHERE queue_id = ?1`,
+    )
+      .bind(row.queue_id, row.regen_cycle)
+      .first<{ highest: number; spent: number }>();
+    let attempt = (counters?.highest ?? 0) + 1;
+    // The BUDGET, unlike the numbering, is per cycle: Regenerate restores a
+    // full allowance, which is the whole point of tapping it. Counting
+    // distinct attempt values rather than rows, because one attempt writes
+    // one row per variant.
+    const spentBeforeRun = counters?.spent ?? 0;
+    const attemptsLeft = Math.max(0, MAX_ATTEMPTS - spentBeforeRun);
+
     let payload: Payload;
     try {
       payload = JSON.parse(row.payload) as Payload;
     } catch {
       log("error", "generation: unparseable payload", { queueId: row.queue_id });
-      await insertGeneration(env.DB, { queueId: row.queue_id, variant: "none", text: "", status: "rejected:payload", attempt: 1 }, now);
+      await insertGeneration(env.DB, { queueId: row.queue_id, cycle: row.regen_cycle, variant: "none", text: "", status: "rejected:payload", attempt }, now);
       continue;
     }
 
@@ -378,18 +422,10 @@ export async function runGeneration(
         ? committed
         : [...(await ownerFinals(env.DB, archetypeId, finalsAllowance)), ...committed];
     if (bank.length === 0) {
-      await insertGeneration(env.DB, { queueId: row.queue_id, variant: "none", text: "", status: "skipped_no_exemplar", attempt: 1 }, now);
+      await insertGeneration(env.DB, { queueId: row.queue_id, cycle: row.regen_cycle, variant: "none", text: "", status: "skipped_no_exemplar", attempt }, now);
       log("info", "generation skipped: no owner exemplar for archetype", { queueId: row.queue_id, archetype: archetypeId });
       continue;
     }
-
-    // Attempt numbering continues across runs (finding #8's UNIQUE-collision
-    // corollary): a retried row picks up where its audit trail left off.
-    const prior = await env.DB.prepare(`SELECT COALESCE(MAX(attempt), 0) AS n FROM generations WHERE queue_id = ?1`)
-      .bind(row.queue_id)
-      .first<{ n: number }>();
-    let attempt = (prior?.n ?? 0) + 1;
-    const attemptsLeft = Math.max(0, MAX_ATTEMPTS - (prior?.n ?? 0));
 
     // The template fallback, budget-checked NOW under current rules. An
     // owner EDIT that no longer fits is never silently replaced (finding
@@ -502,7 +538,7 @@ export async function runGeneration(
         // permanent template downgrade (finding #9).
         sawApiError = true;
         log("error", "openrouter call failed", { queueId: row.queue_id, attempt, error: String(e) });
-        await insertGeneration(env.DB, { queueId: row.queue_id, variant: "none", text: "", status: "api_error", attempt }, now);
+        await insertGeneration(env.DB, { queueId: row.queue_id, cycle: row.regen_cycle, variant: "none", text: "", status: "api_error", attempt }, now);
         attempt += 1;
         continue;
       }
@@ -512,7 +548,7 @@ export async function runGeneration(
         if (valid.has(v)) continue;
         const text = variants[v];
         if (!text) {
-          await insertGeneration(env.DB, { queueId: row.queue_id, variant: v, text: "", status: "rejected:absent", attempt }, now);
+          await insertGeneration(env.DB, { queueId: row.queue_id, cycle: row.regen_cycle, variant: v, text: "", status: "rejected:absent", attempt }, now);
           continue;
         }
         const issues: ValidationIssue[] = await validateVariant(env.DB, text, {
@@ -527,7 +563,7 @@ export async function runGeneration(
           corpusPopulated,
         });
         const status = issues.length === 0 ? "valid" : `rejected:${issues[0]!.rule}`;
-        await insertGeneration(env.DB, { queueId: row.queue_id, variant: v, text, status, attempt }, now);
+        await insertGeneration(env.DB, { queueId: row.queue_id, cycle: row.regen_cycle, variant: v, text, status, attempt }, now);
         if (issues.length === 0) {
           valid.add(v);
         } else {
@@ -540,7 +576,15 @@ export async function runGeneration(
 
     if (valid.size > 0) continue; // at least one variant made it; the card has options
 
-    if (sawApiError && (prior?.n ?? 0) + 2 < MAX_ATTEMPTS) {
+    // PER CYCLE, not per row (p5-01). This guard asks "does this row still
+    // have retries left", and once the budget became per-cycle the global
+    // MAX(attempt) stopped answering that question: after one Regenerate it
+    // already exceeds MAX_ATTEMPTS, the condition is false forever, and the
+    // FIRST transient 429/5xx in the new cycle writes a terminal template row
+    // instead of retrying. That is finding #9's permanent-downgrade
+    // regression, reintroduced for every regenerated row and silent when it
+    // happens.
+    if (sawApiError && spentBeforeRun + 2 < MAX_ATTEMPTS) {
       // Pure transient failure with retries left: leave NO terminal row so
       // the next tick picks this row up again.
       continue;
@@ -565,7 +609,7 @@ export async function runGeneration(
     }
     if (fallbackIssues.length > 0 || !fitsInPost(finalFallback)) {
       // The loud terminal case: nothing publishable exists for this row.
-      await insertGeneration(env.DB, { queueId: row.queue_id, variant: "none", text: "", status: "fallback_blocked", attempt }, now);
+      await insertGeneration(env.DB, { queueId: row.queue_id, cycle: row.regen_cycle, variant: "none", text: "", status: "fallback_blocked", attempt }, now);
       await alertOwner(
         env,
         `🛑 #${row.queue_id}: generation failed AND the template fallback fails the register (${fallbackIssues.map((i) => i.rule).join(",") || "over budget"}). The item is held for your edit; nothing copy-ready exists.`,
@@ -573,7 +617,7 @@ export async function runGeneration(
       );
       continue;
     }
-    await insertGeneration(env.DB, { queueId: row.queue_id, variant: "none", text: finalFallback, status: "fallback_template", attempt }, now);
+    await insertGeneration(env.DB, { queueId: row.queue_id, cycle: row.regen_cycle, variant: "none", text: finalFallback, status: "fallback_template", attempt }, now);
     log("warn", "generation fell back to template for queue row", { queueId: row.queue_id });
   }
 }

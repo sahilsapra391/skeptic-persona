@@ -70,7 +70,11 @@ export const REQUIRED_SHAPE: ReadonlyArray<{ readonly table: string; readonly co
   // columns the webhook writes. The same "encode the instance, not the class"
   // error the guard exists to catch, committed while writing the guard.
   { table: "items", columns: ["id", "status"] },
-  { table: "queue", columns: ["id", "state", "edited_text", "edit_prompt_message_id", "decided_at", "skeleton_id", "beat_id"] },
+  // regen_cycle (p5-01): both Regenerate and the card-Edit reply now SET it
+  // instead of deleting generations. If the column were missing at runtime the
+  // webhook would fail mid-batch on the owner's tap, which is exactly the
+  // merged-but-not-migrated shape this guard exists to refuse up front.
+  { table: "queue", columns: ["id", "state", "edited_text", "edit_prompt_message_id", "decided_at", "skeleton_id", "beat_id", "regen_cycle"] },
 ];
 
 /**

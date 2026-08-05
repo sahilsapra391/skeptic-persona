@@ -64,6 +64,7 @@ export async function resolveVariantText(db: D1Database, queueId: number, varian
       .prepare(
         `SELECT text FROM generations
          WHERE queue_id = ?1 AND variant = 'none' AND status = 'fallback_template' AND text <> ''
+           AND cycle = (SELECT regen_cycle FROM queue WHERE id = ?1)
          ORDER BY id DESC LIMIT 1`,
       )
       .bind(queueId)
@@ -76,7 +77,12 @@ export async function resolveVariantText(db: D1Database, queueId: number, varian
     return q?.t ?? null;
   }
   const g = await db
-    .prepare(`SELECT text FROM generations WHERE queue_id = ?1 AND variant = ?2 AND status = 'valid' ORDER BY attempt DESC LIMIT 1`)
+    .prepare(
+      `SELECT text FROM generations
+       WHERE queue_id = ?1 AND variant = ?2 AND status = 'valid'
+         AND cycle = (SELECT regen_cycle FROM queue WHERE id = ?1)
+       ORDER BY attempt DESC LIMIT 1`,
+    )
     .bind(queueId, variant)
     .first<{ text: string }>();
   return g?.text ?? null;
@@ -114,10 +120,15 @@ export async function buildCard(
   }
 
   if (terminalStatus === "valid") {
+    // Scoped to the CURRENT cycle (p5-01). History is append-only now, so an
+    // unscoped read would blend cycles: if this cycle produced only `dry`, the
+    // card would pair it with a `commentary` from the pass the owner already
+    // rejected, and present the mix as one draft set.
     const rows = await db
       .prepare(
         `SELECT variant, text FROM generations
          WHERE queue_id = ?1 AND status = 'valid' AND variant <> 'none'
+           AND cycle = (SELECT regen_cycle FROM queue WHERE id = ?1)
          ORDER BY attempt ASC`,
       )
       .bind(queueId)
@@ -177,6 +188,7 @@ export async function deliverCards(env: Env, now: Date, budget: TickBudget = new
             COALESCE(c.cycle, -1) <> MAX(g.id) AND c.queue_id IS NOT NULL AS stale_card
      FROM queue q
      JOIN generations g ON g.queue_id = q.id
+       AND g.cycle = q.regen_cycle
        AND (g.status = 'valid' OR g.status LIKE 'fallback%' OR g.status LIKE 'skipped%' OR g.status = 'rejected:payload')
      LEFT JOIN cards c ON c.queue_id = q.id
      WHERE q.state IN ('approved', 'edited')
