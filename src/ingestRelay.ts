@@ -9,6 +9,8 @@ import { applyHousePtrText, SOURCE as HOUSE_SOURCE } from "./ingesters/housePtr"
 import { enqueueForApproval } from "./pipeline/enqueue";
 import { isFreshAtIngest } from "./ingesters/shared";
 import { iso } from "./lib/time";
+import { parseAndStore13f } from "./ingesters/form13f";
+import { runDiffFor } from "./ingesters/form13fDiff";
 import { scrubUrls } from "./lib/html";
 import { log } from "./lib/log";
 
@@ -62,12 +64,14 @@ export const PRESS_BODY_SOURCE = "press_body";
  */
 export const PRESS_PDF_SOURCES = ["press_sec_enforcement", "press_boj"] as const;
 
+export const THIRTEENF_BACKFILL_SOURCE = "13f_backfill";
 export const RELAY_SOURCES = new Set<string>([
   TREASURY_SOURCE,
   "press_cftc_enforcement",
   SENATE_SOURCE,
   HOUSE_SOURCE,
   PRESS_BODY_SOURCE,
+  THIRTEENF_BACKFILL_SOURCE,
 ]);
 
 /** Bounded so one run cannot spend an hour of Actions time on a backlog. */
@@ -377,6 +381,45 @@ function authFailure(request: Request, env: Env): Response | null {
   return null;
 }
 
+/**
+ * 13F-03 backfill lane. The courier is dumb by design: it fetches a filing's
+ * primary_doc + infotable bytes from EDGAR and forwards them untouched; ALL
+ * parsing happens here through parseAndStore13f — the same single
+ * implementation the live poll uses. The courier's period judgement is
+ * irrelevant: the Worker stores what primary_doc itself says.
+ */
+async function ingest13fBackfill(env: Env, body: string, now: Date): Promise<number> {
+  let doc: { cik?: string; accession?: string; form?: string; filed_at?: string; primary_doc?: string; infotable?: string };
+  try {
+    doc = JSON.parse(body) as typeof doc;
+  } catch {
+    throw new Error("13f_backfill body is not JSON");
+  }
+  const { cik, accession, form, filed_at: filedAt, primary_doc: primaryDoc, infotable } = doc;
+  if (!cik || !accession || !form || !filedAt || !primaryDoc || !infotable) {
+    throw new Error("13f_backfill missing fields");
+  }
+  if (!/^13F-HR(\/A)?$/.test(form)) throw new Error(`13f_backfill rejects form ${form}`);
+
+  const ins = await env.DB.prepare(
+    `INSERT OR IGNORE INTO filings_13f (accession, cik, manager_name, form, filed_at, status, created_at)
+     SELECT ?1, ?2, COALESCE((SELECT name FROM managers_13f WHERE cik = ?2), ?2), ?3, ?4, 'pending_parse', ?5`,
+  )
+    .bind(accession, cik, form, filedAt, iso(now))
+    .run();
+  const row = await env.DB.prepare(`SELECT id, status FROM filings_13f WHERE accession = ?1`)
+    .bind(accession)
+    .first<{ id: number; status: string }>();
+  if (!row) throw new Error("13f_backfill insert failed");
+  // Re-POSTing an already-parsed filing is a no-op, not a re-parse: the
+  // courier retries freely and the record cannot be double-written.
+  if (row.status === "parsed" || row.status === "quarantined") return 0;
+
+  await parseAndStore13f(env, { id: row.id, cik, accession }, primaryDoc, infotable, infotable.length, now);
+  await runDiffFor(env, cik, now);
+  return (ins.meta.changes ?? 0) > 0 ? 1 : 0;
+}
+
 export async function handleIngestRelay(request: Request, env: Env, now: Date = new Date()): Promise<Response> {
   const denied = authFailure(request, env);
   if (denied) return denied;
@@ -409,6 +452,8 @@ export async function handleIngestRelay(request: Request, env: Env, now: Date = 
             ? await ingestPressBodies(env, payload.body, now)
             : payload.source === HOUSE_SOURCE
               ? await ingestHouse(env, payload.body, now)
+            : payload.source === THIRTEENF_BACKFILL_SOURCE
+              ? await ingest13fBackfill(env, payload.body, now)
             : await ingestPress(env, payload.source, payload.body, now);
     const queued = await drain(env, payload.source, now);
     log("info", "ingest relay accepted", {
