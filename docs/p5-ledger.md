@@ -108,6 +108,8 @@ All `blocked-gate` (needs 10 manual posts + Phase 0 complete). Two are also
 | D-7 | p5-01 code review | The transient-API-error retry guard still read the GLOBAL `MAX(attempt)` after the budget moved per-cycle. In any cycle above 0 the condition is false forever, so the FIRST transient 429/5xx after a Regenerate would write a terminal template row instead of retrying: finding #9's permanent-downgrade regression, reintroduced for every regenerated row and silent. Caught in review, not in tests, because no test exercised a transient failure above cycle 0. Fixed, and the missing test added. | fixed in p5-01 |
 | D-8 | p5-01 code review | The card-Edit batch guarded the `regen_cycle` bump on `state IN ('approved','edited')` but deleted the `cards` row unguarded, so a row that failed the guard lost its card without opening a cycle and delivery re-sent the identical card while the owner was told the edit was accepted. | fixed in p5-01 |
 | D-9 | p5-01 code review | `GET /admin/generations` had no LIMIT, on the endpoint whose use case is precisely the most-regenerated rows. Bounded to 120 rows with an explicit `truncated` flag. | fixed in p5-01 |
+| D-10 | p5-01 merge | **GitHub Actions CI is `disabled_manually`.** `.github/workflows/ci.yml` is present on main and unchanged, but the workflow is disabled at the repo level, so NO pull request has been tested by CI since run 30964438778 (2026-08-05 00:48). PR #133 shows only a Workers Builds check. The plan's p5-02 premise ("116+ merges with no main CI") is understated: there is currently no CI on any branch. Not re-enabled unilaterally, because disabling was a manual act with Actions-minutes cost implications the owner may have intended (ci.yml's own comment cites account-wide private-repo minutes). **Owner decision needed.** | blocked-owner (feeds p5-02) |
+| D-11 | p5-01 merge | Migration number collision, mine: I created `0060_generation_cycles.sql` while unmerged main already carried `0060_form13f.sql`, because my branch point predated the 13F lanes. Caught before merge. Renumbered to `0063_generation_cycles.sql`, and the production `d1_migrations` row was renamed to match so wrangler does not re-run it (a re-run would fail on duplicate column and block every later migration). Verified: `migrations list --remote` reports no pending migrations. | fixed in p5-01 |
 
 ### Known and accepted, recorded rather than fixed
 
@@ -130,3 +132,19 @@ All `blocked-gate` (needs 10 manual posts + Phase 0 complete). Two are also
 - Plan p5-03 says "the 133 pending cards"; production measures 134. Drift
   from the snapshot, not a discrepancy. p5-03 drains whatever the count is
   on the day it runs.
+- 2026-08-04, during p5-01: main advanced 7 commits past this session's
+  branch point (0579ff5 to f2e1f6f) with the 13F lanes (#129, #130, #131),
+  two doctrine fixes (#126, #128), and the courier finding (#132). p5-01 was
+  rebased onto it; suite 1017 passing, 1 pre-existing failure (D-6). No new
+  `generations` reader arrived with that work, so p5-01's cycle scoping is
+  still complete. Migrations 0060-0062 (13F) were already applied to
+  production at 00:38, and all four 13F tables exist. No merged-not-migrated
+  gap there.
+- The `thirteenf-backfill` workflow run on main FAILED at 00:38 with
+  `forwarded=0 failed=74`: every EDGAR Archives fetch from the GitHub runner
+  returned HTTP 403. This is not a new defect. It is the finding already
+  recorded and merged as #132, and it is exactly what **p5-10** (route EDGAR
+  Archives through the Worker courier) exists to fix. Consequence worth
+  stating plainly: **13F backfill ingests nothing until p5-10 lands**, and the
+  plan flags an Aug-14 13F flood. p5-10 is in Phase 1, which is not
+  gate-blocked, so it can proceed on schedule.
