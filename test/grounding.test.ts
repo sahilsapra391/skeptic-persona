@@ -329,3 +329,37 @@ describe("press descriptions become ingest-time grounding", () => {
     expect(scrubUrls("see https://x.test/y and www.z.test now")).not.toMatch(/x\.test|z\.test/);
   });
 });
+
+describe("p5-05: an expired card does not blind the lake", () => {
+  it("lakeContext still counts an item whose card expired", async () => {
+    // MEASURED 2026-08-05: 832 items carry status='expired', 76% of them from
+    // the four flood classes. None of rag/context.ts's queries filters on
+    // items.status, so all of them remain groundable — expiry costs the queue
+    // entry, not the lake row.
+    //
+    // This is a GUARD, not a demonstration. Adding `AND status = 'queued'` to
+    // those queries would look like a tidy-up and would silently drop every
+    // expired item out of grounding, with nothing failing anywhere. The
+    // property is worth a test precisely because its violation is invisible.
+    const older = await seedPress("9400-26", "CFTC Charges Epsilon", "2026-07-20T12:00:00.000Z");
+    const current = await seedPress("9401-26", "CFTC Charges Zeta", "2026-07-21T12:00:00.000Z");
+
+    const before = await lakeContext(
+      env.DB,
+      { id: current, source: "press_cftc_enforcement", archetype: "REGULATORY_NEWS" },
+      { authority: "CFTC" },
+    );
+    expect(before.lines.join("\n")).toContain("Epsilon");
+
+    // Expire the older item exactly as expirePendingBefore does.
+    await env.DB.prepare(`UPDATE items SET status = 'expired' WHERE id = ?1`).bind(older).run();
+
+    const after = await lakeContext(
+      env.DB,
+      { id: current, source: "press_cftc_enforcement", archetype: "REGULATORY_NEWS" },
+      { authority: "CFTC" },
+    );
+    expect(after.lines.join("\n")).toContain("Epsilon");
+    expect(after.lines[0]).toBe(before.lines[0]);
+  });
+});
