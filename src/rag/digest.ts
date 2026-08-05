@@ -54,11 +54,151 @@ function residualLines(stats: ZeroEditStats): string[] {
 }
 
 /**
+ * THE NORTH STAR (p5-06). Approval rate and post rate, trended week over week.
+ *
+ * "Coverage is measured by what the desk publishes, not by what it ingests.
+ * 16,882 items and zero posts is the number this program exists to never
+ * repeat." Both rates are computed over ONE COHORT, the cards created in the
+ * window, so the funnel is card -> approval -> post on the same denominator
+ * rather than three windows that quietly disagree.
+ */
+export interface NorthStar {
+  readonly cards: number;
+  readonly approvals: number;
+  readonly manualPosts: number;
+  /** Threads-era automated posts. Counted, reported, and NEVER in the rate. */
+  readonly legacyAutoPosts: number;
+}
+
+/**
+ * APPROVALS ARE A UNION, and getting this wrong has already produced a wrong
+ * finding once. Counting `queue.state='approved'` alone reported press
+ * converting 23x better than everything else and nearly sized a tier design
+ * against it; the true figure is state UNION post_log, because an approved
+ * card that went on to post no longer carries the 'approved' state. PR #115:
+ *
+ *     queue.state='approved'   2
+ *     rows in post_log        18
+ *     union                   20  of 920 = 2.17%
+ *
+ * 'edited' counts as an approval for the same reason deliverCards treats it as
+ * one: it is approved-with-changes, not a rejection.
+ */
+async function cohort(db: D1Database, sinceIso: string, untilIso: string): Promise<NorthStar> {
+  const row = await db
+    .prepare(
+      `SELECT
+         COUNT(*) AS cards,
+         SUM(CASE WHEN q.state IN ('approved','edited')
+                    OR EXISTS(SELECT 1 FROM post_log p WHERE p.queue_id = q.id)
+                  THEN 1 ELSE 0 END) AS approvals,
+         SUM(CASE WHEN EXISTS(SELECT 1 FROM post_log p
+                              WHERE p.queue_id = q.id AND p.posted_manually = 1)
+                  THEN 1 ELSE 0 END) AS manual_posts,
+         SUM(CASE WHEN EXISTS(SELECT 1 FROM post_log p
+                              WHERE p.queue_id = q.id AND p.posted_manually = 0)
+                  THEN 1 ELSE 0 END) AS legacy_posts
+       FROM queue q
+       WHERE q.created_at >= ?1 AND q.created_at < ?2`,
+    )
+    .bind(sinceIso, untilIso)
+    .first<{ cards: number; approvals: number; manual_posts: number; legacy_posts: number }>();
+  return {
+    cards: row?.cards ?? 0,
+    approvals: row?.approvals ?? 0,
+    manualPosts: row?.manual_posts ?? 0,
+    legacyAutoPosts: row?.legacy_posts ?? 0,
+  };
+}
+
+export async function northStarStats(
+  db: D1Database,
+  now: Date,
+  windowDays: number = DIGEST_WINDOW_DAYS,
+): Promise<{ current: NorthStar; prior: NorthStar }> {
+  const ms = windowDays * DAY_MS;
+  const until = now.toISOString();
+  const since = new Date(now.getTime() - ms).toISOString();
+  const priorSince = new Date(now.getTime() - 2 * ms).toISOString();
+  return { current: await cohort(db, since, until), prior: await cohort(db, priorSince, since) };
+}
+
+/** Direction only. A delta on a two-card week is noise dressed as a trend, so
+ *  the arrow is never shown without both counts beside it. */
+function trend(now: number, before: number): string {
+  if (before === 0 && now === 0) return "";
+  if (before === 0) return ` (up from 0 last week)`;
+  const delta = Math.round(((now - before) / before) * 100);
+  if (delta === 0) return ` (flat vs last week)`;
+  return ` (${delta > 0 ? "up" : "down"} ${Math.abs(delta)}% vs last week, from ${before})`;
+}
+
+/**
+ * Exported for tests, and because the wording IS the feature.
+ *
+ * THE GUARD ON EVERY RATE HERE IS THE DENOMINATOR, NOT THE NUMERATOR. Zero
+ * posts out of 29 approvals is a real, measured, and extremely important 0%:
+ * it is the exact fact the program exists to change. Zero approvals out of
+ * zero cards is not a rate at all. Conflating the two would either hide the
+ * finding or invent one.
+ */
+export function renderNorthStar(current: NorthStar, prior: NorthStar, windowDays: number): string[] {
+  const lines: string[] = [`North star, last ${windowDays} days:`];
+
+  if (current.cards === 0) {
+    lines.push("  No cards were created in the window, so there is no approval rate to report.");
+  } else {
+    const rate = Math.round((current.approvals / current.cards) * 100);
+    lines.push(
+      `  Approval rate: ${rate}% — ${current.approvals} of ${current.cards} card(s)${trend(current.approvals, prior.approvals)}`,
+    );
+  }
+
+  if (current.approvals === 0) {
+    lines.push("  Post rate: no approvals in the window, so there is nothing that could have been posted.");
+  } else {
+    const rate = Math.round((current.manualPosts / current.approvals) * 100);
+    lines.push(
+      `  Post rate: ${rate}% — ${current.manualPosts} of ${current.approvals} approval(s) posted${trend(current.manualPosts, prior.manualPosts)}`,
+    );
+    if (current.manualPosts === 0) {
+      // Said out loud rather than left as a 0%. This is the binding constraint
+      // of the whole program, not a quiet metric.
+      lines.push("  Nothing has been published from this window. The Copy button is the constraint, not the queue.");
+    }
+  }
+
+  if (current.legacyAutoPosts > 0) {
+    // NAMED, NEVER FOLDED IN — the same rule residualLines applies. These are
+    // Threads-era AUTOMATED posts from before the ban. Counting them would
+    // report a post rate the desk never achieved by hand, on a platform it no
+    // longer publishes to, which is the silent-success shape this file exists
+    // to refuse.
+    lines.push(
+      `  ${current.legacyAutoPosts} Threads-era automated post(s) in this cohort are excluded from the post rate.`,
+      "  They were published by the parked auto-poster, not by the owner, and not to X.",
+    );
+  }
+  return lines;
+}
+
+/**
  * Exported for tests, and because the wording IS the feature: a reviewer
  * should be able to read the no-data branch without standing up a database.
  */
-export function renderDigest(stats: ZeroEditStats, pairs: readonly EditPair[], windowDays: number): string {
+export function renderDigest(
+  stats: ZeroEditStats,
+  pairs: readonly EditPair[],
+  windowDays: number,
+  northStar: readonly string[] = [],
+): string {
   const lines: string[] = [`Skeptic Wire — voice digest, last ${windowDays} days`, ""];
+  // FIRST, and above the zero-edit rate on purpose. The zero-edit rate scores
+  // the drafts we produce; the north star scores whether any of them reach the
+  // public. With zero posts the second is the only one of the two that can say
+  // anything, and it is also the branch where renderDigest returns earliest —
+  // so it goes here, before any early return can skip it.
+  if (northStar.length > 0) lines.push(...northStar, "");
   const scoreable = stats.unedited + stats.edited;
 
   if (stats.posted === 0) {
@@ -115,7 +255,8 @@ export async function runVoiceDigest(env: Env, now: Date, _budget: TickBudget = 
   const stats = await zeroEditStats(env.DB, since);
   // Only fetch pairs there are pairs to fetch.
   const pairs = stats.edited > 0 ? await recentEditedPairs(env.DB, since, DIGEST_PAIR_LIMIT) : [];
-  const text = renderDigest(stats, pairs, DIGEST_WINDOW_DAYS);
+  const { current, prior } = await northStarStats(env.DB, now, DIGEST_WINDOW_DAYS);
+  const text = renderDigest(stats, pairs, DIGEST_WINDOW_DAYS, renderNorthStar(current, prior, DIGEST_WINDOW_DAYS));
   try {
     await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, text);
   } catch (e) {
