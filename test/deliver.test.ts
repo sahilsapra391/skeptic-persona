@@ -414,11 +414,13 @@ describe("p5-01: cycles are not blended, and history is retrievable", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       current_cycle: number;
-      total_rows: number;
+      returned_rows: number;
+      truncated: boolean;
       cycles: Array<{ cycle: number; current: boolean; drafts: Array<{ text: string }> }>;
     };
     expect(body.current_cycle).toBe(1);
-    expect(body.total_rows).toBe(2);
+    expect(body.returned_rows).toBe(2);
+    expect(body.truncated).toBe(false);
     expect(body.cycles.map((c) => c.cycle)).toEqual([0, 1]);
     expect(body.cycles.find((c) => c.cycle === 0)!.current).toBe(false);
     expect(body.cycles.find((c) => c.cycle === 1)!.current).toBe(true);

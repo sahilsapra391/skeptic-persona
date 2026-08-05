@@ -64,6 +64,10 @@ export async function handleSeedTest(request: Request, env: Env): Promise<Respon
   return Response.json({ ok: true, queueId });
 }
 
+/** Cap on drafts returned by the history endpoint. Roughly ten cycles at
+ *  MAX_ATTEMPTS x 3 variants, which is far past what a real row accumulates. */
+const HISTORY_ROW_LIMIT = 120;
+
 /**
  * Draft history for one queue row: GET /admin/generations?queue_id=N with
  * header `X-Admin-Key: <TELEGRAM_WEBHOOK_SECRET>`.
@@ -93,9 +97,17 @@ export async function handleGenerationHistory(request: Request, env: Env): Promi
     .first<{ regen_cycle: number }>();
   if (!q) return Response.json({ error: `no queue row ${queueId}` }, { status: 404 });
 
+  // BOUNDED. A heavily regenerated row is exactly this endpoint's use case,
+  // and each cycle can add ~12 rows (MAX_ATTEMPTS x 3 variants), so an
+  // unbounded select would grow without limit precisely where it is most
+  // likely to be called. Newest cycles first inside the limit, then sorted
+  // back into ascending order for the response.
   const rows = await env.DB.prepare(
-    `SELECT id, cycle, variant, status, attempt, created_at, text
-     FROM generations WHERE queue_id = ?1 ORDER BY cycle ASC, attempt ASC, id ASC`,
+    `SELECT id, cycle, variant, status, attempt, created_at, text FROM (
+       SELECT id, cycle, variant, status, attempt, created_at, text
+       FROM generations WHERE queue_id = ?1
+       ORDER BY cycle DESC, attempt DESC, id DESC LIMIT ${HISTORY_ROW_LIMIT}
+     ) ORDER BY cycle ASC, attempt ASC, id ASC`,
   )
     .bind(queueId)
     .all<{
@@ -119,7 +131,11 @@ export async function handleGenerationHistory(request: Request, env: Env): Promi
   return Response.json({
     queue_id: queueId,
     current_cycle: q.regen_cycle,
-    total_rows: rows.results.length,
+    returned_rows: rows.results.length,
+    // Named rather than implied: a capped count silently reported as the total
+    // is the reporter-says-success shape this repo keeps getting bitten by.
+    // Oldest cycles are the ones dropped.
+    truncated: rows.results.length === HISTORY_ROW_LIMIT,
     cycles: [...cycles.entries()]
       .sort((a, b) => a[0] - b[0])
       .map(([cycle, drafts]) => ({ cycle, current: cycle === q.regen_cycle, drafts })),

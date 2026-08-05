@@ -105,6 +105,16 @@ All `blocked-gate` (needs 10 manual posts + Phase 0 complete). Two are also
 | D-4 | p5-01 | `buildCard` and `resolveVariantText` read valid drafts unscoped by cycle. Harmless while history was deleted; under append-only the card would BLEND cycles, pairing a discarded commentary with the live dry and presenting the mix as one draft set. Kill-test added. | fixed in p5-01 |
 | D-5 | p5-01 | `collisionCheck`'s repetition corpus (last 40 valid skeletons across rows) would silently tighten once superseded drafts stopped being deleted: a shape the owner threw away would block a new draft, and the 40-row window would span fewer distinct items than it claims. Scoped to live cycles. | fixed in p5-01 |
 | D-6 | p5-01 | `test/generate.test.ts` "does nothing unconfigured" depends on the untracked local `.dev.vars`. With a real `OPENROUTER_API_KEY` present it makes 2 live-path calls and FAILS; in CI the file is absent so it passes. The test has therefore never exercised the unconfigured path it is named for, and the local suite is red on main. Verified red on clean main, both in isolation and in the full file. NOT fixed here: out of p5-01's scope and it belongs with the CI-integrity chunk. | pending (assigned to p5-02) |
+| D-7 | p5-01 code review | The transient-API-error retry guard still read the GLOBAL `MAX(attempt)` after the budget moved per-cycle. In any cycle above 0 the condition is false forever, so the FIRST transient 429/5xx after a Regenerate would write a terminal template row instead of retrying: finding #9's permanent-downgrade regression, reintroduced for every regenerated row and silent. Caught in review, not in tests, because no test exercised a transient failure above cycle 0. Fixed, and the missing test added. | fixed in p5-01 |
+| D-8 | p5-01 code review | The card-Edit batch guarded the `regen_cycle` bump on `state IN ('approved','edited')` but deleted the `cards` row unguarded, so a row that failed the guard lost its card without opening a cycle and delivery re-sent the identical card while the owner was told the edit was accepted. | fixed in p5-01 |
+| D-9 | p5-01 code review | `GET /admin/generations` had no LIMIT, on the endpoint whose use case is precisely the most-regenerated rows. Bounded to 120 rows with an explicit `truncated` flag. | fixed in p5-01 |
+
+### Known and accepted, recorded rather than fixed
+
+| ID | Item | Why it stands |
+|---|---|---|
+| K-1 | `row.regen_cycle` is read at picker time and used for writes up to `RUN_TIME_CAP_MS` later, so a Regenerate landing mid-run stamps drafts into the superseded cycle. | Self-healing: the delivery join finds nothing at the new cycle, and the next tick re-picks the row with a full budget. Strictly better than main, where the same race deleted generations mid-run and could deliver a card built from pre-edit text. Cost is one wasted LLM run. Closing it properly means a compare-and-set on the cycle at write time. |
+| K-2 | Two different counters are both called "cycle": `cards.cycle` / callback-data cycle is `MAX(generations.id)` (a staleness token), `generations.cycle` / `queue.regen_cycle` is the generation pass. | Renaming reaches the callback_data wire format and its 64-byte cap plus the stale-button semantics across webhook.ts and deliver.ts. Bigger and riskier than the chunk it would ride in. Follow-up. |
 
 ## Reconciliation notes
 

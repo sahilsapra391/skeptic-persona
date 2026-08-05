@@ -706,7 +706,14 @@ async function handleMessage(env: ConfiguredEnv, msg: TgIncomingMessage): Promis
       await env.DB.batch([
         env.DB.prepare(`UPDATE queue SET edited_text = ?1, state = 'edited', skeleton_id = NULL, beat_id = NULL, regen_cycle = regen_cycle + 1 WHERE id = ?2 AND state IN ('approved','edited')`)
           .bind(msg.text, editTarget.queue_id),
-        env.DB.prepare(`DELETE FROM cards WHERE queue_id = ?1`).bind(editTarget.queue_id),
+        // SAME state guard as the UPDATE above. Unguarded, a row that has
+        // moved out of approved/edited loses its card row without opening a
+        // new cycle, so delivery re-sends the IDENTICAL card while the owner
+        // has just been told the edit was accepted.
+        env.DB.prepare(
+          `DELETE FROM cards WHERE queue_id = ?1
+             AND EXISTS (SELECT 1 FROM queue q WHERE q.id = ?1 AND q.state IN ('approved','edited'))`,
+        ).bind(editTarget.queue_id),
       ]);
       // Post-transition ack: caught, so it can never reach the 500-redelivery
       // path (the replay would find the cards row gone and go silent).

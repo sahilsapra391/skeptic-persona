@@ -293,6 +293,54 @@ describe("runGeneration end-to-end", () => {
       expect(minC1!.n).toBeGreaterThan(MAX_ATTEMPTS);
     });
 
+    it("a TRANSIENT failure in a regenerated cycle still retries; it does not downgrade to the template", async () => {
+      const qid = await seedApproved("P-cycle-transient");
+      // Cycle 0, spent and closed. Its attempt numbers are what the old
+      // global counter would have read.
+      const seeded = [];
+      for (let a = 1; a <= MAX_ATTEMPTS; a++) {
+        seeded.push(
+          env.DB.prepare(
+            `INSERT INTO generations (queue_id, cycle, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
+             VALUES (?1, 0, 'dry', '', '', '', 'rejected:number', ?2, ?3)`,
+          ).bind(qid, a, iso(NOW)),
+        );
+      }
+      seeded.push(
+        env.DB.prepare(
+          `INSERT INTO generations (queue_id, cycle, variant, text, skeleton_hash, opener_hash, status, attempt, created_at)
+           VALUES (?1, 0, 'none', 'template', '', '', 'fallback_template', ?2, ?3)`,
+        ).bind(qid, MAX_ATTEMPTS, iso(NOW)),
+      );
+      await env.DB.batch(seeded);
+      await env.DB.prepare(`UPDATE queue SET regen_cycle = 1 WHERE id = ?1`).bind(qid).run();
+
+      // First run of the new cycle hits a transient upstream failure.
+      nextStatus = 503;
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+      nextStatus = 200;
+
+      // The row must stay OPEN for the next tick. Gating this on the global
+      // MAX(attempt) makes the retry test false forever after a regenerate
+      // (MAX_ATTEMPTS is already spent in cycle 0), so the row would take a
+      // terminal fallback_template on its FIRST 503 and the owner's
+      // Regenerate would silently hand back the template.
+      const terminal = await env.DB.prepare(
+        `SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1 AND cycle = 1
+           AND (status = 'valid' OR status LIKE 'fallback%' OR status LIKE 'skipped%' OR status = 'rejected:payload')`,
+      ).bind(qid).first<{ n: number }>();
+      expect(terminal!.n).toBe(0);
+
+      // And the next tick does re-pick it, and can still succeed.
+      nextReply = () => GOOD;
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+      expect(
+        (await env.DB.prepare(
+          `SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1 AND cycle = 1 AND status = 'valid'`,
+        ).bind(qid).first<{ n: number }>())!.n,
+      ).toBeGreaterThan(0);
+    });
+
     it("an unparseable payload stays terminal in EVERY cycle (no INSERT OR IGNORE swallow, no re-pick loop)", async () => {
       const qid = await seedApproved("P-cycle-badpayload");
       await env.DB.prepare(`UPDATE items SET payload = 'not json' WHERE id = (SELECT item_id FROM queue WHERE id = ?1)`)

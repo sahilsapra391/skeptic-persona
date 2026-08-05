@@ -365,20 +365,24 @@ export async function runGeneration(
     // collides with the first cycle's row, INSERT OR IGNORE drops it, the
     // row ends the cycle with no terminal row, and the lifecycle re-picks it
     // every tick forever. Silent, and expensive.
-    const prior = await env.DB.prepare(`SELECT COALESCE(MAX(attempt), 0) AS n FROM generations WHERE queue_id = ?1`)
-      .bind(row.queue_id)
-      .first<{ n: number }>();
-    let attempt = (prior?.n ?? 0) + 1;
+    //
+    // ONE round trip for both numbers, not two: this runs per row on every
+    // generation tick, and the same reasoning that made schemaGuard batch its
+    // probes applies to the hot path here.
+    const counters = await env.DB.prepare(
+      `SELECT COALESCE(MAX(attempt), 0) AS highest,
+              COUNT(DISTINCT CASE WHEN cycle = ?2 THEN attempt END) AS spent
+       FROM generations WHERE queue_id = ?1`,
+    )
+      .bind(row.queue_id, row.regen_cycle)
+      .first<{ highest: number; spent: number }>();
+    let attempt = (counters?.highest ?? 0) + 1;
     // The BUDGET, unlike the numbering, is per cycle: Regenerate restores a
     // full allowance, which is the whole point of tapping it. Counting
     // distinct attempt values rather than rows, because one attempt writes
     // one row per variant.
-    const spentThisCycle = await env.DB.prepare(
-      `SELECT COUNT(DISTINCT attempt) AS n FROM generations WHERE queue_id = ?1 AND cycle = ?2`,
-    )
-      .bind(row.queue_id, row.regen_cycle)
-      .first<{ n: number }>();
-    const attemptsLeft = Math.max(0, MAX_ATTEMPTS - (spentThisCycle?.n ?? 0));
+    const spentBeforeRun = counters?.spent ?? 0;
+    const attemptsLeft = Math.max(0, MAX_ATTEMPTS - spentBeforeRun);
 
     let payload: Payload;
     try {
@@ -572,7 +576,15 @@ export async function runGeneration(
 
     if (valid.size > 0) continue; // at least one variant made it; the card has options
 
-    if (sawApiError && (prior?.n ?? 0) + 2 < MAX_ATTEMPTS) {
+    // PER CYCLE, not per row (p5-01). This guard asks "does this row still
+    // have retries left", and once the budget became per-cycle the global
+    // MAX(attempt) stopped answering that question: after one Regenerate it
+    // already exceeds MAX_ATTEMPTS, the condition is false forever, and the
+    // FIRST transient 429/5xx in the new cycle writes a terminal template row
+    // instead of retrying. That is finding #9's permanent-downgrade
+    // regression, reintroduced for every regenerated row and silent when it
+    // happens.
+    if (sawApiError && spentBeforeRun + 2 < MAX_ATTEMPTS) {
       // Pure transient failure with retries left: leave NO terminal row so
       // the next tick picks this row up again.
       continue;
