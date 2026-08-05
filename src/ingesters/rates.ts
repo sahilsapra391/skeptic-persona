@@ -272,10 +272,27 @@ export const RATE_SOURCES: readonly RateSource[] = [
       // a handful of times a year loses nothing from a one-day lag. But it is
       // not a fix for the 500s, and labelling it as one would send the next
       // person chasing the wrong thing.
+      // THE PATH MOVED, and that is what the recent 500s actually were
+      // (p5-11, live-probed 2026-08-05). The note above is still true about
+      // the overnight maintenance window, but it stopped explaining this
+      // source: the failures ran to 32 CONSECUTIVE with no success for over a
+      // day, which no maintenance window covers.
+      //
+      // Measured:
+      //   /boeapps/iadb/fromshowcolumns.asp        -> HTTP 302, 0 bytes
+      //   location: /boeapps/database/_iadb-FromShowColumns.asp
+      //   that URL, direct, 3 of 3 attempts        -> HTTP 200, 4,286 bytes
+      //   first row "05 Aug 2025,4.25", last "04 Aug 2026,3.75"
+      //
+      // Pointing at the FINAL url rather than relying on the redirect: our
+      // fetcher does follow redirects, so the hop is not what broke it, but a
+      // 302 that only resolves for some clients is exactly the shape that
+      // produced a 500 here and nowhere else. One less thing between us and
+      // the CSV. The parser is unchanged: the format is identical.
       const to = new Date(now.getTime() - 86_400_000);
       const from = new Date(to.getTime() - 365 * 86_400_000);
       return (
-        "https://www.bankofengland.co.uk/boeapps/iadb/fromshowcolumns.asp?csv.x=yes" +
+        "https://www.bankofengland.co.uk/boeapps/database/_iadb-FromShowColumns.asp?csv.x=yes" +
         `&Datefrom=${boeDate(from)}&Dateto=${boeDate(to)}` +
         "&SeriesCodes=IUDBEDR&CSVF=TN&UsingCodes=Y&VPD=Y&VFD=N"
       );

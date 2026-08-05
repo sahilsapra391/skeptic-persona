@@ -53,7 +53,7 @@ North star measured 2026-08-05, from the shipped query: last 7 days 651 cards,
 | Chunk | Scope | Status | PR | Verification |
 |---|---|---|---|---|
 | p5-10 | Courier consolidation: EDGAR Archives through the Worker courier | pending | — | — |
-| p5-11 | Source hygiene sweep: ~30 dead endpoints, ~10 403s fixed/replaced/retired | pending | — | — |
+| p5-11 | Source hygiene sweep | merged-verified | [#142](https://github.com/sahilsapra391/skeptic-persona/pull/142) | [SOURCE_REGISTRY.md](SOURCE_REGISTRY.md) |
 | p5-12 | Senate eFD arrival-latency measurement forward; weekly digest line | pending | — | — |
 | p5-13 | Owner memos, no build: (a) NSE/BSE license, (b) Bluesky app password | pending | — | — |
 
