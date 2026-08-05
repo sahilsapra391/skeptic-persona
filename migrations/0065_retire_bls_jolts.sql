@@ -1,0 +1,22 @@
+-- p5-11: retire the bls_jolts orphan.
+--
+-- `source_state` carried a row for `bls_jolts` with last_ok_at NULL,
+-- consecutive_failures 0 and total_failures 0. That combination is not a
+-- broken source; it is a source that has never run at all. Confirmed:
+-- `bls_jolts` appears nowhere in src/ and has no row in `jobs`, so nothing
+-- polls it and nothing ever will until someone writes an ingester.
+--
+-- WHY DELETE RATHER THAN LEAVE IT. The row is not inert. Every health
+-- question of the form "how many sources have never succeeded" counts it, so
+-- the honest answer (2: treasury_auction and press_cftc_enforcement, both
+-- known and both documented) reads as 3 with a third that nobody can explain.
+-- A permanent unexplained entry in a health table teaches the next reader to
+-- discount the table, which is the opposite of what it is for.
+--
+-- This deletes STATE, never data: `source_state` holds polling bookkeeping
+-- (etag, cursor, failure counts). No item, queue row or lake record refers to
+-- it, because none was ever ingested under that name.
+--
+-- Reversible by construction: if a JOLTS ingester is ever written, it recreates
+-- its own row on first poll exactly as every other source does.
+DELETE FROM source_state WHERE source = 'bls_jolts' AND last_ok_at IS NULL AND total_failures = 0;

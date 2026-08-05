@@ -129,6 +129,21 @@ describe("boeDateToIso / boeDate", () => {
     expect(url).toContain("Datefrom=27/Jul/2025");
     expect(url).not.toContain("Dateto=28/Jul/2026");
   });
+
+  it("p5-11: points at the MOVED IADB path, not the one that 302s to nothing", () => {
+    // Live-probed 2026-08-05. The old path returns 302 with a zero-byte body;
+    // the new one returns 200 and 4,286 bytes of identical CSV. rate_boe had
+    // 32 consecutive failures and no success for over a day, which the
+    // documented overnight-maintenance explanation does not cover.
+    //
+    // Pinned as a NEGATIVE too: the old path is the one a future edit would
+    // plausibly restore from an old comment or a stale memory of the URL.
+    const url = urlFor(byId("rate_boe"), new Date("2026-08-05T12:00:00Z"));
+    expect(url).toContain("/boeapps/database/_iadb-FromShowColumns.asp");
+    expect(url).not.toContain("/boeapps/iadb/fromshowcolumns.asp");
+    // The series code is what makes it Bank Rate rather than some other curve.
+    expect(url).toContain("SeriesCodes=IUDBEDR");
+  });
 });
 
 describe("brDateToIso", () => {
