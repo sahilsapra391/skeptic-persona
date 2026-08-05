@@ -30,7 +30,7 @@ through the owner's thumbs, not through code.
 |---|---|---|---|---|
 | p5-01 | Regenerate becomes append-only; history retrievable | merged-verified | [#133](https://github.com/sahilsapra391/skeptic-persona/pull/133) | [2026-08-04-p5-01](verification/2026-08-04-p5-01-append-only-regenerate.md) |
 | p5-02 | Branch protection + a main CI run | blocked-owner (D-10) | — | — |
-| p5-03 | REGULATORY_NEWS salience tier; drain pending cards | pending | — | — |
+| p5-03 | REGULATORY_NEWS salience tier; drain pending cards | blocked-owner (D-13) — mechanism + BEA/ONS ruling merged; drain not achievable from that ruling | [#136](https://github.com/sahilsapra391/skeptic-persona/pull/136) | [2026-08-05-p5-03](verification/2026-08-05-p5-03-regulatory-news-tier.md) |
 | p5-04 | Polish bundle: attribution join, raw ISO in copy, PRODUCT_RECALL length window, over_budget split | pending | — | — |
 | p5-05 | TTL-lake measurement; re-card policy decision | pending | — | — |
 | p5-06 | Weekly digest north-star block (approval rate, post rate) | pending | — | — |
@@ -112,6 +112,8 @@ All `blocked-gate` (needs 10 manual posts + Phase 0 complete). Two are also
 | D-11 | p5-01 merge | Migration number collision, mine: I created `0060_generation_cycles.sql` while unmerged main already carried `0060_form13f.sql`, because my branch point predated the 13F lanes. Caught before merge. Renumbered to `0063_generation_cycles.sql`, and the production `d1_migrations` row was renamed to match so wrangler does not re-run it (a re-run would fail on duplicate column and block every later migration). Verified: `migrations list --remote` reports no pending migrations. | fixed in p5-01 |
 
 | D-12 | p5-01b | **Mine, and it reached main.** PR #134's `git add -A` committed 21 duplicate `<name> 2.ext` files that local git tooling had left in the working tree. Most were inert (the test copies do not end in `.test.ts`, so vitest never collected them), but `.github/workflows/thirteenf-backfill 2.yml` registers a SECOND workflow on the same cron, which would have run the 13F backfill twice. Removed in #135, every canonical counterpart verified still present, and `.gitignore` now blocks the pattern. Third recurrence in one session: a stash/pop produced two, a rebase produced four more, and those four broke local test collection by running `CREATE TABLE filings_13f` twice. | fixed in p5-01b |
+
+| D-13 | p5-03 | **Plan intent vs measured reality, reported rather than resolved.** p5-03's acceptance is "tier REGULATORY_NEWS per the BEA/ONS ruling" AND "drain the 133 pending cards through it". The first is done. The second does not follow from the first: applied faithfully, the ruling touches **1 of the 80 pending REGULATORY_NEWS cards**, because ONS has never carded at all (10 items, all `logged`) and BEA has one. The flood is DOJ 25, Bank of Japan 14, SEBI 11, RBI 8 = 58 of 80, none of which is a data print or a release calendar. Tiering those is the editorial call the p4 session refused, and the handoff's suggested shortcut (promote regulatoryPress.ts's prose grouping) is unusable: "GLOBAL WIRE FANOUT, batch 1" records when a URL was probed, so promoting it would rank DOJ enforcement below Bank of Japan press releases. Owner ruling needed on the four sources; the mechanism to act on it is already built and tested. | blocked-owner |
 
 ### Known and accepted, recorded rather than fixed
 
