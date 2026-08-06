@@ -367,7 +367,19 @@ const congressPtr: Archetype = {
   ],
   beats: [
     { id: "ptr.disclosedLater", text: "Disclosed {lagDays} days later.", tier: "base", when: { op: "gte", field: "lagDays", value: 1 } },
-    { id: "ptr.lagProduct", text: "The lag is the product.", tier: "base", when: { op: "gte", field: "lagDays", value: 1 } },
+    // THE WORKED EXAMPLE OF A BOUND DEFINITIONAL BEAT (owner ruling
+    // 2026-08-06, closing D-31). It is a metaphor by form, and under the
+    // aphorism rule that is not what decides it — CASH-OUT is. It cashes out
+    // twice: to this item's own parsed lag, and to the definitions registry's
+    // 45-day/$200 PTR entry (5 U.S.C. 13106).
+    //
+    // So it is GATED on the claim it actually makes. A filing disclosed
+    // inside the statutory deadline has no lag worth calling a product, and
+    // a day-3 disclosure must never carry this line. Fires only past 45.
+    //
+    // Widen to top-quartile lag once the pattern fields exist; until then the
+    // deadline is the only threshold the record can license.
+    { id: "ptr.lagProduct", text: "The lag is the product.", tier: "base", when: { op: "gt", field: "lagDays", value: 45 } },
     {
       id: "ptr.range",
       text: "Reported as a range. That's all the record shows.",

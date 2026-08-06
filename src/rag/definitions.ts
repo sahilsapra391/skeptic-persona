@@ -181,6 +181,22 @@ export const DEFINITIONS: readonly Definition[] = [
     invokes: [/\b13D\b/, /\b13G\b/, /\bschedule 13[dg]\b/i],
   },
   {
+    id: "ptr-lag-past-deadline",
+    term: "A disclosure lag that exceeds the statutory deadline",
+    kind: "record",
+    statement:
+      "The gap between a covered filer's transaction and its disclosure, when that gap exceeds the 45 days the statute allows. The claim is the parsed lag against the deadline and nothing more; it says nothing about why the filing was late.",
+    citation: "This item's own parsed lagDays, against the deadline in `ptr-deadline` (5 U.S.C. § 13106).",
+    verifiedAt: "2026-08-06",
+    // The owner's worked example of a bound definitional beat: "The lag is
+    // the product." reads as a metaphor and is judged by cash-out instead.
+    invokes: [/\bthe lag is the product\b/i, /\bthe lag is the (?:story|point|disclosure)\b/i],
+    requires: ({ payload }) => {
+      const v = payload.lagDays;
+      return typeof v === "number" && v > 45;
+    },
+  },
+  {
     id: "repeat-count-pattern",
     term: "When a repeat becomes a pattern",
     kind: "record",
