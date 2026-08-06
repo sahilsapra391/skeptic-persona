@@ -54,7 +54,7 @@ North star measured 2026-08-05, from the shipped query: last 7 days 651 cards,
 |---|---|---|---|---|
 | p5-10 | Courier consolidation: EDGAR Archives through the Worker courier | pending | — | — |
 | p5-11 | Source hygiene sweep | merged; rate_boe NOT fixed (D-25), registry + orphan retirement verified | [#142](https://github.com/sahilsapra391/skeptic-persona/pull/142) | [SOURCE_REGISTRY.md](SOURCE_REGISTRY.md) |
-| p5-12 | Senate eFD arrival-latency measurement forward; weekly digest line | pending | — | — |
+| p5-12 | Senate eFD arrival-latency measurement forward; weekly digest line | merged-verified | [#143](https://github.com/sahilsapra391/skeptic-persona/pull/143) | [2026-08-06-p5-12](verification/2026-08-06-p5-12-efd-latency.md) |
 | p5-13 | Owner memos, no build: (a) NSE/BSE license, (b) Bluesky app password | pending | — | — |
 
 ## Phase 2 — Gate-cleared expansion
@@ -140,6 +140,8 @@ All `blocked-gate` (needs 10 manual posts + Phase 0 complete). Two are also
 | D-22 | 2026-08-05, owner-reported | **The Copy button did not copy.** A bot cannot write to the clipboard from a callback, so the flow only PRESENTED text as a monospace block for long-press. Bot API 7.11's `CopyTextButton` is the real mechanism. Verified from the primary source (the docs page truncates through a fetcher, so `core.telegram.org/bots/api` was pulled directly): `text` is **1-256 characters**, which is SHORTER than a 280-char post. Length-gated with the monospace block retained as the universal fallback; measured 26/26 valid variants and 1,101/1,141 template drafts fit. | fixed + deployed ([#141](https://github.com/sahilsapra391/skeptic-persona/pull/141)) |
 
 | D-25 | p5-11, self-caught | **My rate_boe fix did not work, and my diagnosis was wrong.** I found the IADB path had moved (old path 302s, new path serves 200 + 4,286 bytes), probed it 3/3 from my laptop, and shipped it as FIXED. The repointed URL deployed at 22:41:22Z; the 23:32Z poll returned the same 500 and the counter went 32 -> 33. **The path move was real but was never the cause.** The host errors Cloudflare Worker egress regardless of path, which is the same family as treasury.gov 525, cftc.gov 403 and efdsearch 403 — three findings already documented in this repo, including in CLAUDE.md. A probe from a residential IP proves nothing about Worker egress, and I asserted causation from one anyway. The URL change is kept because the old path genuinely is a 302 to nothing. rate_boe is reclassified as blocked-from-Worker and needs a courier route; **whether GitHub-runner egress reaches bankofengland.co.uk is UNVERIFIED and must be measured before any courier work, because the 13F finding proved runner egress is not uniformly better.** | open, correctly classified |
+
+| D-26 | p5-12 | **The flagship lane arrives a week late.** Measured: Senate PTR filings reach us 4.6 to 7.6 days after the senator files, and `senate_ptr` has not polled successfully since 2026-08-02 (3 consecutive failures). CONGRESS_PTR carries the highest salience base (90), is ceiling-exempt, and has a 96h TTL, so a filing arriving at 7.6 days has spent more than its own TTL in transit before we see it. Not fixed here: p5-12 is the measurement the plan asked for, and the fix (retry policy vs freshness allowance) depends on separating eFD's publishing lag from our polling gap, which is exactly what the new digest line now makes possible week over week. | measured, fix not yet scoped |
 
 ### Known and accepted, recorded rather than fixed
 
