@@ -19,6 +19,7 @@ import { pollEdgarReconcile } from "./ingesters/edgarReconcile";
 import { pollRegSho } from "./ingesters/regsho";
 import { pollForm25 } from "./ingesters/form25";
 import { pollForm13f } from "./ingesters/form13f";
+import { pollThirteenFCards } from "./ingesters/thirteenFCards";
 import { pollNoaaStorms } from "./ingesters/noaaStorms";
 import { pollNasdaqHalts, pollNyseHalts } from "./ingesters/halts";
 import { pollHousePtr } from "./ingesters/housePtr";
@@ -222,6 +223,10 @@ export function registerJobs(): void {
   registry["source_health"] = runSourceHealth;
   registry["federal_register"] = pollFederalRegister;
   registry["edgar_13f"] = pollForm13f;
+  // D-28: the lane that fills the 13F tables never wrote to `items`. This is
+  // the step that turns a parsed filing into a card. No external fetches, so
+  // it is safe on a short cadence during the Aug-14 flood.
+  registry["edgar_13f_breakdown"] = pollThirteenFCards;
   registry["cftc_cot"] = pollCftc;
   registry["sec_schedule13"] = pollSchedule13;
   for (const src of PRESS_SOURCES) registry[src.id] = makePressHandler(src);

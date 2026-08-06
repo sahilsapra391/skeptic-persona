@@ -240,3 +240,52 @@ export function filingUrl(cik: string, accession: string): string {
   const clean = accession.replace(/-/g, "");
   return `https://www.sec.gov/Archives/edgar/data/${Number(cik)}/${clean}/${accession}-index.htm`;
 }
+
+// ---------------------------------------------------------------------------
+// The job: tier-1 filings become items, items become cards.
+// ---------------------------------------------------------------------------
+
+/**
+ * How fresh a 13F filing must be to card.
+ *
+ * A 13F is already six weeks stale by construction — it reports a quarter END
+ * and is filed up to 45 days later. What must NOT be stale is our sight of it:
+ * a filing we parsed today is news today, and one we parsed in May is not,
+ * whatever the flood does to the tables in August.
+ *
+ * Measured from `filed_at`, because that is when the record became public.
+ * The Aug-14 flood lands inside this window by definition; Berkshire's Q1
+ * filing from 2026-05-15 does not, and correctly cannot card.
+ */
+export const FILING_FRESH_HOURS = 96;
+
+export interface EnqueueableFiling extends FilingRow {
+  readonly accession: string;
+}
+
+/**
+ * Tier-1 filings that are fresh, parsed, and have no item yet.
+ *
+ * Tier comes from `managers_13f.tier`, an existing column, not from a list
+ * invented here. LIMIT is deliberate: the Aug-14 flood puts hundreds of
+ * filings in the table on one day, and a job that tried to card them all in
+ * one tick would blow both the D1 budget and the owner's attention.
+ */
+export const CARDS_PER_RUN = 3;
+
+export function selectableFilingsSql(): string {
+  return `SELECT f.id, f.cik, f.manager_name, f.form, f.period, f.filed_at,
+                 f.parsed_value_total, f.table_entry_total, f.accession
+          FROM filings_13f f
+          JOIN managers_13f m ON m.cik = f.cik
+          WHERE m.tier = 1
+            AND f.status = 'parsed'
+            AND f.parsed_value_total > 0
+            AND f.table_entry_total > 0
+            AND f.filed_at >= ?1
+            AND NOT EXISTS (
+              SELECT 1 FROM items i WHERE i.dedup_key = 'edgar_13f_breakdown:' || f.accession
+            )
+          ORDER BY f.filed_at DESC, f.parsed_value_total DESC
+          LIMIT ?2`;
+}
