@@ -4,7 +4,7 @@ import { buildUserAgent, politeFetch } from "../lib/http";
 import { extractAll, extractFirst, stripBom, decodeEntities } from "../lib/xml";
 import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_IGNORE, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
-import { isFreshAtIngest } from "./shared";
+import { isFreshAtIngest, tickerTag } from "./shared";
 import { ET, iso, zonedTimeToUtc } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -174,7 +174,7 @@ export function parseNyseHalts(csv: string): HaltEvent[] {
 export function draftHalt(e: HaltEvent): string {
   const name = e.name ? ` (${e.name})` : "";
   const hhmm = e.haltTime.slice(0, 5);
-  return `HALT: ${e.symbol}${name}. ${e.reasonText}, ${hhmm} ET`;
+  return `HALT: ${tickerTag(e.symbol)}${name}. ${e.reasonText}, ${hhmm} ET`;
 }
 
 /** Window in which repeat halts on the same symbol are treated as one story. */

@@ -6,7 +6,7 @@ import { getSourceState, insertItem, putSourceState, SCORE_LOG_ONLY, SCORE_POSTA
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 import { enqueueForApproval } from "../pipeline/enqueue";
-import { bandSpan, bandWidth, isFreshDateOnly, lagDays, lagWeeks, maxLagDays, mdyToIso } from "./shared";
+import { bandSpan, bandWidth, isFreshDateOnly, lagDays, lagWeeks, maxLagDays, mdyToIso, tickerTag } from "./shared";
 import { scrubUrls } from "../lib/html";
 
 // House Clerk PTR discovery (live-verified 2026-07-26; ZIP fixture captured
@@ -347,7 +347,7 @@ const OWNER_LABEL: Readonly<Record<string, string>> = {
 };
 
 function tradeClause(t: HouseTxn): string {
-  const what = t.ticker ?? (t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName);
+  const what = t.ticker ? tickerTag(t.ticker) : t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName;
   const owner = OWNER_LABEL[t.owner] ? ` [${OWNER_LABEL[t.owner]}]` : "";
   return `${txnTypeLabel(t.type)} ${t.amount}, ${what}${owner} (${t.transactionDate})`;
 }
