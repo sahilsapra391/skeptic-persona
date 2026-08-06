@@ -135,6 +135,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Handshake, search, and fetch detail pages
+        id: fetch
         run: |
           set -euo pipefail
           UA="Skeptic Wire admin@spechawk.ai"
@@ -211,6 +212,11 @@ jobs:
           if [ "$SEARCH_CODE" = "503" ] && grep -qi "UNDER MAINTENANCE\|TEMPORARILY UNAVAILABLE" search.json; then
             echo "senate: eFD in scheduled maintenance; skipping this run" >> "$GITHUB_STEP_SUMMARY"
             echo "::notice::senate eFD returned its maintenance page (503). Not a failure; the next slot retries."
+            # The skip has to be visible to the NEXT step, not just to this
+            # shell. `exit 0` ends the step successfully and the relay then ran
+            # anyway and died on a missing bundle.json — caught by dispatching
+            # the workflow rather than by reading it (run 31108039507).
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if ! jq -e '.result' search.json >/dev/null 2>&1; then
@@ -321,6 +327,9 @@ jobs:
           echo "withText=$(jq '[.docs[] | select(.text != "")] | length' bundle.json)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Relay to Worker
+        # Skipped when eFD is in maintenance: there is no bundle to relay, and
+        # a step that runs anyway turns a clean skip into a red workflow.
+        if: steps.fetch.outputs.skipped != 'true'
         env:
           INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
           WORKER_URL: ${{ secrets.WORKER_URL }}
