@@ -143,6 +143,45 @@ export async function handleGenerationHistory(request: Request, env: Env): Promi
   });
 }
 
+
+/**
+ * B-01.2 — hosts `/admin/probe` may be pointed at.
+ *
+ * The endpoint answers one question: does WORKER EGRESS reach this host? An
+ * unrestricted version answers it for any host on the internet, which makes it
+ * a generic egress proxy wearing a diagnostic's clothes. So the target list is
+ * closed to hosts ALREADY IN THE SOURCE REGISTRY — things this desk either
+ * fetches today or has formally recorded as a candidate.
+ *
+ * Adding a host here is therefore a two-step act: put it in the registry with
+ * a status and a date first, then add it. That ordering is the point.
+ *
+ * Matching is exact hostname or a dot-suffix, so `sec.gov` covers
+ * `www.sec.gov` and `data.sec.gov` but never `notsec.gov`.
+ */
+const PROBE_ALLOWED_HOSTS: readonly string[] = [
+  // US federal
+  "sec.gov", "fda.gov", "bls.gov", "federalregister.gov", "federalreserve.gov",
+  "cftc.gov", "ftc.gov", "justice.gov", "gao.gov", "eia.gov", "bea.gov",
+  "consumerfinance.gov", "treasury.gov", "treasurydirect.gov", "fiscaldata.treasury.gov",
+  "nhc.noaa.gov", "house.gov", "senate.gov",
+  // Exchanges
+  "nasdaqtrader.com", "nyse.com",
+  // Central banks and overseas regulators
+  "bankofcanada.ca", "bankofengland.co.uk", "bcb.gov.br", "boi.org.il", "boj.or.jp",
+  "ecb.europa.eu", "europa.eu", "eba.europa.eu", "fca.org.uk", "finma.ch", "gov.uk",
+  "norges-bank.no", "ons.gov.uk", "rba.gov.au", "rbi.org.in", "resbank.co.za",
+  "riksbank.se", "sebi.gov.in", "snb.ch", "wto.org",
+  // PR wires: registry candidates as of 2026-08-06 (p5-21), recorded there
+  // with their residential probe results before being added here.
+  "globenewswire.com", "prnewswire.com", "accesswire.com",
+];
+
+function hostAllowed(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return PROBE_ALLOWED_HOSTS.some((a) => h === a || h.endsWith(`.${a}`));
+}
+
 /**
  * POST /admin/probe — does WORKER EGRESS reach this host?
  *
@@ -159,12 +198,17 @@ export async function handleGenerationHistory(request: Request, env: Env): Promi
  * READ-ONLY BY CONSTRUCTION. GET only, no request body forwarded, no response
  * body returned — status, size, content-type and timing, which is everything a
  * reachability question needs and nothing that could relay content through the
- * Worker. Same admin key as /admin/seed-test.
+ * Worker. Dedicated token (B-01.2) and a closed host allowlist, so it can be
+ * neither an editorial forgery vector nor a generic egress proxy.
  */
 export async function handleProbe(request: Request, env: Env): Promise<Response> {
-  if (!env.TELEGRAM_WEBHOOK_SECRET) return new Response("not configured", { status: 503 });
+  // B-01.2: a DEDICATED token, never TELEGRAM_WEBHOOK_SECRET. That secret's
+  // blast radius is the editorial chain — anyone holding it can forge Approve
+  // and Posted taps — so it is never shared with a session and never reused
+  // for admin auth. A probe token can only ever cause a probe.
+  if (!env.ADMIN_PROBE_TOKEN) return new Response("not configured", { status: 503 });
   const key = request.headers.get("X-Admin-Key");
-  if (!key || !safeEqual(key, env.TELEGRAM_WEBHOOK_SECRET)) {
+  if (!key || !safeEqual(key, env.ADMIN_PROBE_TOKEN)) {
     return new Response("unauthorized", { status: 401 });
   }
   let urls: unknown;
@@ -194,6 +238,10 @@ export async function handleProbe(request: Request, env: Env): Promise<Response>
     }
     if (parsed.protocol !== "https:") {
       results.push({ url: raw, error: "https only" });
+      continue;
+    }
+    if (!hostAllowed(parsed.hostname)) {
+      results.push({ url: raw, error: `host not in the source registry allowlist: ${parsed.hostname}` });
       continue;
     }
     const startedAt = Date.now();
