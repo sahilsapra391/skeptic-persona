@@ -1,3 +1,4 @@
+import { namesSourceAsActor } from "./attribution";
 import { evaluateGate } from "./gate";
 import { POST_TEXT_LIMIT, weightedLength } from "./length";
 import type { Archetype, Beat, MediaRef, Payload } from "./types";
@@ -212,7 +213,15 @@ export function renderPost(
     triedAny = true;
     // Attribution attaches to the HEAD line — the claim — not to whatever
     // item title happens to be last (persona.md §6).
-    lines[0] = `${lines[0]}, ${attribution}`;
+    //
+    // ...UNLESS the head line already names the source as the doer of the
+    // fact (owner ruling 2026-08-06): "a trailing 'per X' is required only
+    // when source and actor differ". Agency press titles are written in
+    // exactly that voice — "RBI releases the results of...", "SEC Charges
+    // Two Individuals" — so appending the citation produced a third mention
+    // of the same body in seven live pending drafts. Embedded attribution
+    // IS attribution; checkRegister and structuralCheck both accept it.
+    lines[0] = namesSourceAsActor(lines[0]!, attribution) ? lines[0]! : `${lines[0]}, ${attribution}`;
     const block = lines.join("\n");
     if (weightedLength(block) <= POST_TEXT_LIMIT) {
       chosen = candidate;

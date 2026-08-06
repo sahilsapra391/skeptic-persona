@@ -145,7 +145,7 @@ describe("house_ptr extraction relay", () => {
       .first<{ archetype: string; draft_text: string }>();
     expect(card?.archetype).toBe("CONGRESS_PTR");
     // The bug this whole change exists for: a House filing citing the Senate.
-    expect(card?.draft_text).toContain("per House Clerk");
+    expect(card?.draft_text).toContain("per the House Clerk");
     expect(card?.draft_text).not.toContain("Senate eFD");
   });
 

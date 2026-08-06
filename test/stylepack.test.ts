@@ -2,14 +2,18 @@ import { describe, expect, it } from "vitest";
 import PERSONA_DOC from "../docs/persona.md?raw";
 import {
   ANTI_PATTERNS,
+  EXEMPLAR_MAX_WEIGHTED,
+  LEGACY_COMMENTARY_EXEMPLARS,
   MOVE_EXAMPLES,
   OWNER_EXEMPLARS,
+  PENDING_OWNER_EXEMPLARS,
   VOICE_CORE,
   stylePackFor,
 } from "../src/rag/stylepack";
+import { COMMENTARY_FACT_BUDGET, COMMENTARY_TAKE_BUDGET, COMMENTARY_TARGET } from "../src/rag/generate";
 import { ARCHETYPES } from "../src/templates/archetypes";
-import { checkRegister } from "../src/templates/validate";
-import { fitsInPost } from "../src/templates/length";
+import { attributionVerdict, checkRegister } from "../src/templates/validate";
+import { POST_TEXT_LIMIT, fitsInPost, weightedLength } from "../src/templates/length";
 import type { ArchetypeId } from "../src/templates/types";
 
 const ALL_ARCHETYPES = Object.keys(ARCHETYPES) as ArchetypeId[];
@@ -90,6 +94,62 @@ describe("anti-patterns are genuinely negative", () => {
   });
 });
 
+describe("the margin rule (owner ruling 2026-08-06)", () => {
+  // "Exemplars install at 272 weighted or under; generation targets 272;
+  // hard cap 280 unchanged."
+  it("generation targets the margin, and the hard cap is untouched", () => {
+    expect(EXEMPLAR_MAX_WEIGHTED).toBe(272);
+    expect(COMMENTARY_TARGET).toBe(EXEMPLAR_MAX_WEIGHTED);
+    expect(POST_TEXT_LIMIT).toBe(280);
+    // The two prompt budgets plus the blank line reach the TARGET, not the cap.
+    expect(COMMENTARY_FACT_BUDGET + COMMENTARY_TAKE_BUDGET + 1).toBe(COMMENTARY_TARGET);
+  });
+
+  it("every v2 exemplar installed is inside the margin", () => {
+    const v2 = OWNER_EXEMPLARS.filter((e) => e.v2);
+    expect(v2.length).toBe(4);
+    for (const e of v2) {
+      expect(weightedLength(e.text), e.text.slice(0, 40)).toBeLessThanOrEqual(EXEMPLAR_MAX_WEIGHTED);
+    }
+  });
+
+  it("the three v2 texts held back are held, not trimmed, and are still verbatim", () => {
+    // "If any other installed exemplar sits above 272, report it, no silent
+    // trims." [4] carries the owner's OWN replacement line and still lands at
+    // 277: the swap moved it 280 -> 277, not under the margin.
+    expect(PENDING_OWNER_EXEMPLARS.map((p) => p.n)).toEqual([2, 4, 5]);
+    for (const p of PENDING_OWNER_EXEMPLARS) {
+      expect(weightedLength(p.text), `[${p.n}]`).toBe(p.weighted);
+      expect(p.weighted, `[${p.n}] would have installed`).toBeGreaterThan(EXEMPLAR_MAX_WEIGHTED);
+      // None of them is in the live bank.
+      expect(OWNER_EXEMPLARS.some((e) => e.text === p.text), `[${p.n}] leaked into the bank`).toBe(false);
+    }
+    expect(PENDING_OWNER_EXEMPLARS.find((p) => p.n === 4)!.text).toContain(
+      "It'll still get called a red flag tonight by someone who didn't read past the dollar sign",
+    );
+  });
+
+  it("the retired v1 seven are kept verbatim and never injected into a prompt", () => {
+    expect(LEGACY_COMMENTARY_EXEMPLARS.length).toBe(4);
+    for (const l of LEGACY_COMMENTARY_EXEMPLARS) {
+      expect(weightedLength(l.text), l.text.slice(0, 30)).toBe(l.weighted);
+      expect(OWNER_EXEMPLARS.some((e) => e.text === l.text)).toBe(false);
+    }
+    const everything = ALL_ARCHETYPES.map(stylePackFor).join("\n");
+    for (const l of LEGACY_COMMENTARY_EXEMPLARS) {
+      expect(everything).not.toContain(l.text.split("\n")[0]!);
+    }
+  });
+
+  it("the only bank entries over the margin are the three whose v2 is blocked", () => {
+    const over = OWNER_EXEMPLARS.filter((e) => weightedLength(e.text) > EXEMPLAR_MAX_WEIGHTED);
+    // Their v1 originals stay live so no archetype loses its commentary
+    // reference while the owner rules on the three rewrites.
+    expect(over.length, over.map((e) => e.text.slice(0, 30)).join(" | ")).toBe(PENDING_OWNER_EXEMPLARS.length);
+    expect(over.every((e) => e.register === "commentary")).toBe(true);
+  });
+});
+
 describe("stylePackFor", () => {
   it("is deterministic", () => {
     expect(stylePackFor("CONGRESS_PTR")).toBe(stylePackFor("CONGRESS_PTR"));
@@ -159,8 +219,26 @@ describe("stylePackFor", () => {
       // the cap BY DESIGN as voice references; output stays validator-capped.)
       const issues = checkRegister(e.text).filter((i) => e.register === "commentary" && i.rule === "length" ? false : true);
       expect(issues, head).toEqual([]);
-      // The attribution rides the FIRST segment, always.
-      expect(e.text.split(/\n\n+/)[0], head).toMatch(/\bper [A-Z]/);
+      // The attribution rides the FIRST segment, always — but the RULE for
+      // what counts is the validator's, not a regex copied next to it.
+      // /\bper [A-Z]/ rejected two of the owner's own v2 exemplars: "per the
+      // House Clerk" (lowercase article) and the FTC one, which carries its
+      // citation in its subject and has no "per" phrase at all.
+      //
+      // `foreign` is counted as present, not as a failure: the owner's Form 4
+      // exemplars say "per SEC" where the archetype pins "per SEC Form 4",
+      // and that abbreviation is deliberate and pre-existing. Exactness is
+      // enforced where it matters — on rendered output, with the payload.
+      const v = attributionVerdict(e.text, e.archetype);
+      // ONE named exception, and it is an OPEN OWNER DECISION, not a
+      // tolerance: the RBI exemplar cites "per MPC statement", which names
+      // no institution and is in no attribution table. src/ingesters/
+      // rateAttribution.ts records the two ways out (build the rate source,
+      // or re-file the exemplar); both are the owner's call. Listed here so
+      // it stays visible instead of being waved through by a loose regex.
+      if (!e.text.includes("per MPC statement")) {
+        expect(v.trailing.length + v.embedded.length + v.foreign.length, `${head}: no attribution`).toBeGreaterThan(0);
+      }
       if (e.register === "wire") {
         // Wire exemplars are postable as-is.
         expect(fitsInPost(e.text), head).toBe(true);

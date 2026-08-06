@@ -101,8 +101,15 @@ const VARIANTS: readonly Variant[] = ["dry", "sharp", "commentary"];
  * observed live on queue #918, where the crush produced a fabricated-looking
  * "April Maduro" compound that entityCheck correctly refused.
  */
+/**
+ * THE MARGIN RULE (owner ruling 2026-08-06): generation targets 272, the
+ * hard cap stays POST_TEXT_LIMIT at 280. The two parts plus the blank line
+ * add to the target, not to the cap, so a draft that honours both parts
+ * lands with eight characters of room rather than on the line.
+ */
+export const COMMENTARY_TARGET = 272;
 export const COMMENTARY_FACT_BUDGET = 120;
-export const COMMENTARY_TAKE_BUDGET = 155;
+export const COMMENTARY_TAKE_BUDGET = COMMENTARY_TARGET - COMMENTARY_FACT_BUDGET - 1;
 
 // Terminal-ness is a property of the CURRENT cycle, not of the row's whole
 // life (p5-01). Regenerate used to delete the row's history so that this
@@ -211,12 +218,17 @@ export function buildPrompt(
     // Segment budgets, not just a total: given only "200-280" the model wrote
     // a 115-char fact block and then crushed the take to fit, which is where
     // lossy name compression (and its fabrication risk) comes from.
-    `- commentary (THE deliverable; the other two are fallbacks): 200-280 weighted chars TOTAL, built as two budgeted parts. Fact block FIRST, at most ${COMMENTARY_FACT_BUDGET} weighted chars including the attribution — compress it yourself (drop clause padding, keep every number and name exact); it must survive being screenshotted alone. Then a blank line, then the take, at most ${COMMENTARY_TAKE_BUDGET} weighted chars: one or two short segments (a punch line, then the argument), opinionated, a real point of view, no hedging, no advice, no imputed motive. Engage the SPECIFIC record in the data above — what this actor did, how it sits against the prior record — not generalities about markets. No claims about market reaction (spreads, flows, pricing, positioning) unless stated in the data above. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a fact as if it were the take.`,
+    `- commentary (THE deliverable; the other two are fallbacks): 200-${COMMENTARY_TARGET} weighted chars TOTAL, built as two budgeted parts. Fact block FIRST, at most ${COMMENTARY_FACT_BUDGET} weighted chars including the attribution — compress it yourself (drop clause padding, keep every number and name exact); it must survive being screenshotted alone. Then a blank line, then the take, at most ${COMMENTARY_TAKE_BUDGET} weighted chars: one or two short segments (a punch line, then the argument), opinionated, a real point of view, no hedging, no advice, no imputed motive. Engage the SPECIFIC record in the data above — what this actor did, how it sits against the prior record — not generalities about markets. No claims about market reaction (spreads, flows, pricing, positioning) unless stated in the data above. Write it as a standalone post from a market desk: declarative and concrete, no filler, and never restate a fact as if it were the take.`,
     "- sharp: wire register (fact block + attribution, then at most one beat line), the escalation tier: the sharpest ELIGIBLE beat, compression at maximum.",
     "- dry: wire register, 100-140 weighted chars. Fact block + attribution, then at most one eligible beat on its own line.",
+    // THE ATTRIBUTION RULE, as the owner amended it 2026-08-06. The strict
+    // "ends with exactly" line is still the default, because it is what
+    // makes the citation unguessable — but stating it alone contradicted the
+    // two exemplars this prompt ships, both of which name the source as the
+    // subject of the fact and carry no trailing phrase at all.
     attribution !== null
-      ? `Rules for all three: the fact block's head line ends with exactly "${attribution}" — any other citation fails validation. No hashtags, no questions, no em-dashes, no BREAKING, no URLs or links of any kind. Numbers exactly as they appear in ${factSources} (bands stay bands).`
-      : `Rules for all three: attribution on the fact block. No hashtags, no questions, no em-dashes, no BREAKING, no URLs or links of any kind. Numbers exactly as they appear in ${factSources} (bands stay bands).`,
+      ? `Rules for all three: the fact block's head line ends with exactly "${attribution}" — any other citation fails validation. ONE exception: if the fact line already names that same source as the DOER of the fact ("The FTC just sued...", "A company just told the SEC..."), the citation is already there and you must NOT add the trailing phrase as well; naming it twice fails validation too. No hashtags, no questions, no em-dashes, no BREAKING, no URLs or links of any kind. Numbers exactly as they appear in ${factSources} (bands stay bands).`
+      : `Rules for all three: attribution on the fact block, either as a trailing "per X" or by naming the source as the doer of the fact, never both. No hashtags, no questions, no em-dashes, no BREAKING, no URLs or links of any kind. Numbers exactly as they appear in ${factSources} (bands stay bands).`,
     ...(feedback.length > 0
       ? [`PREVIOUS ATTEMPT WAS REJECTED. Fix exactly these and change nothing else:\n${feedback.map((f) => `- ${f}`).join("\n")}`]
       : []),
