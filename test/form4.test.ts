@@ -1,4 +1,5 @@
 import { env, fetchMock } from "cloudflare:test";
+import { fmtUsd, fmtPct, trimNum } from "../src/ingesters/shared";
 import { beforeAll, describe, expect, it } from "vitest";
 import FEED_FIXTURE from "./fixtures/form4-current.atom.xml?raw";
 import XML_DERIVATIVE from "./fixtures/form4-derivative-only.xml?raw";
@@ -493,5 +494,46 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
     const d = draftForm4(doc, totalsFor(doc.nonDerivative));
     // Exactly one cashtag; the money figures keep their own $ and gain nothing.
     expect([...d.matchAll(/\$[A-Z]{1,5}\b/g)].map((m) => m[0])).toEqual(["$ACME"]);
+  });
+});
+
+describe("money and percent formatting is copy law (owner ruling 2026-08-06)", () => {
+  it("reproduces every figure the ruling and the exemplar state", () => {
+    // Four significant figures, capped at 2 decimals, zeros stripped. Derived
+    // from the owner's own examples rather than from the prose, because a
+    // literal 2-decimal reading contradicts his exemplar in two places.
+    expect(fmtUsd(263_095_703_570)).toBe("$263.1B");
+    expect(fmtUsd(2_646_532_635)).toBe("$2.65B");
+    expect(fmtUsd(2_910_002_197)).toBe("$2.91B");
+    expect(fmtUsd(2_275_897_610)).toBe("$2.28B");
+    expect(fmtUsd(192_725_735_072)).toBe("$192.7B");
+    expect(fmtUsd(115_000_000)).toBe("$115M");          // not $115.00M
+    expect(fmtUsd(4_660_000_000_000)).toBe("$4.66T");
+    expect(fmtPct(203.99)).toBe("+204%");
+    expect(fmtPct(-95.13)).toBe("-95.13%");
+  });
+
+  it("under $1K stays in full dollars, and negatives keep their sign", () => {
+    expect(fmtUsd(950)).toBe("$950");
+    expect(fmtUsd(0)).toBe("$0");
+    expect(fmtUsd(-2_910_002_197)).toBe("-$2.91B");
+  });
+
+  it("KILL-TEST: a re-rounded figure is refused like an unlicensed number", async () => {
+    const { numberCheck } = await import("../src/rag/validate");
+    // The payload states the figure ONCE, in its display form. $2.6B is the
+    // model helpfully rounding, and it is a number the payload never stated.
+    const payload = { issuer: "DELTA AIR LINES INC", value_usd: 2_646_532_635, value_display: fmtUsd(2_646_532_635) };
+    expect(numberCheck("New: $DAL at $2.65B", payload)).toEqual([]);
+    const issues = numberCheck("New: $DAL at $2.6B", payload);
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues[0]!.rule).toBe("number");
+  });
+
+  it("KILL-TEST: a figure with more precision than the display field is also refused", () => {
+    // The other direction. "$2.6465B" is closer to the truth and still wrong,
+    // because the licensed rendering is the one in the payload.
+    expect(fmtUsd(2_646_532_635)).not.toBe("$2.6465B");
+    expect(trimNum(2.646532635)).toBe("2.65");
   });
 });
