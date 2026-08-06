@@ -191,6 +191,59 @@ export async function sendMessage(
 }
 
 /**
+ * Send a rendered card as a PHOTO with the copy text as its caption.
+ *
+ * multipart/form-data, not JSON: `tgCall` posts JSON and there is no way to
+ * carry PNG bytes through it. Telegram's caption limit is 1,024 characters,
+ * which is comfortably above the 280-weighted post budget, so a caption is
+ * never truncated in practice — but it is clamped rather than trusted.
+ *
+ * Photo, not document: a document arrives without a preview and the owner
+ * cannot see what he is about to attach.
+ */
+export const PHOTO_CAPTION_LIMIT = 1024;
+
+export async function sendPhoto(
+  token: string,
+  chatId: string,
+  photo: Uint8Array,
+  opts?: { caption?: string; buttons?: TgInlineButton[][]; filename?: string; spacingMs?: number },
+): Promise<TgMessageResult> {
+  if (opts?.spacingMs) await paceChat(chatId, opts.spacingMs);
+  const form = new FormData();
+  form.set("chat_id", chatId);
+  // A fresh ArrayBuffer copy: a Blob over a subarray of a larger buffer would
+  // send the whole backing store.
+  const bytes = new Uint8Array(photo.length);
+  bytes.set(photo);
+  form.set("photo", new Blob([bytes], { type: "image/png" }), opts?.filename ?? "card.png");
+  if (opts?.caption) {
+    const cap = opts.caption;
+    form.set("caption", cap.length > PHOTO_CAPTION_LIMIT ? `${cap.slice(0, PHOTO_CAPTION_LIMIT - 1)}…` : cap);
+  }
+  if (opts?.buttons) form.set("reply_markup", JSON.stringify({ inline_keyboard: opts.buttons }));
+
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+    method: "POST",
+    body: form,
+    // Photos are 40-120KB and the upload is the slow half; 10s is what the
+    // JSON path uses and it is too tight for a cold upload.
+    signal: AbortSignal.timeout(20_000),
+  });
+  const raw = await res.text();
+  let body: { ok: boolean; result?: TgMessageResult; error_code?: number; description?: string; parameters?: { retry_after?: number } };
+  try {
+    body = JSON.parse(raw) as typeof body;
+  } catch {
+    throw new TelegramError(res.status, `non-JSON response: ${raw.slice(0, 120)}`, null);
+  }
+  if (!body.ok) {
+    throw new TelegramError(body.error_code ?? res.status, body.description ?? "unknown", body.parameters?.retry_after ?? null);
+  }
+  return body.result as TgMessageResult;
+}
+
+/**
  * Edit a previous bot message. Omitting reply_markup removes the inline
  * keyboard. "message is not modified" (undocumented but ubiquitous 400) is
  * swallowed as a benign no-op so double-processing never throws.
