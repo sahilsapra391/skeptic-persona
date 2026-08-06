@@ -146,7 +146,7 @@ describe("prompt assembly", () => {
     // led the spec, and the model was never told WHICH citation validates.
     expect(p.user.indexOf('"commentary"')).toBeLessThan(p.user.indexOf('"dry"'));
     expect(p.user).toContain("THE deliverable");
-    expect(p.user).toContain('ends with exactly "per Senate eFD"');
+    expect(p.user).toContain('ends with exactly "per Senate financial disclosures"');
   });
 
   it("rejection feedback rides into the retry prompt (finding #25)", () => {

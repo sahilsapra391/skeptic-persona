@@ -41,7 +41,19 @@ THE CRAFT PRINCIPLE
 unavoidable, then stop. The desk never says what the reader is supposed to
 conclude; it hands them the record that concludes it.
 
-REGISTER
+REGISTER, v2 (owner ruling 2026-08-06)
+Target register for the take, all three positive:
+- EVERYDAY CONTRASTS that price the number in something a reader has paid
+  for. "You'd pay more to park at the airport for a week." "You can pay your
+  taxes from a phone."
+- FRAGMENT RUNS. "Not searchable. Not sortable. Technically public."
+- PLAIN TRANSLATIONS of the regulatory phrase, adding no facts.
+The banned-tells list stands unchanged: no X-not-Y antithesis, no rhetorical
+question openers, no manufactured-excitement setups. A definitional line
+("X is Y") is judged by what it CASHES OUT TO: it passes when a payload
+field or the definitions registry backs it, and is rejected when it backs
+onto nothing.
+
 Wire-terse for the dry and sharp variants: median 100-140 weighted
 characters. The commentary variant is the explainer register, and its
 contract is 200-280 weighted characters, fact block first, then the take
@@ -49,8 +61,8 @@ contract is 200-280 weighted characters, fact block first, then the take
 is the long form, never something in between). No hashtags. No
 engagement-bait questions. No fake urgency: no "BREAKING" on routine items.
 No em-dashes in post copy. Emoji only purposeful (flags for countries,
-\u{1F7E2}\u{1F534} for tape). Attribution on every fact: per SEC, per Senate eFD, per
-Nasdaq, per BLS. Advice language never: no buy/sell/watch/avoid, no targets,
+\u{1F7E2}\u{1F534} for tape). Attribution on every fact: per SEC, per Senate
+financial disclosures, per Nasdaq, per BLS. Advice language never: no buy/sell/watch/avoid, no targets,
 no "bullish/bearish".
 
 NEVER (from the consolidated never-list)
@@ -114,10 +126,23 @@ export const MOVES = `THE THREE MOVES (in order of precedence)
    Pairing a parsed fact with an outside event we did not parse is the
    manufactured-connection pattern (see NEVER DO) and is banned.
 
-3. ATTRIBUTION AS FURNITURE. "per SEC", "per Senate eFD" appended to the head
-   fact line, never a standalone "according to" sentence. The attribution
-   names the RECORD, not a reporter. If the record has a number, the number
-   appears exactly as filed (bands stay bands, never midpoints).`;
+3. ATTRIBUTION AS FURNITURE. "per SEC", "per Senate financial disclosures"
+   appended to the head fact line, never a standalone "according to"
+   sentence. The attribution names the RECORD, not a reporter. If the record
+   has a number, the number appears exactly as filed (bands stay bands, never
+   midpoints).
+   ONE EXCEPTION, and it is a rule not a licence: when the publishing source
+   IS the actor of the fact line, the citation is already there and a
+   trailing "per X" is redundant. "The FTC just sued to block a merger" cites
+   the FTC. "A company just told the SEC" cites the SEC. Writing "FTC sued,
+   per FTC" states the source twice and is rejected.
+
+4. PLAIN TRANSLATION. State the regulatory fact, then say what it means in
+   the words a reader would use: "three quarters can no longer be relied on.
+   Plain English: the numbers were wrong." The translation may add NOTHING
+   beyond the payload and the definitions registry — it re-words the record,
+   it never extends it. A translation that introduces a cause, a motive or a
+   consequence is a new claim wearing a helpful voice.`;
 
 export interface AntiPattern {
   readonly name: string;
@@ -223,6 +248,13 @@ export interface OwnerExemplar {
   readonly archetype: ArchetypeId;
   readonly register: "wire" | "commentary";
   readonly text: string;
+  /**
+   * Owner pack v2 (2026-08-06). Marked explicitly so the margin-rule test
+   * asserts against the entries it actually governs. Inferring the pack from
+   * text shape was wrong the first time: the wire exemplars use single
+   * newlines too, so the heuristic matched 24 entries instead of 4.
+   */
+  readonly v2?: true;
 }
 
 export const OWNER_EXEMPLARS: readonly OwnerExemplar[] = [
@@ -238,21 +270,18 @@ Filing on time is so rare in this dataset it's basically a flex.` },
   { archetype: "CONGRESS_PTR", register: "wire", text: `One House PTR filed today: eleven transactions, seven tickers, trade dates March 4 through May 30, per House Clerk.
 Up to 118 days of lag, all cleared in one afternoon.
 Three months of trading, one PDF, zero consequences.` },
-  { archetype: "CONGRESS_PTR", register: "commentary", text: `House PTR: $50,001 - $100,000 purchase in a defense contractor, trade date April 2, disclosed today, per House Clerk.
-
-Eighty-seven days late. Deadline is 45. Penalty is $200.
-
-Two hundred dollars. You'd pay more to park at the airport for a week. This isn't an enforcement regime, it's a subscription fee for opacity.` },
+  // v2 [1], owner-authored 2026-08-06, 250 weighted. Replaces the 318-char
+  // v1 (retired to LEGACY_COMMENTARY_EXEMPLARS).
+  { archetype: "CONGRESS_PTR", register: "commentary", v2: true, text: `A House member bought $50,001 - $100,000 of a defense contractor's stock on April 2. We're only finding out today, per the House Clerk.
+The law gives 45 days to disclose. This took 87. The fine: $200. You'd pay more to park at the airport for a week.` },
   { archetype: "CONGRESS_PTR", register: "commentary", text: `Senate PTR: purchase of $100,001 - $250,000, trade date June 10, filed today, per Senate eFD.
 
 Thirty-nine days late, in a bracket wide enough to hide a house in.
 
 Every account posting a precise dollar figure tonight is guessing. The record gives a range because the range is all anyone filed, and somehow that's the part nobody finds outrageous.` },
-  { archetype: "CONGRESS_PTR", register: "commentary", text: `Paper filing, House PTR. Scanned image, no machine-readable text, per House Clerk.
-
-Public. Not searchable. Not sortable. Technically compliant.
-
-It is 2026 and you can still disclose your stock trades by photograph. Every transparency law keeps one slow lane open, and everyone who uses it knows exactly why it's there.` },
+  // v2 [3], 258 weighted.
+  { archetype: "CONGRESS_PTR", register: "commentary", v2: true, text: `A House member filed their stock trade disclosure on paper. A scanned image, per the House Clerk. Not searchable. Not sortable. Technically public.
+It is 2026. You can pay your taxes from a phone. A member of Congress can still disclose trades by photograph.` },
   { archetype: "FILING_FORM4", register: "wire", text: `Form 4: director bought 25,000 shares of $XYZ at $14.20, open market, Code P, per SEC.
 Position up 31%.
 Nobody buys 25,000 shares by accident. A grant is a paycheck. A P is a decision.` },
@@ -287,22 +316,21 @@ Planned exits come with a start date for the next guy. This one came with a Tues
   { archetype: "FILING_8K", register: "wire", text: `8-K, Item 1.05: material cybersecurity incident, per SEC.
 They picked 1.05 themselves, which means they called it material.
 The item number is the confession. The rest is drafting.` },
-  { archetype: "FILING_8K", register: "commentary", text: `8-K, Item 4.02, filed after the close: three prior quarters should no longer be relied upon, per SEC.
-
-Second non-reliance filing from this issuer in fourteen months.
-
-One is a mistake. Two is a method. And it went out after the bell on a Friday, which tells you they know exactly how this lands.` },
+  // v2 [6], 266 weighted. Carries the PLAIN-TRANSLATION device and the
+  // embedded attribution form: "told the SEC" IS the citation.
+  { archetype: "FILING_8K", register: "commentary", v2: true, text: `A company just told the SEC that three quarters of its own financial statements can no longer be relied on. Plain English: the numbers were wrong.
+Second time in fourteen months from this company. One is a mistake. Two is a pattern. Filed after the bell on a Friday.` },
   { archetype: "REGULATORY_NEWS", register: "wire", text: `SEC instituted administrative proceedings against a registered adviser over undisclosed fee arrangements, per SEC.
 The order is public. The response isn't filed yet.
 Timeline's already reached a verdict. The respondent hasn't reached a lawyer.` },
   { archetype: "REGULATORY_NEWS", register: "wire", text: `CFTC filed a complaint alleging manipulation in a physical commodity market, per CFTC.
 Complaint. Allegation. Not a finding.
 That distinction survives exactly zero headlines tonight and you know it.` },
-  { archetype: "REGULATORY_NEWS", register: "commentary", text: `FTC sued to block a merger announced eleven months ago, per FTC.
-
-Eleven months of integration planning, banker fees, and org charts, undone by one filing.
-
-Antitrust risk gets priced on announcement day, ignored by month three, and remembered all at once. Today is the remembering, and somebody's bonus just evaporated.` },
+  // v2 [7], 258 weighted. The exemplar that forced the attribution
+  // amendment: source and actor are the same body, so there is no trailing
+  // "per FTC" — and the v1 line that HAD one is now flagged as redundant.
+  { archetype: "REGULATORY_NEWS", register: "commentary", v2: true, text: `The FTC just sued to block a merger announced eleven months ago.
+Eleven months of integration planning, banker fees, and new org charts, headed for the shredder. Deal risk gets priced on day one and forgotten by month three. Somebody's bonus just evaporated.` },
   { archetype: "HALT", register: "wire", text: `$XYZ halted 14:20 ET. Code T1, news pending, per Nasdaq.
 "News pending" is the entire disclosure.
 For five minutes nobody knows anything, which is the only time this market is fair.` },
@@ -321,6 +349,64 @@ Everyone watched the rate. The projection was the only sentence that mattered, s
   { archetype: "RATE_DECISION", register: "wire", text: `ECB holds the deposit facility rate at 2.00%. Third consecutive hold, per ECB.
 Nothing moved.
 A hold is a decision made by people who seriously considered moving. It just doesn't trend.` },
+];
+
+/**
+ * THE MARGIN RULE (owner ruling 2026-08-06).
+ *
+ * Exemplars install at 272 weighted or under; generation targets 272; the
+ * hard cap stays POST_TEXT_LIMIT. The 8-char gap is the room a real payload
+ * needs — an exemplar sitting on the cap teaches the model to sit on it too,
+ * and the first longer issuer name busts the post.
+ */
+export const EXEMPLAR_MAX_WEIGHTED = 272;
+
+/**
+ * v1 commentary exemplars retired by the v2 pack, kept verbatim as the
+ * before-and-after record for the legacy-seven ledger entry. NOT injected
+ * into any prompt. Four of the seven; the other three are still live in
+ * OWNER_EXEMPLARS because their v2 rewrites bust the margin rule.
+ */
+export const LEGACY_COMMENTARY_EXEMPLARS: ReadonlyArray<{ archetype: ArchetypeId; weighted: number; text: string }> = [
+  { archetype: "CONGRESS_PTR", weighted: 318, text: `House PTR: $50,001 - $100,000 purchase in a defense contractor, trade date April 2, disclosed today, per House Clerk.
+
+Eighty-seven days late. Deadline is 45. Penalty is $200.
+
+Two hundred dollars. You'd pay more to park at the airport for a week. This isn't an enforcement regime, it's a subscription fee for opacity.` },
+  { archetype: "CONGRESS_PTR", weighted: 320, text: `Paper filing, House PTR. Scanned image, no machine-readable text, per House Clerk.
+
+Public. Not searchable. Not sortable. Technically compliant.
+
+It is 2026 and you can still disclose your stock trades by photograph. Every transparency law keeps one slow lane open, and everyone who uses it knows exactly why it's there.` },
+  { archetype: "FILING_8K", weighted: 296, text: `8-K, Item 4.02, filed after the close: three prior quarters should no longer be relied upon, per SEC.
+
+Second non-reliance filing from this issuer in fourteen months.
+
+One is a mistake. Two is a method. And it went out after the bell on a Friday, which tells you they know exactly how this lands.` },
+  { archetype: "REGULATORY_NEWS", weighted: 320, text: `FTC sued to block a merger announced eleven months ago, per FTC.
+
+Eleven months of integration planning, banker fees, and org charts, undone by one filing.
+
+Antitrust risk gets priced on announcement day, ignored by month three, and remembered all at once. Today is the remembering, and somebody's bonus just evaporated.` },
+];
+
+/**
+ * v2 exemplars the owner sent that the MARGIN RULE will not let in.
+ *
+ * Held here rather than trimmed, because the ruling that created the rule
+ * says so in the same breath: "If any other installed exemplar sits above
+ * 272, report it, no silent trims." [4] is the one to look at first — its
+ * closing line is already the owner's own replacement, and the swap moved it
+ * 280 -> 277, not under 272. Their v1 originals stay live in OWNER_EXEMPLARS
+ * meanwhile, so no archetype loses its commentary reference.
+ */
+export const PENDING_OWNER_EXEMPLARS: ReadonlyArray<{ n: number; archetype: ArchetypeId; weighted: number; text: string }> = [
+  { n: 2, archetype: "CONGRESS_PTR", weighted: 274, text: `A senator bought somewhere between $100,001 and $250,000 of one stock on June 10. Disclosed today, 39 days later, per Senate financial disclosures.
+That's the whole disclosure: a range wide enough to hide a house in. Anyone posting an exact dollar figure tonight made it up.` },
+  { n: 4, archetype: "FILING_FORM4", weighted: 277, text: `A CEO sold $4.2M of their own company's stock on June 12, per SEC Form 4. The sale was scheduled back in March under a preset trading plan.
+The most boring kind of insider sale there is. It'll still get called a red flag tonight by someone who didn't read past the dollar sign.` },
+  { n: 5, archetype: "FILING_FORM4", weighted: 275, text: `A board director bought 40,000 shares of their own company this week, their first open-market purchase since 2021, per SEC Form 4.
+Four years of collecting stock grants without reaching for the checkbook. Then this. The buy is the only statement insiders are allowed to make.` },
 ];
 
 /**

@@ -1,9 +1,11 @@
 import type { Payload } from "../templates/types";
 import type { ArchetypeId } from "../templates/types";
 import { ARCHETYPES } from "../templates/archetypes";
-import { checkRegister } from "../templates/validate";
+import { attributionVerdict, checkRegister } from "../templates/validate";
+import { ALL_ATTRIBUTION_FORMS, ATTRIBUTION_ENTRIES } from "../templates/attribution";
 import { POST_TEXT_LIMIT, weightedLength } from "../templates/length";
 import { ngramHashes, sharedNgrams } from "./echo";
+import { boundDefinitionsFor } from "./definitions";
 
 // Generated-draft validation (docs/p2r-plan.md Part D).
 //
@@ -899,17 +901,31 @@ function furnitureSet(): Set<string> {
     "SEC", "EDGAR", "BLS", "FDA", "CFTC", "FTC", "FCA", "ECB", "FOMC", "DOJ",
     "NYSE", "OTC", "IPO", "ET", "UTC", "CIK", "CEO", "CFO", "COO", "CTO", "GDP", "CPI", "PPI", "PCE",
     "LUDP", "LUDS", "USD", "EUR", "GBP", "PTR", "EFD",
+    // The plain-translation device's marker (owner ruling 2026-08-06, item
+    // 3). Title-cased and two words, so entityCheck read "Plain English" as
+    // an unlicensed proper name and rejected the exemplar that demonstrates
+    // the approved device.
+    "PLAIN ENGLISH",
     "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST",
     "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
     "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY",
   ]);
-  for (const a of Object.values(ARCHETYPES)) {
-    const attr: unknown = a.attribution;
-    const strings = typeof attr === "string" ? [attr] : Object.values((attr as { map?: Record<string, string> }).map ?? {});
-    for (const s of strings) {
-      const phrase = s.replace(/^per\s+/i, "");
-      out.add(phrase.toUpperCase());
-      for (const w of phrase.split(/\s+/)) out.add(w.toUpperCase());
+  // Furniture comes from the attribution TABLE, which carries aliases and
+  // actor names as well as the live pins. Two reasons it cannot come from
+  // ARCHETYPES alone:
+  //
+  //   1. Pinning "per the House Clerk" changed the derived phrase to "THE
+  //      HOUSE CLERK", so "House Clerk" — still correct on every legacy
+  //      draft and in four owner exemplars — became an unlicensed proper
+  //      name overnight. Aliases exist precisely so that does not happen.
+  //   2. Embedded attribution puts the agency's name in the fact block by
+  //      design ("The FTC just sued..."), and a name we authored in a closed
+  //      table is furniture, not an entity a model invented.
+  const phrases = [...ALL_ATTRIBUTION_FORMS.map((f) => f.replace(/^per\s+/i, "")), ...ATTRIBUTION_ENTRIES.flatMap((e) => e.actors)];
+  for (const phrase of phrases) {
+    for (const form of [phrase, phrase.replace(/^the\s+/i, "")]) {
+      out.add(form.toUpperCase());
+      for (const w of form.split(/\s+/)) out.add(w.toUpperCase());
     }
   }
   return out;
@@ -1063,16 +1079,21 @@ function allowedAttributions(): string[] {
   // The rate-phrase senses of "per" are English, not attribution; without
   // them "250 posts per day" reads as citing an outlet named Day.
   const out: string[] = [
-    "per Skeptic's tape",
     "per day", "per week", "per month", "per year", "per annum",
     "per share", "per contract", "per ounce", "per barrel", "per rolling",
   ];
+  // The attribution table is the single source of accepted spellings, so a
+  // draft carrying a legacy alias ("per Senate eFD") is not reported as
+  // citing an outlet we never registered.
+  out.push(...ALL_ATTRIBUTION_FORMS);
+  // Belt to that brace: an archetype whose pin was never registered in the
+  // table still resolves here rather than failing every draft it renders.
   for (const a of Object.values(ARCHETYPES)) {
     const attr: unknown = a.attribution;
     if (typeof attr === "string") out.push(attr);
     else out.push(...Object.values((attr as { map?: Record<string, string> }).map ?? {}));
   }
-  return out;
+  return [...new Set(out)];
 }
 
 const ALLOWED_ATTRIBUTIONS = allowedAttributions();
@@ -1104,7 +1125,11 @@ export function urlCheck(text: string): ValidationIssue[] {
     : [];
 }
 
-export function structuralCheck(text: string, variant: Variant = "dry"): ValidationIssue[] {
+export function structuralCheck(
+  text: string,
+  variant: Variant = "dry",
+  opts?: { archetype?: ArchetypeId; payload?: Payload },
+): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const segments = text.split(/\n\n+/);
   // The commentary shape is the OWNER'S, demonstrated in his exemplars:
@@ -1113,7 +1138,15 @@ export function structuralCheck(text: string, variant: Variant = "dry"): Validat
   if (segments.length > maxSegments) {
     issues.push({ rule: "structure", detail: `${segments.length} segments; limit ${maxSegments} for ${variant}` });
   }
-  if (!/\bper .+/.test(segments[0] ?? "")) {
+  // ATTRIBUTION RULE AMENDMENT (owner ruling 2026-08-06): a fact block whose
+  // subject IS the publishing source carries its attribution without a "per"
+  // phrase. Checking only for /\bper / rejected the owner's own FTC and 8-K
+  // exemplars. The embedded form is resolved through attributionVerdict so
+  // this check and checkRegister cannot disagree about what counts.
+  const head = segments[0] ?? "";
+  const embedded =
+    opts?.archetype !== undefined && attributionVerdict(text, opts.archetype, opts.payload).embedded.length > 0;
+  if (!/\bper .+/.test(head) && !embedded) {
     issues.push({ rule: "structure", detail: "attribution must ride the fact block, not the take" });
   }
   return issues;
@@ -1229,6 +1262,74 @@ export function cadenceCheck(text: string): ValidationIssue[] {
   const m = anaphora.exec(text);
   if (m && !/^(the|a|an|it|per)$/i.test(m[1] ?? "")) {
     issues.push({ rule: "cadence", detail: `triple anaphora on "${m[1]}"` });
+  }
+  return issues;
+}
+
+// ---------------------------------------------------------------------------
+// THE APHORISM RULE (owner ruling 2026-08-06)
+//
+// "The definitional form is judged by CASH-OUT, not grammar."
+//
+// `X is Y` is the desk's best move and its worst one, and the grammar cannot
+// tell them apart. "Two is a pattern" is backed by a count in our own record.
+// "The buy is the only statement insiders are allowed to make" is backed by
+// Regulation FD. "The filing is the announcement" is backed by nothing — it
+// sounds like a finding and asserts none.
+//
+// So: extract the claim, try to bind it to the payload or the definitions
+// registry, flag what stays unbound. Widening what may be said means writing
+// a definition with a citation, which is the point.
+// ---------------------------------------------------------------------------
+
+/** `The buy is the only statement...`, `Two is a pattern.` */
+const DEFINITIONAL_RE =
+  /^((?:The|A|An|This|That|One|Two|Three|Four|Five)\b[^.!?\n]{0,70}?)\s+(is|are|isn't|aren't|is not|are not)\s+((?:the|a|an|no)\b[^.!?\n]{0,70}?)[.!?]?$/;
+
+/** `This isn't an enforcement regime, it's a subscription fee for opacity.` */
+const ANTITHESIS_RE =
+  /^(?:This|That|It|These|Those)\s+(?:isn't|is not|aren't|are not)\s+([^,\n]{1,70}),\s*(?:it's|it is|they're|they are|its)\s+([^.!?\n]{1,70})[.!?]?$/i;
+
+/**
+ * Sentence-at-a-time, NOT one regex over the whole draft.
+ *
+ * The first cut consumed the sentence terminator as its left boundary, so in
+ * "A grant is a paycheck. A P is a decision." only the first claim was ever
+ * extracted — the second sentence's opening boundary had already been eaten.
+ * Two definitional lines back to back is the exact shape this rule exists to
+ * judge, so the detector cannot be blind to the second one.
+ */
+function sentencesOf(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/** The definitional sentences a draft makes, verbatim. */
+export function definitionalClaims(text: string): string[] {
+  const out: string[] = [];
+  for (const s of sentencesOf(text)) {
+    const d = DEFINITIONAL_RE.exec(s);
+    if (d) out.push(`${d[1]} ${d[2]} ${d[3]}`.replace(/\s+/g, " ").trim());
+    const a = ANTITHESIS_RE.exec(s);
+    if (a) out.push(`not ${a[1]}, but ${a[2]}`.replace(/\s+/g, " ").trim());
+  }
+  return out;
+}
+
+export function aphorismCheck(text: string, payload: Payload, facts: PayloadFacts): ValidationIssue[] {
+  const ctx = { payload, numbers: facts.numbers };
+  const issues: ValidationIssue[] = [];
+  for (const claim of definitionalClaims(text)) {
+    // The claim is matched against the WHOLE draft's registry invocations
+    // only through its own words: a definition earned by a neighbouring
+    // sentence does not license this one.
+    if (boundDefinitionsFor(claim, ctx).length > 0) continue;
+    issues.push({
+      rule: "aphorism",
+      detail: `definitional claim "${claim.slice(0, 64)}" cashes out to nothing checkable: no payload field and no definitions-registry entry backs it`,
+    });
   }
   return issues;
 }
@@ -1382,7 +1483,7 @@ export async function validateVariant(db: D1Database, text: string, opts: Valida
     // Group 1 — the floor, enumerated from FLOOR_GATES so the exemplar-parity
     // test cannot fall out of step with what actually runs here.
     ...FLOOR_GATES.flatMap((g) => g.run(text, opts.payload, facts)),
-    ...structuralCheck(text, opts.variant),
+    ...structuralCheck(text, opts.variant, { archetype: opts.archetype, payload: opts.payload }),
     // Payload arg (PR #53): resolves the single correct attribution for
     // chamber-mapped archetypes — the wrong-chamber check comes free.
     ...checkRegister(text, opts.archetype, opts.payload),
@@ -1391,6 +1492,13 @@ export async function validateVariant(db: D1Database, text: string, opts: Valida
     ...beatShapeCheck(text),
     ...hedgeCheck(text),
     ...cadenceCheck(text),
+    // The aphorism rule runs on OUTPUT. It is deliberately not in
+    // FLOOR_GATES: the owner exemplar bank predates the rule and carries
+    // definitional lines the registry does not yet cover, and those are his
+    // to rule on, not mine to rewrite. test/aphorism.test.ts pins exactly
+    // which bank entries flag, so the gap is measured rather than hidden
+    // (D-31).
+    ...aphorismCheck(text, opts.payload, facts),
   ];
   if (opts.variant === "commentary") issues.push(...templateEchoCheck(text, opts.templateDraft));
   issues.push(...(await collisionCheck(db, opts.queueId, opts.skeletonHash, opts.openerHash)));

@@ -95,7 +95,15 @@ describe("REGULATORY_NEWS is numberless by construction", () => {
     if (!r.ok) return;
     // p4-00b: the citation is the named body from the one authored map, not
     // the generic phrase the owner's exemplars contradicted.
-    expect(r.text).toContain("per the FCA");
+    //
+    // AMENDED 2026-08-06: this feed title is "FCA secures majority of
+    // victims' money...", which names the source as the doer, so the
+    // renderer does NOT append a second mention (owner ruling: a trailing
+    // "per X" is required only when source and actor differ). The citation
+    // is still present and still the FCA's — it rides in the subject.
+    expect(r.text).toContain("FCA");
+    expect(r.text).not.toContain("per the FCA");
+    expect(checkRegister(r.text, "REGULATORY_NEWS", { authority: "UK FCA" })).toEqual([]);
     expect(r.text).not.toContain("—");
     expect(checkRegister(r.text, "REGULATORY_NEWS")).toEqual([]);
   });

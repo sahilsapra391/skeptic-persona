@@ -121,8 +121,9 @@ describe("doctrine: register", () => {
     const house = renderPost(ARCHETYPES.CONGRESS_PTR, { ...base, chamber: "house" }, { seed: "x" });
     expect(house.ok).toBe(true);
     if (!house.ok) return;
-    expect(house.text).toContain("per House Clerk");
-    expect(house.text).not.toContain("Senate eFD");
+    // The pinned House form keeps its article (owner ruling 2026-08-06).
+    expect(house.text).toContain("per the House Clerk");
+    expect(house.text).not.toContain("Senate");
   });
 
   it("resolveAttribution cannot be reached through the prototype chain", () => {
@@ -144,13 +145,20 @@ describe("doctrine: structural law (fact first, beat last, never blended)", () =
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const lines = r.text.split("\n");
-    expect(lines[0]).toContain("per Senate eFD"); // attribution on the fact
+    // "eFD" is the Senate's internal system name; the pinned form is plain
+    // English and the old string survives only as an alias.
+    expect(lines[0]).toContain("per Senate financial disclosures"); // attribution on the fact
     expect(r.text).toContain("\n\n"); // blank line separates beat
-    expect(lines.at(-1)).not.toContain("per Senate eFD"); // beat is its own line
+    expect(lines.at(-1)).not.toContain("per Senate financial disclosures"); // beat is its own line
   });
 
   it("the fact block is never sacrificed for a beat (beat drops if over budget)", () => {
-    const huge = "x".repeat(POST_TEXT_LIMIT - 20);
+    // Sized from the RESOLVED citation, not a magic 20. The pinned Senate
+    // form went from "per Senate eFD" (14) to "per Senate financial
+    // disclosures" (33) and a hard-coded margin silently became a render
+    // failure instead of the beat-drop this test is about.
+    const cite = resolveAttribution(ARCHETYPES.CONGRESS_PTR, { chamber: "senate" })!;
+    const huge = "x".repeat(POST_TEXT_LIMIT - weightedLength(`, ${cite}`) - 6);
     const r = renderPost(ARCHETYPES.CONGRESS_PTR, { chamber: "senate", factLine: huge, lagDays: 40 }, { seed: "s" });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
