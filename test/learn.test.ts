@@ -662,3 +662,58 @@ describe("p5-12: Senate eFD arrival latency", () => {
     expect(l.maxDays).toBeGreaterThanOrEqual(4);
   });
 });
+
+describe("per-lane rates (p5-20)", () => {
+  it("counts approvals the same way the north star does, per archetype", async () => {
+    const { laneRates, renderLaneRates } = await import("../src/rag/digest");
+    const since = "2026-08-01T00:00:00.000Z";
+    const until = "2026-08-08T00:00:00.000Z";
+    await env.DB.prepare(`DELETE FROM post_log`).run();
+    await env.DB.prepare(`DELETE FROM queue`).run();
+    // Two lanes. EARNINGS_EVENT gets 3 cards: one approved by STATE, one
+    // approved ONLY through post_log — the case PR #115 measured as the
+    // difference between 0.22% and 2.17% pipeline-wide.
+    // queue.item_id is a real FK, so the items have to exist first.
+    for (const id of [901, 902, 903, 904]) {
+      await env.DB.prepare(
+        `INSERT OR IGNORE INTO items (id, dedup_key, source, external_id, category, event_at, fetched_at, source_url, payload, score, status)
+         VALUES (?1, 'lane:' || ?1, 'test', CAST(?1 AS TEXT), 'filing', '2026-08-04T00:00:00.000Z', '2026-08-04T00:00:00.000Z', 'https://example.gov/x', '{}', 2, 'queued')`,
+      )
+        .bind(id)
+        .run();
+    }
+    for (const [id, arch, state] of [
+      [901, "EARNINGS_EVENT", "approved"],
+      [902, "EARNINGS_EVENT", "pending"],
+      [903, "EARNINGS_EVENT", "expired"],
+      [904, "CONGRESS_PTR", "pending"],
+    ] as const) {
+      await env.DB.prepare(
+        `INSERT INTO queue (id, item_id, archetype, draft_text, state, created_at) VALUES (?1, ?1, ?2, 'x', ?3, '2026-08-04T00:00:00.000Z')`,
+      )
+        .bind(id, arch, state)
+        .run();
+    }
+    await env.DB.prepare(
+      `INSERT INTO post_log (queue_id, archetype, category, posted_at, posted_manually, edit_distance)
+       VALUES (902, 'EARNINGS_EVENT', 'filing', '2026-08-05T00:00:00.000Z', 1, 0)`,
+    ).run();
+
+    const lanes = await laneRates(env.DB, since, until);
+    const earn = lanes.find((l) => l.archetype === "EARNINGS_EVENT")!;
+    expect(earn.cards).toBe(3);
+    expect(earn.approvals, "state alone would report 1").toBe(2);
+    expect(earn.posts).toBe(1);
+
+    const ptr = lanes.find((l) => l.archetype === "CONGRESS_PTR")!;
+    expect(ptr.cards).toBe(1);
+    expect(ptr.approvals).toBe(0);
+
+    const text = renderLaneRates(lanes).join("\n");
+    expect(text).toContain("EARNINGS_EVENT: 67% approved");
+    expect(text).toContain("CONGRESS_PTR: 0% approved");
+    // A lane with no cards is absent from the GROUP BY, so no rate is ever
+    // divided by zero.
+    expect(renderLaneRates([])).toEqual([]);
+  });
+});

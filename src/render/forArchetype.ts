@@ -1,5 +1,5 @@
 import type { Payload } from "../templates/types";
-import { renderSingleStat, type SingleStatCard } from "./cards";
+import { renderEvent, renderSingleStat, type SingleStatCard } from "./cards";
 import { ARCHETYPES } from "../templates/archetypes";
 import { resolveAttribution } from "../templates/render";
 
@@ -76,6 +76,10 @@ export interface CardImage {
  * A missing image is a smaller failure than a wrong one.
  */
 export async function cardImageFor(archetype: string, payload: Payload): Promise<CardImage | null> {
+  // EARNINGS_EVENT has NO figure by design, so it gets the event card rather
+  // than being forced into a hero-number template it cannot honestly fill.
+  if (archetype === "EARNINGS_EVENT") return earningsCard(payload);
+
   const spec = STAT_CARDS[archetype];
   if (!spec) return null;
 
@@ -114,3 +118,32 @@ export async function cardImageFor(archetype: string, payload: Payload): Promise
 
 /** Exported for the coverage test, which asserts the omissions are deliberate. */
 export const STAT_CARD_ARCHETYPES = Object.keys(STAT_CARDS);
+
+/**
+ * The earnings event card. No figure, because the payload carries none.
+ *
+ * The period row appears only when the SEC stated a period; a card that
+ * invented "Q2" from a filing date would be making a claim about which
+ * quarter a company reported.
+ */
+async function earningsCard(payload: Payload): Promise<CardImage | null> {
+  const name = str(payload, "displayName");
+  const filed = str(payload, "filedIso");
+  if (!name || !filed) return null;
+  const rows: Array<readonly [string, string]> = [];
+  const period = str(payload, "periodLabel");
+  if (period) rows.push(["period", period]);
+  const exchange = str(payload, "exchange");
+  if (exchange) rows.push(["listed", exchange]);
+  rows.push(["item", "8-K 2.02"]);
+  return {
+    png: await renderEvent({
+      kind: "earnings",
+      attribution: "per SEC",
+      subject: name,
+      headline: "Results filed with the SEC",
+      rows,
+    }),
+    filename: "earnings_event.png",
+  };
+}

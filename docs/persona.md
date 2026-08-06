@@ -107,6 +107,25 @@ a guaranteed-short skeleton that cuts the title at the SEC's own first
 semicolon and marks the cut. If every skeleton overflowed, the render would
 fail and the filing would silently never reach the queue.
 
+### EARNINGS EVENT (8-K item 2.02)
+- `The numbers are in the issuer's own release, not in this post.`
+- `Filing number {n} of this item from this issuer this year.` [real prior in the lake]
+
+**This archetype is defined by what it refuses to say.** Item 2.02 announces
+that results were released; the results themselves are in the attached press
+release, which is prose. Pulling EPS or revenue out of prose is number
+extraction from unstructured text, and a misread decimal in an earnings figure
+is the most damaging thing this desk could publish.
+
+So the lane posts the EVENT: who filed, for which period when the SEC states
+one, when, and where to read it. The reader gets the filing seconds after it
+exists, which is the actual edge. The numbers are one click away in the
+issuer's own words.
+
+**Size decides attention, never wording.** A company's public float may raise
+how loudly a filing is surfaced; it is never printed, and an issuer with no
+float on file is unmeasured rather than small.
+
 ### INSTITUTIONAL 13F BREAKDOWN (a quarter-end snapshot, filed weeks later)
 - `Full top ten on the card.`
 - `Positions as of {d1}. You are reading it {d2}.` [both dates parsed]

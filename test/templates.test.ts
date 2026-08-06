@@ -312,6 +312,9 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       DELISTING: ["exchangeInitiated", "ruleProvision", "factLine", "issuerName", "exchange", "securityClass"],
       SETTLEMENT_FAILURE: ["listDate", "symbol", "listSize", "factLine", "name"],
       REGULATORY_NEWS: ["authority", "publishedIso", "factLine", "title"],
+      // Produced by pipeline/earnings.ts buildEarningsPayload, off the
+      // existing EDGAR 8-K poll when itemCodes carries 2.02.
+      EARNINGS_EVENT: ["displayName", "filedIso", "periodLabel", "sameItemOccurrence", "formType", "sizeTier"],
       // Produced by pipeline/thirteenF.ts buildBreakdownPayload, from the
       // filings_13f / holdings_13f / diffs_13f tables.
       INSTITUTIONAL_13F_BREAKDOWN: [
@@ -497,6 +500,15 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       name: "ADVANCED BIOMED INC COM NEW",
       listDate: "2026-07-27",
       listSize: 30,
+    },
+    EARNINGS_EVENT: {
+      company: "ABBOTT LABORATORIES",
+      cik: "1800",
+      formType: "8-K",
+      displayName: "$ABT",
+      filedIso: "2026-08-06T20:05:00.000Z",
+      periodLabel: "Q2 2026",
+      sizeTier: "large",
     },
     // Verbatim from production filing 301: BERKSHIRE HATHAWAY INC, period
     // 2026-03-31, parsed_value_total 263,095,703,570, 90 entries, and the

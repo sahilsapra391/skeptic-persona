@@ -1023,6 +1023,74 @@ const institutional13fBreakdown: Archetype = {
 };
 
 // ---------------------------------------------------------------------------
+// EARNINGS_EVENT (8-K item 2.02)
+//
+// THE WHOLE ARCHETYPE IS DEFINED BY WHAT IT REFUSES TO SAY. An item 2.02
+// filing announces that results were released; the results themselves live in
+// the press release attached as Exhibit 99.1, which is PROSE. Parsing EPS or
+// revenue out of prose is number extraction from unstructured text, and the
+// standing fabrication rule forbids it — a misread decimal in an earnings
+// number is the single most damaging thing this desk could publish.
+//
+// So this lane posts the EVENT, never the numbers: who filed, for which
+// period if the SEC states one structurally, when, and where to read it. The
+// reader gets the filing seconds after it exists, which is the actual edge;
+// the numbers are one click away in the issuer's own words.
+//
+// There is deliberately NO numeric slot anywhere below. Not a formatting
+// choice — a payload for this archetype carries no earnings figure at all,
+// so no beat and no skeleton can interpolate one even by mistake.
+
+const earningsEvent: Archetype = {
+  id: "EARNINGS_EVENT",
+  attribution: "per SEC",
+  skeletons: [
+    {
+      id: "earn.filed",
+      build: (p) => {
+        const name = str(p, "displayName");
+        const filed = str(p, "filedIso");
+        if (!name || !filed) return null;
+        const t = humanDate(filed);
+        if (!t) return null;
+        const period = str(p, "periodLabel");
+        const forPeriod = period ? ` for ${period}` : "";
+        return { lines: [`${name} filed its results${forPeriod} with the SEC on ${t}`] };
+      },
+    },
+    {
+      id: "earn.itemFirst",
+      build: (p) => {
+        const name = str(p, "displayName");
+        const filed = str(p, "filedIso");
+        if (!name || !filed) return null;
+        const t = humanDate(filed);
+        if (!t) return null;
+        return { lines: [`8-K, Item 2.02: ${name} released results, filed ${t}`] };
+      },
+    },
+  ],
+  beats: [
+    {
+      // The only claim this lane makes about content: where the numbers are.
+      // It states a fact about the FILING, not about the results.
+      id: "earn.numbersInExhibit",
+      text: "The numbers are in the issuer's own release, not in this post.",
+      tier: "base",
+      when: { op: "has", field: "filedIso" },
+    },
+    {
+      id: "earn.repeat",
+      // Requires a REAL prior in our lake, same discipline as 8k.sameItemAgain.
+      text: "Filing number {sameItemOccurrence} of this item from this issuer this year.",
+      tier: "escalation",
+      when: { op: "gte", field: "sameItemOccurrence", value: 3 },
+    },
+  ],
+  guards: [{ id: "earn.notAmendment", ok: (p) => !(str(p, "formType") ?? "").endsWith("/A") }],
+};
+
+// ---------------------------------------------------------------------------
 // SETTLEMENT_FAILURE (Reg SHO threshold list entry)
 
 const settlementFailure: Archetype = {
@@ -1245,6 +1313,7 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   OWNERSHIP_STAKE: ownershipStake,
   REGULATORY_NEWS: regulatoryNews,
   INSTITUTIONAL_13F_BREAKDOWN: institutional13fBreakdown,
+  EARNINGS_EVENT: earningsEvent,
   SETTLEMENT_FAILURE: settlementFailure,
   DELISTING: delisting,
   STORM: storm,
