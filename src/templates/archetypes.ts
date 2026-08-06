@@ -9,6 +9,13 @@ import type { Archetype, ArchetypeId, Payload, PendingBeat } from "./types";
 // Gates are declarative data; where the doc shows a bracketed condition the
 // gate encodes it, and where it doesn't the beat still gets the gate its
 // claim implies (e.g. "The lag is the product." requires a parsed lag).
+//
+// RETIRED 2026-08-06 (owner ruling on D-31): the metaphor-group beats
+// `form4.decision`, `n144.noticeNotTrade` and `cluster.reason` are gone from
+// both this file and persona.md. They were definitional lines that cashed out
+// to a figure of speech rather than to a parsed field, and the owner's
+// plain-voice directive now applies to pre-directive text. The provenance
+// group STAYS, bound by the `source-owned-figure` registry entry.
 
 const str = (p: Payload, k: string): string | null => {
   const v = p[k];
@@ -195,12 +202,6 @@ const form4: Archetype = {
       // Only when the fact line actually prints a stake.
       when: { op: "eq", field: "stakePrinted", value: true },
     },
-    {
-      id: "form4.decision",
-      text: "An award is compensation. A P is a decision.",
-      tier: "base",
-      when: { op: "eq", field: "primaryCode", value: "P" },
-    },
   ],
   guards: [{ id: "form4.notAmendment", ok: (p) => p.isAmendment !== true }],
 };
@@ -235,14 +236,6 @@ const insiderNotice: Archetype = {
     },
   ],
   beats: [
-    {
-      id: "n144.noticeNotTrade",
-      text: "A 144 is the intent. The Form 4 is the receipt.",
-      tier: "base",
-      // "144" and "4" are FORM NAMES, not claims about the filing's data.
-      literals: ["144", "4"],
-      when: { op: "has", field: "aggregateMarketValue" },
-    },
     {
       id: "n144.beforeNotAfter",
       text: "This one is filed before the sale, not after.",
@@ -329,12 +322,6 @@ const insiderCluster: Archetype = {
     {
       id: "cluster.signatures",
       text: "{memberCount} signatures, not one.",
-      tier: "base",
-      when: { op: "gte", field: "memberCount", value: 3 },
-    },
-    {
-      id: "cluster.reason",
-      text: "The cluster is the fact. The reason isn't filed.",
       tier: "base",
       when: { op: "gte", field: "memberCount", value: 3 },
     },
