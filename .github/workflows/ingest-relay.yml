@@ -34,6 +34,13 @@ on:
   schedule:
     - cron: "*/30 13-21 * * 1-5"   # every 30 min, US market hours, weekdays
     - cron: "20 14 * * 1-5"        # House PDFs, after the ~13:00 UTC index rebuild
+    # Senate eFD, UNPARKED 2026-08-06. Three weekday attempts rather than a
+    # frequent poll, because the constraint is not our cadence: the eFD data
+    # endpoint goes into the Senate's OWN maintenance for hours at a time
+    # (measured up at 05:15Z and down at 13:45Z on the same day), and volume is
+    # ~12 filings a week. Spread attempts catch a window; a tight loop just
+    # burns account-wide Actions minutes against a 503.
+    - cron: "0 5,11,17 * * 1-5"
 
 concurrency:
   group: ingest-relay
@@ -102,15 +109,28 @@ jobs:
   # three and delivers a bundle; the Worker parses it with the same code the
   # direct poller uses.
   senate:
-    # PARKED FROM THE SCHEDULE 2026-08-01 (p4-00), manual dispatch only. Two
-    # diagnostic runs (30710419446, 30710496292) from separate GitHub-hosted
-    # runners: home=200 but the search POST answers 503 with a bot-mitigation
-    # block page, invariant to session handling — eFD blocks this IP class at
-    # the data endpoint. We do not disguise clients (doctrine #4), so the lane
-    # waits for an honest network path (e.g. an owner-run residential courier
-    # POSTing the same bundle to /ingest). EXPLICIT `lane=senate` only — a
-    # parked lane must not red a routine `all` dispatch of the working lanes.
-    if: github.event_name == 'workflow_dispatch' && inputs.lane == 'senate'
+    # UNPARKED 2026-08-06 after measuring all three egress classes in one
+    # 15-minute window (docs/verification/2026-08-06-senate-egress-three-ways.md):
+    #
+    #   GET /search/home/       Worker 403 | runner 200 | residential 200
+    #   POST /search/report/data/  runner 503 | residential 503 (4/4)
+    #
+    # Two DIFFERENT failures, and the 2026-08-01 note conflated them. The
+    # Worker is genuinely blocked at the home page, which is why senate_ptr
+    # cannot work from the Worker at all. The 503 is NOT bot mitigation: the
+    # body is the Senate's own "WEBSITE TEMPORARILY UNAVAILABLE DUE TO
+    # MAINTENANCE" page with no Ray ID and no vendor markers, and it hits a
+    # residential client identically. It is also INTERMITTENT — the same
+    # residential client got 200 with 12 real rows, 27/27, at 05:15Z the same
+    # morning.
+    #
+    # So runners DO reach eFD, and this lane is the honest network path. It
+    # now runs on a schedule; a maintenance window is a SOFT SKIP, not a red
+    # run, because a workflow that reds three times a day on someone else's
+    # planned downtime is a workflow everyone learns to ignore.
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '0 5,11,17 * * 1-5') ||
+      (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","senate"]'), inputs.lane))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -134,7 +154,17 @@ jobs:
             exit 1
           fi
 
-          # Step 2: accept the prohibition agreement to get a session. Django
+          # Step 2: accept the prohibition agreement to get a session.
+          #
+          # AUTHORIZED by the owner 2026-08-06 and conditioned in
+          # docs/DATA_USE_POLICY.md: free public dissemination with
+          # attribution, never for credit determination, solicitation or
+          # resale, the same fence over the House lane, and a paid feature
+          # stops the line for legal review before any build. Accepting terms
+          # on the owner's behalf is his decision, not a task instruction, and
+          # this is the record that he made it.
+          #
+          # Django
           # answers the POST with a 302; FOLLOW it (-L) so any session cookie
           # set on the redirect target lands in the jar too — without this the
           # first live run got search=503 on what may have been a sessionless
@@ -171,6 +201,18 @@ jobs:
           # is a weekday retry of this same dispatch.
           # See docs/verification/2026-08-02-senate-efd-retest.md.
           echo "senate: home=$HOME_CODE agree=$AGREE_CODE search=$SEARCH_CODE bytes=$(wc -c < search.json)" >> "$GITHUB_STEP_SUMMARY"
+
+          # SOFT SKIP on the Senate's own maintenance page. Distinguished by
+          # its body, not by the status code alone: a 503 that is NOT the
+          # maintenance notice is something we have never seen and must stay
+          # loud. Matching on the Senate's own words is the narrowest test
+          # available, and it is checked against the body we captured on
+          # 2026-08-06 rather than guessed.
+          if [ "$SEARCH_CODE" = "503" ] && grep -qi "UNDER MAINTENANCE\|TEMPORARILY UNAVAILABLE" search.json; then
+            echo "senate: eFD in scheduled maintenance; skipping this run" >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::senate eFD returned its maintenance page (503). Not a failure; the next slot retries."
+            exit 0
+          fi
           if ! jq -e '.result' search.json >/dev/null 2>&1; then
             echo "::error::senate search returned non-JSON (home=$HOME_CODE agree=$AGREE_CODE search=$SEARCH_CODE); first bytes: $(head -c 300 search.json | tr -cd '[:print:]')"
             exit 1
