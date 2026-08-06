@@ -2,6 +2,7 @@ import type { Env } from "./env";
 import { insertItem, SCORE_POSTABLE } from "./lib/db";
 import { enqueueForApproval } from "./pipeline/enqueue";
 import { safeEqual } from "./telegram/webhook";
+import { buildUserAgent, politeFetch } from "./lib/http";
 import { iso } from "./lib/time";
 
 /**
@@ -140,4 +141,75 @@ export async function handleGenerationHistory(request: Request, env: Env): Promi
       .sort((a, b) => a[0] - b[0])
       .map(([cycle, drafts]) => ({ cycle, current: cycle === q.regen_cycle, drafts })),
   });
+}
+
+/**
+ * POST /admin/probe — does WORKER EGRESS reach this host?
+ *
+ * WHY THIS EXISTS. D-25 is the standing lesson of this repo, and it has now
+ * recurred three times: a probe from a laptop proves nothing about Cloudflare
+ * Worker egress, and every time someone forgets that, a "fix" ships that was
+ * never tested where it runs. rate_boe was declared fixed on a laptop curl and
+ * was not. senate_ptr's cause was unknowable for three days. The PR-wire lane
+ * needed the same answer before a single ingester was written.
+ *
+ * Answering it used to require writing an ingester and deploying it. Now it is
+ * one call. That is the whole point: make the disciplined thing the cheap one.
+ *
+ * READ-ONLY BY CONSTRUCTION. GET only, no request body forwarded, no response
+ * body returned — status, size, content-type and timing, which is everything a
+ * reachability question needs and nothing that could relay content through the
+ * Worker. Same admin key as /admin/seed-test.
+ */
+export async function handleProbe(request: Request, env: Env): Promise<Response> {
+  if (!env.TELEGRAM_WEBHOOK_SECRET) return new Response("not configured", { status: 503 });
+  const key = request.headers.get("X-Admin-Key");
+  if (!key || !safeEqual(key, env.TELEGRAM_WEBHOOK_SECRET)) {
+    return new Response("unauthorized", { status: 401 });
+  }
+  let urls: unknown;
+  try {
+    urls = ((await request.json()) as { urls?: unknown }).urls;
+  } catch {
+    return Response.json({ error: "body must be JSON {urls:[...]}" }, { status: 400 });
+  }
+  if (!Array.isArray(urls) || urls.length === 0 || urls.length > 10) {
+    return Response.json({ error: "urls must be a 1-10 item array" }, { status: 400 });
+  }
+
+  const userAgent = buildUserAgent(env.CONTACT_EMAIL);
+  const results = [];
+  for (const raw of urls) {
+    if (typeof raw !== "string") {
+      results.push({ url: String(raw), error: "not a string" });
+      continue;
+    }
+    // https only. A probe endpoint that will fetch any scheme is a proxy.
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      results.push({ url: raw, error: "unparseable" });
+      continue;
+    }
+    if (parsed.protocol !== "https:") {
+      results.push({ url: raw, error: "https only" });
+      continue;
+    }
+    const startedAt = Date.now();
+    try {
+      const res = await politeFetch(raw, { userAgent, timeoutMs: 20_000 });
+      results.push({
+        url: raw,
+        status: res.status,
+        ok: res.ok,
+        bytes: res.body.length,
+        contentType: res.contentType,
+        ms: Date.now() - startedAt,
+      });
+    } catch (e) {
+      results.push({ url: raw, error: String(e).slice(0, 200), ms: Date.now() - startedAt });
+    }
+  }
+  return Response.json({ egress: "cloudflare-worker", probedAt: iso(new Date()), userAgent, results });
 }
