@@ -13,5 +13,14 @@
 -- ticks a day that is up to 144 cards/day of headroom against a lane whose
 -- tier-1 watchlist is 15 managers.
 
+-- ORDERING, learned the hard way on this very migration (D-43). A job row
+-- inserted BEFORE its handler is deployed gets claimed by the dispatcher,
+-- hits the "no handler registered" branch, and has its due_at advanced by a
+-- full cadence — silently burning one slot. The signature is jobs.last_ok_at
+-- NULL while jobs.due_at has moved.
+--
+-- So: schema migrations go in before merge, JOB REGISTRATION goes in after
+-- the deploy that carries its handler. every_30m made this cost 30 minutes;
+-- on a daily_* cadence it would have cost a day.
 INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority)
 VALUES ('edgar_13f_breakdown', '2026-01-01T00:00:00.000Z', 'every_30m', 1, 60);
