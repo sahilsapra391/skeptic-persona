@@ -57,7 +57,7 @@ North star measured 2026-08-05, from the shipped query: last 7 days 651 cards,
 | p5-10 | Courier consolidation: EDGAR Archives through the Worker courier | **parked(owner skipped 2026-08-05; premise disproved by #132, see D-23)** | — | — |
 | p5-11 | Source hygiene sweep | merged; rate_boe NOT fixed (D-25), registry + orphan retirement verified | [#142](https://github.com/sahilsapra391/skeptic-persona/pull/142) | [SOURCE_REGISTRY.md](SOURCE_REGISTRY.md) |
 | p5-12 | Senate eFD arrival-latency measurement forward; weekly digest line | merged-verified | [#143](https://github.com/sahilsapra391/skeptic-persona/pull/143) | [2026-08-06-p5-12](verification/2026-08-06-p5-12-efd-latency.md) |
-| p5-13 | Owner memos, no build: (a) NSE/BSE license, (b) Bluesky app password | pending | — | — |
+| p5-13 | Owner memos, no build: (a) NSE/BSE license, (b) Bluesky app password | merged-verified | [#146](https://github.com/sahilsapra391/skeptic-persona/pull/146) | [NSE/BSE](memos/2026-08-06-nse-bse-data-licence.md), [Bluesky](memos/2026-08-06-bluesky-app-password.md) |
 
 ## Phase 2 — Gate-cleared expansion
 
@@ -95,9 +95,9 @@ All `blocked-gate` (needs 10 manual posts + Phase 0 complete). Two are also
 |---|---|---|---|---|
 | 1 | Geopolitics official-statements lane: in or out | in, narrow list | blocked-owner | p5-22 |
 | 2 | China official-English lane: in or out | in, lag disclosed | blocked-owner | p5-23 |
-| 3 | NSE/BSE license: buy or park | park | blocked-owner | p5-13(a) memo informs it |
+| 3 | NSE/BSE license: buy or park | park | **memo delivered, awaiting ruling** | p5-13(a) memo: cheapest usable tier is ~28x the per-lane cap |
 | 4 | Non-US corporate filings: park or rank one | park | blocked-owner | p5-34 |
-| 5 | Bluesky app password: set it or lane stays frozen | — | blocked-owner | p5-25 |
+| 5 | Bluesky app password: set it or lane stays frozen | — | **memo delivered, awaiting owner's hands** | p5-25 (also blocked-gate regardless) |
 | 6 | Re-card policy for expired cards (raised by p5-05, not in the plan's original five) | (c) give expired items the promote path digested items already have | blocked-owner | nothing; expiry stays terminal until ruled |
 
 ## Owner tasks (hands, not rulings)
