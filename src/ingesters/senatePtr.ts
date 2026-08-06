@@ -2,7 +2,7 @@ import type { Env } from "../env";
 import { newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch, type PoliteResponse } from "../lib/http";
 import { decodeEntities, extractAll, extractFirst } from "../lib/xml";
-import { getSourceState, insertItem, putSourceState, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
+import { getSourceState, insertItem, putSourceState, recordSourceError, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { bandSpan, bandWidth, isFreshDateOnly, lagDays, lagWeeks, maxLagDays, mdyToIso, tickerTag } from "./shared";
 import { iso } from "../lib/time";
@@ -33,8 +33,30 @@ function cookiePairs(setCookies: string[]): string[] {
  * HIDDEN csrfmiddlewaretoken (a DIFFERENT value than the cookie — verified),
  * then POST the agreement with redirect:"manual" — the 302 carries the
  * sessionid Set-Cookie we must capture.
+ *
+ * THE AGREEMENT NO LONGER GATES THE SEARCH (2026-08-06). Measured against
+ * live eFD: the data endpoint answers 200 with real rows to a csrftoken-only
+ * jar, 27 times out of 27, with no agreement POST and no sessionid. But this
+ * function hard-asserted `status === 302` and the presence of a sessionid, so
+ * any change on eFD's agreement step killed the ENTIRE poll before the search
+ * ran — which fits three-for-three deterministic failures far better than
+ * intermittent 503s do.
+ *
+ * So the agreement is now BEST EFFORT: its failure downgrades the session to
+ * csrf-only and is recorded, rather than ending the poll. Detail pages still
+ * need the full session (GET /search/view/... 302s without one), so a
+ * downgraded run reads the index and fetches no detail pages, instead of
+ * inserting transaction-less rows that would look like real filings.
  */
-async function handshake(userAgent: string): Promise<EfdSession> {
+export interface EfdHandshake {
+  readonly session: EfdSession;
+  /** False when the agreement step did not yield a sessionid. */
+  readonly full: boolean;
+  /** Why the agreement step failed, for source_state.last_error. */
+  readonly agreementError: string | null;
+}
+
+async function handshake(userAgent: string): Promise<EfdHandshake> {
   const home = await politeFetch(EFD_HOME, { userAgent, timeoutMs: 20_000 });
   if (!home.ok) throw new Error(`efd home ${home.status}`);
   const hidden = /name="csrfmiddlewaretoken" value="([^"]+)"/.exec(home.body)?.[1];
@@ -52,10 +74,17 @@ async function handshake(userAgent: string): Promise<EfdSession> {
     headers: { "content-type": "application/x-www-form-urlencoded", Referer: EFD_HOME },
     postBody: `prohibition_agreement=1&csrfmiddlewaretoken=${encodeURIComponent(hidden)}`,
   });
-  if (agree.status !== 302) throw new Error(`efd agreement ${agree.status}`);
+  // The csrf-only session is ALWAYS usable for the search; only the detail
+  // pages need more. Built first so no agreement outcome can lose it.
+  const csrfOnly: EfdSession = { cookie: `csrftoken=${csrfCookie}`, csrfToken: csrfCookie };
+  if (agree.status !== 302) {
+    return { session: csrfOnly, full: false, agreementError: `efd agreement ${agree.status}` };
+  }
   const all = [...jar, ...cookiePairs(agree.setCookies)];
-  if (!all.some((p) => p.startsWith("sessionid="))) throw new Error("efd agreement: no sessionid");
-  return { cookie: all.join("; "), csrfToken: csrfCookie };
+  if (!all.some((p) => p.startsWith("sessionid="))) {
+    return { session: csrfOnly, full: false, agreementError: "efd agreement: no sessionid" };
+  }
+  return { session: { cookie: all.join("; "), csrfToken: csrfCookie }, full: true, agreementError: null };
 }
 
 export interface EfdRow {
@@ -273,14 +302,33 @@ export async function pollSenatePtr(env: Env, now: Date, budget: TickBudget = ne
     return;
   }
 
+  // THE DRAIN RUNS REGARDLESS of how the fetch goes (2026-08-06). It was
+  // inside the try below, after the data fetch, so every failure branch
+  // returned before it — turning one bad eFD day into zero cards from
+  // filings ALREADY SITTING IN OUR OWN LAKE. Draining costs no external
+  // fetch, so there was never a budget reason for the coupling.
+  let enqueued = 0;
   try {
     let session: EfdSession;
+    let fullSession = false;
     try {
-      session = await handshake(userAgent);
+      const hs = await handshake(userAgent);
+      session = hs.session;
+      fullSession = hs.full;
+      if (!hs.full) {
+        // Not a poll failure: the search still works csrf-only. Recorded so
+        // the next reader sees WHICH step degraded instead of guessing.
+        await recordSourceError(env.DB, SOURCE, hs.agreementError ?? "efd agreement degraded", now);
+        log("warn", "senate_ptr agreement degraded; searching csrf-only, no detail pages", {
+          error: hs.agreementError,
+        });
+      }
     } catch (e) {
       state.consecutiveFailures += 1;
       await putSourceState(env.DB, state);
+      await recordSourceError(env.DB, SOURCE, e, now);
       log("warn", "senate_ptr handshake failed", { error: String(e), failures: state.consecutiveFailures });
+      enqueued = await drainSenate(env, budget, now);
       return;
     }
 
@@ -329,13 +377,17 @@ export async function pollSenatePtr(env: Env, now: Date, budget: TickBudget = ne
     // Senate "Site Under Maintenance" page. One fresh-handshake retry.
     if (dataRes.status === 503 && budget.take(3)) {
       log("warn", "senate_ptr data 503; retrying with fresh handshake");
-      session = await handshake(userAgent);
+      const retry = await handshake(userAgent);
+      session = retry.session;
+      fullSession = retry.full;
       dataRes = await fetchData();
     }
     if (!dataRes.ok) {
       state.consecutiveFailures += 1;
       await putSourceState(env.DB, state);
+      await recordSourceError(env.DB, SOURCE, `efd data ${dataRes.status}`, now);
       log("warn", "senate_ptr data non-2xx", { status: dataRes.status, failures: state.consecutiveFailures });
+      enqueued = await drainSenate(env, budget, now);
       return;
     }
 
@@ -345,7 +397,9 @@ export async function pollSenatePtr(env: Env, now: Date, budget: TickBudget = ne
     } catch {
       state.consecutiveFailures += 1;
       await putSourceState(env.DB, state);
+      await recordSourceError(env.DB, SOURCE, `efd data not JSON: ${dataRes.body.slice(0, 120)}`, now);
       log("warn", "senate_ptr data not JSON; possible shape drift", { bodyPrefix: dataRes.body.slice(0, 120) });
+      enqueued = await drainSenate(env, budget, now);
       return;
     }
 
@@ -417,21 +471,7 @@ export async function pollSenatePtr(env: Env, now: Date, budget: TickBudget = ne
       if ((await ingestEfdRow(env, row, page.body, now)) === "inserted") inserted += 1;
     }
 
-    // Drain: same payload.draft pattern as form4.
-    const pending = await env.DB.prepare(
-      `SELECT id, source_url, payload FROM items
-       WHERE source = ?1 AND status = 'new' AND score >= ?2 ORDER BY id LIMIT 5`,
-    )
-      .bind(SOURCE, SCORE_POSTABLE)
-      .all<{ id: number; source_url: string; payload: string }>();
-    let enqueued = 0;
-    for (const item of pending.results) {
-      if (!budget.take(1)) break;
-      const payload = JSON.parse(item.payload) as Record<string, unknown>;
-      const result = await enqueueForApproval(env, item.id, "CONGRESS_PTR", payload, item.source_url, now);
-      enqueued += 1;
-      if (result.retryAfter !== null) break;
-    }
+    enqueued = await drainSenate(env, budget, now);
 
     state.consecutiveFailures = 0;
     state.lastOkAt = iso(now);
@@ -440,6 +480,32 @@ export async function pollSenatePtr(env: Env, now: Date, budget: TickBudget = ne
   } catch (e) {
     state.consecutiveFailures += 1;
     await putSourceState(env.DB, state).catch(() => {});
+    await recordSourceError(env.DB, SOURCE, e, now).catch(() => {});
     log("error", "senate_ptr poll failed", { error: String(e) });
+    enqueued = await drainSenate(env, budget, now).catch(() => 0);
   }
+}
+
+/**
+ * Enqueue postable Senate filings we already hold. No external fetch, so it
+ * is safe on every path including the failure ones — which is the point:
+ * before 2026-08-06 this lived inside the fetch try-block and an eFD outage
+ * suppressed cards for filings that were already parsed and sitting in D1.
+ */
+async function drainSenate(env: Env, budget: TickBudget, now: Date): Promise<number> {
+  const pending = await env.DB.prepare(
+    `SELECT id, source_url, payload FROM items
+     WHERE source = ?1 AND status = 'new' AND score >= ?2 ORDER BY id LIMIT 5`,
+  )
+    .bind(SOURCE, SCORE_POSTABLE)
+    .all<{ id: number; source_url: string; payload: string }>();
+  let enqueued = 0;
+  for (const item of pending.results) {
+    if (!budget.take(1)) break;
+    const payload = JSON.parse(item.payload) as Record<string, unknown>;
+    const result = await enqueueForApproval(env, item.id, "CONGRESS_PTR", payload, item.source_url, now);
+    enqueued += 1;
+    if (result.retryAfter !== null) break;
+  }
+  return enqueued;
 }
