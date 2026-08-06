@@ -329,6 +329,11 @@ That distinction survives exactly zero headlines tonight and you know it.` },
   // "per FTC" — and the v1 line that HAD one is now flagged as redundant.
   { archetype: "REGULATORY_NEWS", register: "commentary", v2: true, text: `The FTC just sued to block a merger announced eleven months ago.
 Eleven months of integration planning, banker fees, and new org charts, headed for the shredder. Deal risk gets priced on day one and forgotten by month three. Somebody's bonus just evaporated.` },
+  // INSTITUTIONAL_13F_BREAKDOWN, owner-authored 2026-08-06, 269 weighted
+  // after his approved "Ninety" -> "90" edit. Every figure validates against
+  // production filing 301: $263.1B, 90 positions, 16 untouched at $192.73B
+  // under the 2dp rule. The archetype's exemplar gate unblocks with this.
+  { archetype: "INSTITUTIONAL_13F_BREAKDOWN", register: "commentary", v2: true, text: `Berkshire Q1, quick version: $263.1B across 90 positions, per SEC, as of March 31, filed May 15. New: Delta, $2.65B. Gone: Visa and Mastercard. Untouched: 16 names worth $192.7B. Full top ten on the card. 90 positions and the December book is still mostly recognizable.` },
   { archetype: "HALT", register: "wire", text: `$XYZ halted 14:20 ET. Code T1, news pending, per Nasdaq.
 "News pending" is the entire disclosure.
 For five minutes nobody knows anything, which is the only time this market is fair.` },
@@ -405,32 +410,15 @@ The filing says what changed and stops there. Everyone who could explain it is l
 ];
 
 /**
- * v2 exemplars the MARGIN RULE will not let in.
+ * Owner exemplars the MARGIN RULE will not let in.
  *
- * EMPTY as of 2026-08-06: the owner's three approved trims landed [2] at 264,
- * [4] at 272 exactly, and [5] at 271, so all seven of the v2 pack are now
- * installed. Kept as a named export rather than deleted because it is the
- * mechanism the margin rule needs the next time a pack arrives — an exemplar
- * over 272 goes here and gets reported, it is never trimmed on our authority.
+ * EMPTY as of 2026-08-06. The 13F breakdown exemplar was held here at 273
+ * against a 272 margin; the owner's approved edit ("Ninety" -> "90" in the
+ * closing line) brought it to 269 and it is installed. Kept as a named export
+ * because it is the mechanism the margin rule needs: an exemplar over 272
+ * goes here and gets reported, never trimmed on our authority.
  */
-export const PENDING_OWNER_EXEMPLARS: ReadonlyArray<{ n: number; archetype: ArchetypeId; weighted: number; text: string }> = [
-  // The INSTITUTIONAL_13F_BREAKDOWN exemplar, owner-authored 2026-08-06.
-  // 273 weighted: ONE over the margin he set in the same sprint. Every figure
-  // in it validates against production filing 301 ($263.1B, 90 positions, 16
-  // untouched at $192.73B under the 2dp rule), so this is a length call and
-  // nothing else. Held rather than trimmed, per "return anything still over".
-  //
-  // CONSEQUENCE, stated because it is the answer to "confirm gate unblocks":
-  // it does NOT. The exemplar gate needs one installed exemplar for the
-  // archetype, so generation for this archetype returns skipped_no_exemplar
-  // until one character comes out of this text.
-  {
-    n: 8,
-    archetype: "INSTITUTIONAL_13F_BREAKDOWN",
-    weighted: 273,
-    text: `Berkshire Q1, quick version: $263.1B across 90 positions, per SEC, as of March 31, filed May 15. New: Delta, $2.65B. Gone: Visa and Mastercard. Untouched: 16 names worth $192.7B. Full top ten on the card. Ninety positions and the December book is still mostly recognizable.`,
-  },
-];
+export const PENDING_OWNER_EXEMPLARS: ReadonlyArray<{ n: number; archetype: ArchetypeId; weighted: number; text: string }> = [];
 
 /**
  * Owner exemplars whose archetype does not EXIST in the engine yet. Not in

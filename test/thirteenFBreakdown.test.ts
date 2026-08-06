@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import HOLD from "./fixtures/bh.json?raw";
 import DIFF from "./fixtures/bd.json?raw";
 import CMAP from "./fixtures/cm.json?raw";
-import { buildBreakdownPayload, instrumentLabel, isPrincipal, displayName } from "../src/pipeline/thirteenF";
+import { buildBreakdownPayload, instrumentLabel, isPrincipal, displayName, flattenBreakdown, filingUrl } from "../src/pipeline/thirteenF";
 import { renderPost, humanDate, UNFILLED_SLOT_RE } from "../src/templates/render";
 import { ARCHETYPES } from "../src/templates/archetypes";
 import { checkRegister } from "../src/templates/validate";
@@ -171,5 +171,53 @@ describe("the card, from the same payload", () => {
     expect(png.length).toBeGreaterThan(10_000);
     const dv = new DataView(png.buffer, png.byteOffset, png.byteLength);
     expect(dv.getUint32(16)).toBe(1200);
+  });
+});
+
+describe("the flat payload the archetype and the card both read", () => {
+  it("carries every display field the skeletons gate on, plus full precision", () => {
+    const f = flattenBreakdown(payload());
+    for (const k of [
+      "manager", "asOfIso", "filedIso", "aum_display", "positionCount_display",
+      "newCount_display", "goneCount_display", "unchangedCount_display", "unchangedTotal_display",
+    ]) {
+      expect(f[k], k).toBeTruthy();
+    }
+    // Flat, not nested: the gate DSL addresses fields by name, and a dotted
+    // path would make every 13F gate a special case.
+    expect(f).not.toHaveProperty("sections");
+    // Full precision rides alongside the display string so the ledger keeps
+    // the real number.
+    expect(f.aum_usd).toBe(263095703570);
+    expect(f.aum_display).toBe("$263.1B");
+  });
+
+  it("builds the EDGAR index URL every post cites", () => {
+    expect(filingUrl("1067983", "0000950123-26-004567")).toBe(
+      "https://www.sec.gov/Archives/edgar/data/1067983/000095012326004567/0000950123-26-004567-index.htm",
+    );
+  });
+});
+
+describe("the lag beat, as the owner's worked example of a bound aphorism", () => {
+  it("fires only past the 45-day statutory deadline", async () => {
+    const { ARCHETYPES: A } = await import("../src/templates/archetypes");
+    const beat = A.CONGRESS_PTR.beats.find((b) => b.id === "ptr.lagProduct")!;
+    const { evaluateGate } = await import("../src/templates/gate");
+    // A day-3 disclosure never carries it.
+    expect(evaluateGate(beat.when, { lagDays: 3 })).toBe(false);
+    expect(evaluateGate(beat.when, { lagDays: 45 })).toBe(false); // on time is on time
+    expect(evaluateGate(beat.when, { lagDays: 46 })).toBe(true);
+    expect(evaluateGate(beat.when, {})).toBe(false);
+  });
+
+  it("binds to the registry only when the item's own lag exceeds the deadline", async () => {
+    const { boundDefinitionsFor } = await import("../src/rag/definitions");
+    const ctx = (payload: Record<string, unknown>) => ({ payload, numbers: new Set<string>(), attribution: "per Senate financial disclosures" });
+    expect(boundDefinitionsFor("The lag is the product", ctx({ lagDays: 87 })).map((d) => d.id)).toContain("ptr-lag-past-deadline");
+    // Unbound below the deadline and with no lag at all — the cash-out rule,
+    // not the grammar, is what decides it.
+    expect(boundDefinitionsFor("The lag is the product", ctx({ lagDays: 3 }))).toEqual([]);
+    expect(boundDefinitionsFor("The lag is the product", ctx({}))).toEqual([]);
   });
 });

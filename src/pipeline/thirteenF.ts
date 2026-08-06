@@ -194,3 +194,49 @@ export function buildBreakdownPayload(
     goneNames: label(byStatus("EXIT")),
   };
 }
+
+// ---------------------------------------------------------------------------
+// The diffs-to-ITEMS half. Everything above builds a payload; this is what
+// makes one reach the queue, which is the other side of D-28.
+// ---------------------------------------------------------------------------
+
+/**
+ * The flat payload shape the archetype and the card both read.
+ *
+ * Flattened deliberately: the gate DSL addresses fields by name, and nesting
+ * `sections.new.count_display` behind a dotted path would make every gate a
+ * special case. Full precision rides alongside each display string so the
+ * ledger keeps the real number.
+ */
+export function flattenBreakdown(p: BreakdownPayload): Record<string, unknown> {
+  return {
+    manager: p.manager,
+    cik: p.cik,
+    form: p.form,
+    asOfIso: p.asOfIso,
+    filedIso: p.filedIso,
+    positionCount: p.positionCount,
+    positionCount_display: p.positionCount_display,
+    aum_usd: p.aum_usd,
+    aum_display: p.aum_display,
+    newCount_display: p.sections.new.count_display,
+    newTotal_display: p.sections.new.total_display,
+    addsCount_display: p.sections.adds.count_display,
+    addsTotal_display: p.sections.adds.total_display,
+    trimsCount_display: p.sections.trims.count_display,
+    trimsTotal_display: p.sections.trims.total_display,
+    goneCount_display: p.sections.gone.count_display,
+    goneTotal_display: p.sections.gone.total_display,
+    unchangedCount_display: p.sections.unchanged.count_display,
+    unchangedTotal_display: p.sections.unchanged.total_display,
+    newNames: p.newNames,
+    goneNames: p.goneNames,
+    top: p.top,
+  };
+}
+
+/** EDGAR's own filing index page. The source link every post carries. */
+export function filingUrl(cik: string, accession: string): string {
+  const clean = accession.replace(/-/g, "");
+  return `https://www.sec.gov/Archives/edgar/data/${Number(cik)}/${clean}/${accession}-index.htm`;
+}
