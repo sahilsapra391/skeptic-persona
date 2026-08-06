@@ -134,6 +134,84 @@ function trend(now: number, before: number): string {
 }
 
 /**
+ * SENATE eFD ARRIVAL LATENCY (p5-12). How long after a senator files does the
+ * filing actually reach us.
+ *
+ * MEASURED FORWARD, NOT BACKWARD, and that is the whole design. Migration 0059
+ * made the same point about poll counters: a source that fails two polls in
+ * three leaves no trace, because `last_ok_at` is overwritten by every success
+ * and `consecutive_failures` resets. The evidence for "were our polls failing,
+ * or does eFD index late" had already been destroyed by the time anyone asked.
+ * This reports from stored, non-overwritten rows so the question stays
+ * answerable next week.
+ *
+ * TWO NUMBERS, NEVER ONE. Latency alone cannot distinguish eFD publishing late
+ * from us polling badly, and those imply different fixes (a freshness
+ * allowance versus a retry). So the line carries the poll-failure counter
+ * beside it. `total_failures` is lifetime and monotonic by design (0059 named
+ * it `total_` precisely so nobody reads it as "now"), so it is labelled as
+ * lifetime rather than folded into the window.
+ */
+export interface EfdLatency {
+  readonly filings: number;
+  readonly medianDays: number | null;
+  readonly maxDays: number | null;
+  readonly lifetimePollFailures: number;
+  readonly consecutiveFailures: number;
+  readonly lastOkAt: string | null;
+}
+
+export async function efdLatency(db: D1Database, since: Date): Promise<EfdLatency> {
+  const rows = await db
+    .prepare(
+      `SELECT (julianday(fetched_at) - julianday(event_at)) AS days
+       FROM items
+       WHERE source = 'senate_ptr' AND event_at IS NOT NULL AND fetched_at >= ?1
+       ORDER BY days`,
+    )
+    .bind(since.toISOString())
+    .all<{ days: number }>();
+  const days = rows.results.map((r) => r.days).filter((d) => Number.isFinite(d));
+  const state = await db
+    .prepare(`SELECT total_failures, consecutive_failures, last_ok_at FROM source_state WHERE source = 'senate_ptr'`)
+    .first<{ total_failures: number; consecutive_failures: number; last_ok_at: string | null }>();
+  return {
+    filings: days.length,
+    medianDays: days.length === 0 ? null : days[Math.floor((days.length - 1) / 2)]!,
+    maxDays: days.length === 0 ? null : days[days.length - 1]!,
+    lifetimePollFailures: state?.total_failures ?? 0,
+    consecutiveFailures: state?.consecutive_failures ?? 0,
+    lastOkAt: state?.last_ok_at ?? null,
+  };
+}
+
+export function renderEfdLatency(l: EfdLatency, windowDays: number): string[] {
+  const lines: string[] = [`Senate eFD arrival latency, last ${windowDays} days:`];
+  if (l.filings === 0) {
+    // No filings is NOT zero latency. It is either a quiet week or a lane that
+    // stopped arriving, and the poll counters are what tell those apart.
+    lines.push("  No filings arrived in the window, so there is no latency to report.");
+  } else {
+    lines.push(
+      `  ${l.filings} filing(s): median ${l.medianDays!.toFixed(1)} days from filing to ingest, slowest ${l.maxDays!.toFixed(1)}`,
+    );
+    if (l.filings < 5) {
+      lines.push(`  Small sample: ${l.filings} filing(s). A direction, not a measurement.`);
+    }
+  }
+  // Always shown, including on the no-filings branch, because "quiet week" and
+  // "we never successfully polled" produce identical filing counts.
+  lines.push(
+    `  Polling: ${l.consecutiveFailures} consecutive failure(s) now, ${l.lifetimePollFailures} lifetime` +
+      `${l.lastOkAt ? `, last success ${l.lastOkAt.slice(0, 16).replace("T", " ")}Z` : ", never succeeded"}`,
+  );
+  if (l.lifetimePollFailures > 0 && l.filings > 0) {
+    lines.push("  Latency above includes our polling gap, not eFD's publishing lag alone.");
+  }
+  return lines;
+}
+
+/**
  * Exported for tests, and because the wording IS the feature.
  *
  * THE GUARD ON EVERY RATE HERE IS THE DENOMINATOR, NOT THE NUMERATOR. Zero
@@ -191,6 +269,7 @@ export function renderDigest(
   pairs: readonly EditPair[],
   windowDays: number,
   northStar: readonly string[] = [],
+  efd: readonly string[] = [],
 ): string {
   const lines: string[] = [`Skeptic Wire — voice digest, last ${windowDays} days`, ""];
   // FIRST, and above the zero-edit rate on purpose. The zero-edit rate scores
@@ -199,6 +278,10 @@ export function renderDigest(
   // anything, and it is also the branch where renderDigest returns earliest —
   // so it goes here, before any early return can skip it.
   if (northStar.length > 0) lines.push(...northStar, "");
+  // Beside the north star rather than at the end, for the same reason: the
+  // early returns below skip everything after them, and a lane that has
+  // stopped arriving is exactly what a zero-post week needs to surface.
+  if (efd.length > 0) lines.push(...efd, "");
   const scoreable = stats.unedited + stats.edited;
 
   if (stats.posted === 0) {
@@ -256,7 +339,14 @@ export async function runVoiceDigest(env: Env, now: Date, _budget: TickBudget = 
   // Only fetch pairs there are pairs to fetch.
   const pairs = stats.edited > 0 ? await recentEditedPairs(env.DB, since, DIGEST_PAIR_LIMIT) : [];
   const { current, prior } = await northStarStats(env.DB, now, DIGEST_WINDOW_DAYS);
-  const text = renderDigest(stats, pairs, DIGEST_WINDOW_DAYS, renderNorthStar(current, prior, DIGEST_WINDOW_DAYS));
+  const efd = await efdLatency(env.DB, since);
+  const text = renderDigest(
+    stats,
+    pairs,
+    DIGEST_WINDOW_DAYS,
+    renderNorthStar(current, prior, DIGEST_WINDOW_DAYS),
+    renderEfdLatency(efd, DIGEST_WINDOW_DAYS),
+  );
   try {
     await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, text);
   } catch (e) {
