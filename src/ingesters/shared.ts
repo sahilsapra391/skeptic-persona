@@ -27,6 +27,57 @@ export function isFreshDateOnly(dateOnlyIso: string, now: Date): boolean {
 }
 
 /**
+ * How old a filing may be, at the outside, however late we discovered it.
+ *
+ * CONGRESS_PTR's committed queue TTL (jobs.ts DEFAULT_QUEUE_TTL_OVERRIDES,
+ * mirrored in wrangler.toml). Reused rather than reinvented: the pipeline
+ * already says a congress card is worth the owner's attention for 96 hours,
+ * so a filing older than that has nothing to offer a queue that would expire
+ * it on arrival. This is the ceiling that stops a backfill from flooding.
+ */
+export const LATE_DISCOVERY_MAX_FILING_AGE_HOURS = 96;
+
+/**
+ * Freshness for a filing we learned about SECOND-HAND, on a courier.
+ *
+ * THE DEFECT THIS EXISTS TO FIX (measured 2026-08-06). `isFreshDateOnly`
+ * starts its clock at the filing date — before we can possibly know the
+ * filing exists. The House Clerk's bulk index carries a filing to us 21.7h to
+ * 93.7h after that anchor, typically landing D+1 between 18:28 and 21:40 UTC,
+ * and the PDF courier that actually triggers the status write applies at
+ * ~16:13-16:43 UTC, two to five hours BEFORE the day's index lands. So the
+ * courier always picks a filing up on its following run, at 64h+. Across all
+ * 111 House items carrying the exact `now` the old test used, ZERO were
+ * fresh; the minimum was 64.72h. Every congress item in production is
+ * 'logged' and no CONGRESS_PTR card has ever existed.
+ *
+ * The honest question is "is this the first moment we could have known?", not
+ * "was this filed recently". So the window runs from DISCOVERY — when the
+ * index row entered our lake — with the filing's own age capped separately so
+ * a re-backfill of seven-month-old filings still cannot card.
+ *
+ * It is deliberately NOT a widening of isFreshDateOnly: a source that sees
+ * its own events directly should keep failing closed on a stale event.
+ */
+export function isFreshOnDiscovery(
+  dateOnlyIso: string,
+  discoveredIso: string,
+  now: Date,
+  maxFilingAgeHours = LATE_DISCOVERY_MAX_FILING_AGE_HOURS,
+): boolean {
+  if (!dateOnlyIso || !discoveredIso) return false;
+  const discovered = new Date(discoveredIso).getTime();
+  const filed = new Date(dateOnlyIso).getTime();
+  if (!Number.isFinite(discovered) || !Number.isFinite(filed)) return false;
+  // Discovery in the FUTURE is a clock or data fault, not freshness.
+  const sinceDiscovery = now.getTime() - discovered;
+  if (sinceDiscovery < 0) return false;
+  if (sinceDiscovery > 2 * STALE_AT_INGEST_HOURS * 3_600_000) return false;
+  const filingAge = now.getTime() - filed;
+  return filingAge >= 0 && filingAge <= maxFilingAgeHours * 3_600_000;
+}
+
+/**
  * Compact money, pipeline-wide copy law (owner ruling 2026-08-06).
  *
  *   Divide to the largest unit >= 1, round to AT MOST 2 decimals, strip

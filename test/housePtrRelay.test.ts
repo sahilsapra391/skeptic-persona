@@ -149,6 +149,67 @@ describe("house_ptr extraction relay", () => {
     expect(card?.draft_text).not.toContain("Senate eFD");
   });
 
+  it("THE PRODUCTION SHAPE: index lands today, filing is two days old, and it still cards", async () => {
+    // The case every real House filing takes, and the one this suite could
+    // not see. `FRESH_FILED` is today's date — an input production has NEVER
+    // supplied. Measured 2026-08-06: the Clerk's index reaches us 21.7-93.7h
+    // after the filing date, and the PDF courier applies 64h+ after it, so
+    // the old `isFreshDateOnly(filedIso, now)` gate resolved FALSE 152 times
+    // out of 152 and no CONGRESS_PTR card has ever existed in production.
+    //
+    // Here the index row is discovered NOW and the filing is 48h+1m old, so
+    // the old gate rejects it and the new discovery-anchored gate accepts it.
+    // This test fails on the pre-fix code.
+    const twoDaysAgo = new Date(REAL_NOW.getTime() - (48 * 3_600_000 + 60_000));
+    const filed = `${String(twoDaysAgo.getUTCMonth() + 1).padStart(2, "0")}/${String(
+      twoDaysAgo.getUTCDate(),
+    ).padStart(2, "0")}/${twoDaysAgo.getUTCFullYear()}`;
+    await seedIndexRow("20260110", REAL_NOW, { filedDate: filed });
+    const res = await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260110", text: MULTI }] }) });
+    expect(res.status).toBe(200);
+
+    const row = await env.DB.prepare(`SELECT id, status FROM items WHERE dedup_key = ?1`)
+      .bind(`${HOUSE_SOURCE}:20260110`)
+      .first<{ id: number; status: string }>();
+    expect(row?.status, "a filing discovered today must card even if filed two days ago").toBe("queued");
+    const card = await env.DB.prepare(`SELECT archetype FROM queue WHERE item_id = ?1`)
+      .bind(row!.id)
+      .first<{ archetype: string }>();
+    expect(card?.archetype).toBe("CONGRESS_PTR");
+  });
+
+  it("late DISCOVERY still cards; an old FILING never does", async () => {
+    // The two halves of the new gate, asserted separately so widening one
+    // cannot silently widen the other.
+    //
+    // (a) Discovered 47h ago, filed 3 days ago: inside both windows -> cards.
+    const nowIso = REAL_NOW;
+    const filedThreeDays = new Date(nowIso.getTime() - 72 * 3_600_000);
+    const f3 = `${String(filedThreeDays.getUTCMonth() + 1).padStart(2, "0")}/${String(
+      filedThreeDays.getUTCDate(),
+    ).padStart(2, "0")}/${filedThreeDays.getUTCFullYear()}`;
+    await seedIndexRow("20260111", new Date(nowIso.getTime() - 47 * 3_600_000), { filedDate: f3 });
+    await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260111", text: MULTI }] }) });
+    const a = await env.DB.prepare(`SELECT status FROM items WHERE dedup_key = ?1`)
+      .bind(`${HOUSE_SOURCE}:20260111`)
+      .first<{ status: string }>();
+    expect(a?.status, "47h since discovery, 72h old filing").toBe("queued");
+
+    // (b) Discovered NOW, but filed 8 days ago: past the 96h filing ceiling
+    // -> lake only. This is the guard that stops a re-backfill of seven-month
+    // -old filings from emitting ~144 cards at once.
+    const filedEightDays = new Date(nowIso.getTime() - 8 * 24 * 3_600_000);
+    const f8 = `${String(filedEightDays.getUTCMonth() + 1).padStart(2, "0")}/${String(
+      filedEightDays.getUTCDate(),
+    ).padStart(2, "0")}/${filedEightDays.getUTCFullYear()}`;
+    await seedIndexRow("20260112", nowIso, { filedDate: f8 });
+    await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260112", text: MULTI }] }) });
+    const b = await env.DB.prepare(`SELECT status FROM items WHERE dedup_key = ?1`)
+      .bind(`${HOUSE_SOURCE}:20260112`)
+      .first<{ status: string }>();
+    expect(b?.status, "an 8-day-old filing must stay in the lake however recently we found it").toBe("logged");
+  });
+
   it("never derives a midpoint from an amount band", async () => {
     await seedIndexRow("20260101", NOW);
     await post({ source: HOUSE_SOURCE, body: JSON.stringify({ docs: [{ docId: "20260101", text: MULTI }] }) });

@@ -272,4 +272,45 @@ describe("date-only freshness (shared)", () => {
     expect(isFreshDateOnly("2026-07-24T00:00:00.000Z", new Date("2026-07-26T01:00:00Z"))).toBe(false);
     expect(isFreshDateOnly("", new Date())).toBe(false);
   });
+
+  it("discovery-anchored freshness: the clock starts when we could first have KNOWN", async () => {
+    const { isFreshOnDiscovery, isFreshDateOnly, LATE_DISCOVERY_MAX_FILING_AGE_HOURS } = await import("../src/ingesters/shared");
+    const now = new Date("2026-08-06T16:30:00Z");
+    // Filing dates are UTC-midnight anchors, so their ages from `now` are
+    // fixed and stated rather than computed: 08-05 is 40.5h, 08-04 is 64.5h,
+    // 08-03 is 88.5h, 08-02 is 112.5h.
+    const seen = (h: number) => new Date(now.getTime() - h * 3_600_000).toISOString();
+    const D = (d: string) => `2026-08-${d}T00:00:00.000Z`;
+
+    // THE PRODUCTION CASE, and the whole reason this function exists. Filed
+    // 64.5h ago, the Clerk's index reached us 1h ago. isFreshDateOnly says
+    // stale; this says fresh, because 1h ago is the first moment we could
+    // have known. Measured: the old gate resolved false 152 times out of 152
+    // in production and no CONGRESS_PTR card has ever existed.
+    expect(isFreshOnDiscovery(D("04"), seen(1), now)).toBe(true);
+    expect(isFreshDateOnly(D("04"), now)).toBe(false);
+
+    // The discovery window still closes: found 49h ago is stale however
+    // recently the filing itself happened.
+    expect(isFreshOnDiscovery(D("05"), seen(49), now)).toBe(false);
+    expect(isFreshOnDiscovery(D("05"), seen(47), now)).toBe(true);
+
+    // THE FLOOD GUARD, the half that must never widen. A filing older than
+    // CONGRESS_PTR's own 96h queue TTL cannot card however freshly we
+    // discovered it — otherwise a re-backfill emits ~144 cards from filings
+    // up to seven months old.
+    expect(LATE_DISCOVERY_MAX_FILING_AGE_HOURS).toBe(96);
+    expect(isFreshOnDiscovery(D("03"), seen(0), now)).toBe(true); // 88.5h, inside
+    expect(isFreshOnDiscovery(D("02"), seen(0), now)).toBe(false); // 112.5h, outside
+    expect(isFreshOnDiscovery("2026-01-05T00:00:00.000Z", seen(0), now)).toBe(false);
+
+    // Fails closed on missing or nonsensical inputs, including a discovery
+    // timestamp in the FUTURE — a clock fault must never read as fresh.
+    expect(isFreshOnDiscovery("", seen(0), now)).toBe(false);
+    expect(isFreshOnDiscovery(D("05"), "", now)).toBe(false);
+    expect(isFreshOnDiscovery(D("05"), "not a date", now)).toBe(false);
+    expect(isFreshOnDiscovery(D("05"), new Date(now.getTime() + 3_600_000).toISOString(), now)).toBe(false);
+  });
+
+
 });
