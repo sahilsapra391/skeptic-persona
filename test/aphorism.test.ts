@@ -150,26 +150,25 @@ const KNOWN_UNBOUND_APHORISMS = [
   "Two is a method",
   "not an enforcement regime, but a subscription fee for opacity",
   "This isn't an enforcement regime, it's a subscription fee for op",
-  "The lag is the product",
 ] as const;
 
 /**
- * THE ONE BEAT THE RULING DOES NOT CLEANLY CLASSIFY.
+ * CLOSED 2026-08-06 by the owner's ruling on "The lag is the product."
  *
- * "The lag is the product." is a metaphor by form, so a strict reading of the
- * ruling retires it. It is also CONGRESS_PTR's signature line, quoted in the
- * measured congress notes, on the lane the same sprint exists to light up —
- * and it was in neither group named in the report the ruling answers.
- *
- * Left in place and listed rather than retired on my own classification. It
- * costs nothing today: CONGRESS_PTR has never produced a card, so zero live
- * drafts carry it. One word from the owner settles it either way.
+ * It stays, and the cash-out rule is what keeps it: it binds to the item's own
+ * parsed lag AND to the registry's 45-day/$200 PTR entry. The beat is gated to
+ * match the claim it makes, so a filing disclosed inside the statutory
+ * deadline never carries it. This is the worked example of a bound
+ * definitional beat, and the beat library now has no unbound line left.
  */
-const BEAT_CLASSIFICATION_OPEN = ["The lag is the product"] as const;
 
 describe("what the rule finds in artefacts that teach the model", () => {
   it("the beat library's unbound definitional lines are exactly the known list", () => {
     const found = new Set<string>();
+    // A payload shaped like an item that actually carries the fields these
+    // beats gate on. Scanning against {} would report every RECORD-kind
+    // binding as unbound and hide what the rulings actually did.
+    const licensed = { lagDays: 87, priorNonRelianceCount: 2 };
     for (const arch of Object.values(ARCHETYPES)) {
       // Resolve THIS archetype's citation, because that is the provenance
       // group's cash-out. Scanning with attribution:null would report every
@@ -178,13 +177,14 @@ describe("what the rule finds in artefacts that teach the model", () => {
         typeof arch.attribution === "string" ? arch.attribution : (Object.values(arch.attribution.map)[0] ?? null);
       for (const beat of arch.beats) {
         for (const c of definitionalClaims(beat.text)) {
-          if (boundDefinitionsFor(c, { payload: {}, numbers: new Set(), attribution }).length === 0) found.add(c);
+          if (boundDefinitionsFor(c, { payload: licensed, numbers: new Set(), attribution }).length === 0) found.add(c);
         }
       }
     }
-    // After the ruling, the beat library's ONLY unbound line is the one open
-    // classification. Everything else either retired or binds.
-    expect([...found].sort()).toEqual([...BEAT_CLASSIFICATION_OPEN].sort());
+    // After both rulings the beat library has NO unbound definitional line
+    // left: the metaphors retired, the provenance group binds to the item's
+    // attribution, and the lag beat binds to its own lag past the deadline.
+    expect([...found].sort()).toEqual([]);
   });
 
   it("the retired metaphor beats are gone from the library AND from persona.md", () => {
@@ -260,7 +260,7 @@ describe("what the rule finds in artefacts that teach the model", () => {
     // [5] and [6] are the two v2 texts carrying definitional lines, and both
     // bind — [5] to Regulation FD, [6] to the record count.
     const v2 = OWNER_EXEMPLARS.filter((e) => e.v2);
-    expect(v2.length, "the v2 commentary exemplars are installed").toBe(7);
+    expect(v2.length, "the v2 exemplars are installed").toBe(8);
     for (const e of v2) {
       expect(check(e.text, { priorNonRelianceCount: 2 }), e.text.slice(0, 40)).toEqual([]);
     }
