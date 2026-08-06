@@ -57,22 +57,43 @@ still probed, expected to recover) or **retired** (gone for good, state
 removed). It may not be none of those. If a source is failing and is not in
 this table with a date, that is itself the defect.
 
-## PR wires (p5-21), probed 2026-08-06 from RESIDENTIAL egress
+## PR wires (p5-21), probed 2026-08-06 from BOTH egress points
 
-Live re-probe with the declared User-Agent. **Worker egress is NOT yet
-measured** — see the blocked-owner line below — so nothing here has an
-ingester yet. Building one before both egress points answer is exactly the
-mistake D-25 records three times over.
+Worker egress measured via `/admin/probe` at 17:06:29Z; residential with the
+same declared User-Agent minutes earlier. Both answers, so no lane is being
+built on one.
 
-| Feed | Residential | Parses? | Verdict |
-|---|---|---|---|
-| GlobeNewswire, public-company RSS | **200**, `application/rss+xml`, 32KB | **20 items**, first title read cleanly | **Candidate.** Answers clean. |
-| PR Newswire, financial-services RSS | **200**, `application/xml`, 44KB | **1 item** | **Candidate, with a question.** 44KB carrying one `<item>` suggests a different element shape, not a thin feed. Needs a parse pass before it counts as clean. |
-| PR Newswire, `news-releases-list.rss` | **301** | — | Redirect; the financial-services path is the live one. |
-| ACCESSWIRE `/newsroom/rss` | **301 → 404** | — | **No feed at this path.** |
-| ACCESSWIRE `/users/api/rss` | **500**, `application/json` | — | **No working endpoint found.** Two paths tried, both dead. |
+| Feed | Worker | Residential | Items | Verdict |
+|---|---|---|---|---|
+| GlobeNewswire, public-company RSS | **200** `application/rss+xml` 33,546B, 95ms | **200** 32KB | **20** | **BUILD.** Clean from both. |
+| PR Newswire, financial-services RSS | **200** `application/xml` 42,304B, 17ms | **200** 44KB | **20** | **BUILD.** Clean from both. |
+| PR Newswire `news-releases-list.rss` | — | 301 | — | Redirect; the financial-services path is the live one. |
+| ACCESSWIRE `/newsroom/rss` | **404** | 301 → 404 | — | **RETIRED**, see below. |
+| ACCESSWIRE `/users/api/rss` | **500** | 500 | — | **RETIRED**, see below. |
 
-**ACCESSWIRE has no working public feed we can find.** Recorded as a finding,
-not as a failure to chase: the discovery-tier and corroboration rules mean a
-wire we cannot read is simply not a source, and there is no unpaid path that
-does not involve scraping their site, which the charter closes.
+### A correction to this table's first version
+
+It recorded PR Newswire as *"44KB carrying one `<item>`… a different element
+shape, not a thin feed"* and held the verdict pending a parse pass. **That was
+a measurement bug in the probe, not a property of the feed.** The count came
+from `grep -c "<item>"`, which counts matching LINES, and the whole feed is a
+single line with no newlines — so any feed shaped that way reports exactly 1.
+Re-counted by occurrence: **20 items**, an ordinary RSS 2.0 channel.
+
+Worth keeping because the failure mode generalises: a count that can only ever
+return 1 or 0 looks like a finding rather than a broken instrument.
+
+### ACCESSWIRE: RETIRED 2026-08-06
+
+**Evidence.** Two documented paths, both dead from both egress points:
+`/newsroom/rss` → 301 then **404** (73,766 bytes of HTML, so a real page saying
+no); `/users/api/rss` → **500** `application/json`. Worker and residential agree,
+so this is not an egress question.
+
+**Reopen conditions.** Any one of: ACCESSWIRE publishing a documented public
+feed URL that answers 200 with parseable items; the owner licensing their
+feed under an explicit charter change; or the corroboration rules changing such
+that a wire we cannot read directly becomes reachable through a source we can.
+
+Until then a wire we cannot read is simply not a source. There is no unpaid
+path that does not involve scraping their site, which the charter closes.
