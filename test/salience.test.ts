@@ -499,14 +499,23 @@ describe("p5-03: the REGULATORY_NEWS tier", () => {
     expect(CEILING_EXEMPT.has("REGULATORY_NEWS")).toBe(true);
     expect(salienceFor("REGULATORY_NEWS", { authority: "Bureau of Economic Analysis" }).exempt).toBe(false);
     expect(salienceFor("REGULATORY_NEWS", { authority: "UK ONS" }).exempt).toBe(false);
-    // DOJ is untiered, so nothing about it changes.
-    expect(salienceFor("REGULATORY_NEWS", { authority: "DOJ" }).exempt).toBe(true);
+    // ENFORCEMENT is the one tier that KEEPS it, because the owner's amendment
+    // was written for enforcement actions in the first place.
+    expect(salienceFor("REGULATORY_NEWS", { authority: "DOJ", title: "Two Charged in Securities Fraud Scheme" }).exempt).toBe(true);
+    // Non-market DOJ press does not.
+    expect(salienceFor("REGULATORY_NEWS", { authority: "DOJ", title: "Man Sentenced for Child Pornography" }).exempt).toBe(false);
+    // An unruled source is untouched.
+    expect(salienceFor("REGULATORY_NEWS", { authority: "UK FCA" }).exempt).toBe(true);
   });
 
-  it("the 24 untiered sources are byte-identical to before: base 70, exempt, above the floor", () => {
-    // The guard on scope creep. If a later edit tiers a source the owner has
-    // not ruled on, this fails and names it.
-    const tiered = new Set(Object.keys(REGULATORY_NEWS_TIER));
+  it("sources the owner has NOT ruled on are byte-identical: base 70, exempt, above the floor", () => {
+    // The guard on scope creep, narrowed as the owner rules. It covered 24
+    // sources under the BEA/ONS ruling; the 2026-08-06 content-tier ruling
+    // names four more (DOJ, Bank of Japan, RBI, SEBI), so the guard now covers
+    // the remaining twenty. If a later edit tiers a source he has not ruled
+    // on, this still fails and names it.
+    const RULED = ["DOJ", "Bank of Japan", "Reserve Bank of India", "SEBI"];
+    const tiered = new Set([...Object.keys(REGULATORY_NEWS_TIER), ...RULED]);
     const untiered = PRESS_SOURCES.filter((s) => !tiered.has(s.authority));
     expect(untiered.length).toBe(PRESS_SOURCES.length - tiered.size);
     for (const s of untiered) {
@@ -580,5 +589,113 @@ describe("the pacing gate cannot outlive its invocation (2026-08-05 outage)", ()
     const order: number[] = [];
     await Promise.all([0, 1, 2].map(async (i) => { await paceChat("order-chat", SPACING); order.push(i); }));
     expect(order).toEqual([0, 1, 2]);
+  });
+});
+
+describe("p5-03b: content tiers, written against REAL pending titles", () => {
+  const t = (authority: string, title: string) => salienceFor("REGULATORY_NEWS", { authority, title });
+
+  it("DOJ is positive-match only, so non-market press is LEDGER, never digest", () => {
+    // Every one of these is a real pending title read from production on
+    // 2026-08-06. Five of five DOJ items sampled had no market subject, which
+    // is why the default excludes rather than includes.
+    for (const title of [
+      "Two Men Indicted for Laser Strikes on Police Helicopters",
+      "Justice Department Sues Montgomery County, MD for Violating Supreme Court",
+      "Justice Department Files Record 25 Denaturalization Cases Against Naturalized",
+      "Illegal alien from Guatemala who caused head-on collision pleads guilty",
+      "Portage County Man Sentenced to 20 Years in Prison For Child Pornography",
+    ]) {
+      const s = t("DOJ", title);
+      expect(s.ledgerOnly, title).toBe(true);
+      expect(s.exempt, title).toBe(false);
+      expect(s.reasons.join(","), title).toContain("NON_MARKET");
+    }
+  });
+
+  it("...and the DOJ cases the owner named DO card, at ENFORCEMENT", () => {
+    for (const title of [
+      "Hedge Fund Manager Charged in Securities Fraud Scheme",
+      "Three Charged in Commodities Fraud and Market Manipulation",
+      "Company Resolves Foreign Corrupt Practices Act Investigation",
+      "Two Sentenced for Sanctions Evasion and Money Laundering",
+      "Justice Department Sues to Block Merger on Antitrust Grounds",
+      "Bank Executive Convicted of Bank Fraud",
+    ]) {
+      const s = t("DOJ", title);
+      expect(s.ledgerOnly, title).toBe(false);
+      expect(s.score, title).toBeGreaterThanOrEqual(DEFAULT_SALIENCE_FLOOR);
+      // ENFORCEMENT is the tier the ceiling exemption was written for.
+      expect(s.exempt, title).toBe(true);
+    }
+  });
+
+  it("Bank of Japan: data prints card at MACRO, minutes and research are ledger", () => {
+    const macro = salienceFor("MACRO_PRINT", {}).score;
+    for (const title of [
+      "Bank of Japan Accounts (July 31)",
+      "Collateral Accepted by the Bank of Japan (End of July)",
+      "Japanese Government Bonds Held by the Bank of Japan",
+      "Sources of Changes in Current Account Balances (Projections for Aug.)",
+    ]) {
+      expect(t("Bank of Japan", title).score, title).toBe(macro);
+    }
+    for (const title of [
+      "Minutes of the Monetary Policy Meeting on June 15 and 16, 2026",
+      "(Research Paper) IMES DPS: Distance and Loan Pricing Revisited",
+      "(BOJ Review) Impact of the Bank of Japan's Reductions in JGB Purchases",
+    ]) {
+      expect(t("Bank of Japan", title).ledgerOnly, title).toBe(true);
+    }
+  });
+
+  it("a policy decision digests by default and cards only on a change", () => {
+    const routine = t("Reserve Bank of India", "Monetary Policy Statement, 2026-27 Resolution of the Monetary Policy Committee");
+    expect(routine.score).toBeLessThan(DEFAULT_SALIENCE_FLOOR);
+    expect(routine.ledgerOnly).toBe(false); // digest, not ledger
+    // A change, a surprise, or an unscheduled action lifts it.
+    for (const title of [
+      "Unscheduled Monetary Policy Meeting Announced",
+      "Monetary Policy Statement: Committee cuts the policy rate",
+      "Bank of Japan announces intervention in the foreign exchange market",
+    ]) {
+      const s = t(title.includes("Japan") ? "Bank of Japan" : "Reserve Bank of India", title);
+      expect(s.score, title).toBeGreaterThanOrEqual(DEFAULT_SALIENCE_FLOOR);
+    }
+  });
+
+  it("RBI: auction results and data releases card at MACRO; consultations are ledger", () => {
+    const macro = salienceFor("MACRO_PRINT", {}).score;
+    for (const title of [
+      "Result of Yield/Price Based Auction of State Government Securities",
+      "State Government Securities - Full Auction Result",
+      "Money Market Operations as on August 4, 2026",
+      "RBI releases data on ECB / FCCB / RDB for June 2026",
+    ]) {
+      expect(t("Reserve Bank of India", title).score, title).toBe(macro);
+    }
+    expect(t("Reserve Bank of India", "RBI invites public comments on Draft Guidelines for 'on tap' Licensing").ledgerOnly).toBe(true);
+    // An action against a bank is a financial-institution case.
+    expect(t("Reserve Bank of India", "Directions under Section 35A read with Section 56 of the Banking Regulation Act").exempt).toBe(true);
+  });
+
+  it("SEBI: appeal dockets and individuals are ledger; orders card", () => {
+    // Seven of the eleven pending SEBI items were appeal dockets.
+    for (const title of [
+      "Appeal No. 6970 of 2026 filed by Parthasarathi",
+      "Appeal No. 6964 of 2026 filed by Ravi Prakashkumar Shah",
+      "Remittance Order dated 04.08.2026 issued against Vinet Rajkumar Chopda HUF",
+      "Settlement Order in respect of Mr. Raghav Raj Kanoria in the matter of India P",
+    ]) {
+      expect(t("SEBI", title).ledgerOnly, title).toBe(true);
+    }
+    expect(t("SEBI", "Order in the matter of certain Research Analysts").ledgerOnly).toBe(false);
+  });
+
+  it("an unruled authority is completely untouched", () => {
+    const s = t("UK FCA", "FCA fines a firm for market abuse");
+    expect(s.score).toBe(70);
+    expect(s.exempt).toBe(true);
+    expect(s.ledgerOnly).toBe(false);
   });
 });

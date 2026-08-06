@@ -81,48 +81,149 @@ const DEFAULT_BASE = 40;
 export const CEILING_EXEMPT: ReadonlySet<string> = new Set(["CONGRESS_PTR", "REGULATORY_NEWS", "POLICY_ACTION"]);
 
 /**
- * REGULATORY_NEWS tiers (p5-03), per the BEA/ONS ruling in the P5 plan:
+ * REGULATORY_NEWS content tiers (p5-03b, owner ruling 2026-08-06 extending the
+ * BEA/ONS precedent).
  *
- *   > data prints card at MACRO tier; release-calendar entries are
- *   > ledger/digest only
+ * THE RULING, verbatim: "tier follows content type, not source."
  *
- * WHY A TIER AT ALL. The owner's exemption says "enforcement actions"; the
- * code says REGULATORY_NEWS. With the original six press sources those picked
- * out nearly the same set. Press then went 6 -> 26, so the exemption silently
- * grew to cover ONS release-calendar entries, GAO reports and BEA statistical
- * releases. The wording never changed; the population under it did. Measured
- * consequence: every press item scores a flat 70 against a floor of 45 and
- * pushes uncapped, and REGULATORY_NEWS is 80 of the 134 pending cards.
+ *   ENFORCEMENT     an action naming a market entity. Card-eligible.
+ *   MACRO           an actual data print. Card-eligible, salience decides.
+ *   POLICY          a policy decision. Digest by default; cards only on a
+ *                   change from prior, a surprise, or an unscheduled action.
+ *   ADMINISTRATIVE  circulars, consultations, speeches, minutes, calendars,
+ *                   appointments, appeal dockets. LEDGER ONLY, never a card.
+ *   NON_MARKET      DOJ press with no market subject. Ledger only, and
+ *                   explicitly NOT digest: it does not belong in a finance
+ *                   digest at all.
  *
- * KEYED ON AUTHORITY, which resolves per SOURCE: test/globalWire.test.ts pins
- * "each source its own authority, so no two sources share a citation key".
- * payload.authority is already on every press payload, so this needs no
- * signature change and no ingester change.
+ * WHY TITLE-MATCHING IS DEFENSIBLE HERE, given this repo's distrust of regex
+ * on prose: the classifier never licenses a FACT. It decides which queue an
+ * item joins, which is a selection heuristic exactly like the rest of this
+ * file, and persona.md's rule is that a wrong score costs a queue slot and
+ * never a false statement. Nothing it produces reaches copy.
  *
- * ONLY THE TWO SOURCES THE RULING NAMES ARE LISTED, and both are objective
- * rather than editorial:
- *   - UK ONS's endpoint IS a release calendar
- *     (https://www.ons.gov.uk/releasecalendar?rss). The source declares what
- *     it is; nobody is judging it.
- *   - BEA's feed carries the statistical releases themselves. Live payloads
- *     read "U.S. International Trade in Goods and Services, June 2026" and
- *     "Gross Domestic Product by Metropolitan Area, 2016".
- *
- * THE OTHER 24 SOURCES ARE DELIBERATELY ABSENT and keep today's behaviour
- * exactly. Tiering them is the editorial call the p4 session correctly
- * refused to make for the owner, and the handoff's proposed shortcut does not
- * survive contact: it suggested promoting regulatoryPress.ts's own prose
- * grouping, but "GLOBAL WIRE FANOUT, batch 1" records WHEN a URL was probed,
- * not what the source is. press_doj sits inside that batch while press_boj
- * sits under "Enforcement wire", so promoting it would rank DOJ enforcement
- * below Bank of Japan press releases. An absent key is a no-op, never a guess.
+ * EVERY PATTERN BELOW WAS WRITTEN AGAINST REAL PENDING TITLES read from
+ * production on 2026-08-06, not imagined. The DOJ default is the clearest
+ * case: of the DOJ items in the queue that day, the sample was laser strikes
+ * on police helicopters, a county voting-rights suit, denaturalization cases,
+ * a fatal collision guilty plea and a child-pornography sentencing. Five of
+ * five had no market subject.
  */
-export type RegulatoryNewsTier = "DATA_PRINT" | "RELEASE_CALENDAR";
+export type RegulatoryNewsTier =
+  | "ENFORCEMENT"
+  | "MACRO"
+  | "POLICY"
+  | "ADMINISTRATIVE"
+  | "NON_MARKET"
+  | "DATA_PRINT"
+  | "RELEASE_CALENDAR";
 
+/** The BEA/ONS precedent this ruling extends. Kept keyed on authority because
+ *  each of these sources is wholly one content type: ONS's endpoint IS a
+ *  release calendar, BEA's feed IS the statistical releases. */
 export const REGULATORY_NEWS_TIER: Readonly<Record<string, RegulatoryNewsTier>> = {
   "Bureau of Economic Analysis": "DATA_PRINT",
   "UK ONS": "RELEASE_CALENDAR",
 };
+
+const rx = (...parts: string[]) => new RegExp(parts.join("|"), "i");
+
+/** DOJ is POSITIVE-MATCH ONLY: the default is NON_MARKET, so a pattern miss
+ *  costs a ledger entry and never a bad card. The owner's list, one clause
+ *  each: securities or commodities fraud, antitrust involving public
+ *  companies, FCPA, sanctions, financial-institution cases. */
+const DOJ_MARKET = rx(
+  "securities fraud", "commodit(?:y|ies) fraud", "insider trading", "market manipulation",
+  "investment fraud", "ponzi", "securities and exchange commission",
+  "antitrust", "monopol", "price[- ]fixing", "bid[- ]rigging",
+  "foreign corrupt practices", "\\bFCPA\\b",
+  "sanctions", "\\bOFAC\\b", "export control",
+  "financial institution", "\\bbank fraud\\b", "money laundering",
+);
+
+/** Administrative output, shared across authorities: it names no event. */
+const ADMIN = rx(
+  "\\bminutes\\b", "\\bspeech\\b", "\\bremarks\\b", "research paper", "\\breview\\b",
+  "\\bcircular\\b", "consultation", "invites public comments", "draft guidelines",
+  "\\bappeal no\\b", "\\bappointment", "calendar", "\\bagenda\\b", "working paper",
+);
+
+/** A data print: the release itself, carrying figures. */
+const DATA = rx(
+  "\\baccounts\\b", "\\bbalances\\b", "\\bcollateral\\b", "\\bheld by\\b",
+  "\\bauction\\b", "money market operations",
+  "releases data", "\\breserves\\b", "swap facility", "\\bprojections\\b",
+);
+
+/** Policy: a decision, or the statement that carries one. */
+const POLICY = rx("monetary policy", "policy statement", "statement on .*polic", "resolution of the monetary policy");
+
+/**
+ * The three things that lift a POLICY item to card-eligible, per the ruling:
+ * a change from prior, a surprise, or an unscheduled action. SPLIT IN TWO,
+ * because they are not equally unambiguous.
+ *
+ * URGENT words mean the same thing wherever they appear, so they are checked
+ * before anything else and can rescue a title the shape-matchers would bury.
+ *
+ * CHANGE VERBS only mean a policy change INSIDE a policy title. Checked first
+ * and globally, "changes" matched "Sources of Changes in Current Account
+ * Balances", promoting a routine BoJ data print to enforcement tier. The
+ * real-title test caught it; the fix is scope, not a longer pattern.
+ */
+const POLICY_URGENT = rx("unscheduled", "emergency", "intervention", "intervene");
+const POLICY_CHANGED = rx("\\braises?\\b", "\\blowers?\\b", "\\bcuts?\\b", "\\bhikes?\\b", "\\bchange[sd]?\\b");
+
+/** An enforcement order aimed at an entity rather than a person or a docket. */
+const SEBI_ENFORCEMENT = rx("\\border\\b", "adjudicat", "settlement order", "\\bdirections\\b");
+/** Individuals and dockets are not listed entities. */
+const SEBI_NOT_ENTITY = rx("\\bappeal no\\b", "\\bHUF\\b", "\\bMr\\.", "\\bMs\\.", "\\bShri\\b", "in respect of Mr");
+
+/**
+ * Classify one REGULATORY_NEWS item. Returns undefined when the authority has
+ * no ruling, which leaves that source's behaviour exactly as it is today.
+ */
+export function classifyRegulatoryNews(authority: string, title: string): RegulatoryNewsTier | undefined {
+  const preset = REGULATORY_NEWS_TIER[authority];
+  if (preset) return preset;
+
+  switch (authority) {
+    case "DOJ":
+      // Positive-match only. Everything else is criminal or civil news with no
+      // market subject, and the owner ruled it out of the digest entirely.
+      return DOJ_MARKET.test(title) ? "ENFORCEMENT" : "NON_MARKET";
+
+    case "Bank of Japan":
+      // Checked FIRST, before the administrative sweep. An intervention or an
+      // unscheduled action is card-worthy whatever shape the title takes, and
+      // the owner named those explicitly. Ordering this after ADMIN sent
+      // "announces intervention in the foreign exchange market" to the ledger,
+      // which the real-title test caught.
+      if (POLICY_URGENT.test(title)) return "ENFORCEMENT";
+      if (ADMIN.test(title)) return "ADMINISTRATIVE";
+      if (DATA.test(title)) return "MACRO";
+      if (POLICY.test(title)) return POLICY_CHANGED.test(title) ? "ENFORCEMENT" : "POLICY";
+      return "ADMINISTRATIVE";
+
+    case "Reserve Bank of India":
+      if (POLICY_URGENT.test(title)) return "ENFORCEMENT";
+      if (ADMIN.test(title)) return "ADMINISTRATIVE";
+      if (DATA.test(title)) return "MACRO";
+      if (POLICY.test(title)) return POLICY_CHANGED.test(title) ? "ENFORCEMENT" : "POLICY";
+      // "Directions under Section 35A ... Banking Regulation Act" is an action
+      // against a bank, which is a financial-institution case by any reading.
+      if (/directions under/i.test(title)) return "ENFORCEMENT";
+      return "ADMINISTRATIVE";
+
+    case "SEBI":
+      if (SEBI_NOT_ENTITY.test(title)) return "ADMINISTRATIVE";
+      if (ADMIN.test(title)) return "ADMINISTRATIVE";
+      return SEBI_ENFORCEMENT.test(title) ? "ENFORCEMENT" : "ADMINISTRATIVE";
+
+    default:
+      return undefined;
+  }
+}
 
 export interface Salience {
   /** 0-100. Higher asks louder. */
@@ -131,6 +232,11 @@ export interface Salience {
   reasons: string[];
   /** True when this category ignores the daily ceiling. */
   exempt: boolean;
+  /** LEDGER ONLY: never a card and never a digest line. The item is marked
+   *  'logged' rather than 'digested', because 'digested' means it met the bar
+   *  and lost a slot, and these never met any bar. Set by the REGULATORY_NEWS
+   *  ADMINISTRATIVE and NON_MARKET tiers (owner ruling 2026-08-06). */
+  ledgerOnly: boolean;
 }
 
 function num(payload: Payload, key: string): number | null {
@@ -290,20 +396,37 @@ export function salienceFor(archetype: ArchetypeId | string, payload: Payload): 
     }
     case "REGULATORY_NEWS": {
       const authority = typeof payload["authority"] === "string" ? (payload["authority"] as string) : "";
-      regNewsTier = REGULATORY_NEWS_TIER[authority];
-      if (regNewsTier === "DATA_PRINT") {
-        // "cards at MACRO tier" taken literally: land on the MACRO_PRINT base
-        // rather than near it. The only numbers in play are two that already
-        // exist, so no coefficient is invented here.
-        magnitude += CATEGORY_BASE["MACRO_PRINT"]! - base;
-        reasons.push(`regnews.tier:DATA_PRINT=MACRO_PRINT(${CATEGORY_BASE["MACRO_PRINT"]})`);
-      } else if (regNewsTier === "RELEASE_CALENDAR") {
-        // "ledger/digest only": zero, the structural bottom of the scale,
-        // which is a STATEMENT that this never asks for attention rather than
-        // a tuned distance below the floor. Picking some number just under 45
-        // would be exactly the invented constant this layer forbids.
-        magnitude -= base;
-        reasons.push("regnews.tier:RELEASE_CALENDAR=digest_only");
+      const title = typeof payload["title"] === "string" ? (payload["title"] as string) : "";
+      regNewsTier = classifyRegulatoryNews(authority, title);
+      switch (regNewsTier) {
+        case "ENFORCEMENT":
+          // The tier the owner's ceiling exemption was actually written for.
+          // Base 70 is already the measured enforcement tier, so this is the
+          // one branch that changes no number: it just says so out loud.
+          reasons.push("regnews.tier:ENFORCEMENT");
+          break;
+        case "MACRO":
+        case "DATA_PRINT":
+          // "Card-eligible with salience deciding": land exactly on the MACRO
+          // base rather than near it, using a number that already exists.
+          magnitude += CATEGORY_BASE["MACRO_PRINT"]! - base;
+          reasons.push(`regnews.tier:${regNewsTier}=MACRO_PRINT(${CATEGORY_BASE["MACRO_PRINT"]})`);
+          break;
+        case "POLICY":
+        case "RELEASE_CALENDAR":
+          // Digest by default. Zero is the structural bottom of the scale, a
+          // statement that this never asks for attention, rather than a tuned
+          // distance below the floor that nobody could justify.
+          magnitude -= base;
+          reasons.push(`regnews.tier:${regNewsTier}=digest_only`);
+          break;
+        case "ADMINISTRATIVE":
+        case "NON_MARKET":
+          magnitude -= base;
+          reasons.push(`regnews.tier:${regNewsTier}=ledger_only`);
+          break;
+        default:
+          break;
       }
       break;
     }
@@ -319,8 +442,14 @@ export function salienceFor(archetype: ArchetypeId | string, payload: Payload): 
   // claim on that exemption: a BEA data print at MACRO tier takes the ceiling
   // like any other macro item, and a release-calendar entry must not ride an
   // exemption past a cap it should never reach. Untiered sources are untouched.
-  const exempt = CEILING_EXEMPT.has(String(archetype)) && regNewsTier === undefined;
-  return { score, reasons, exempt };
+  // The exemption belongs to ENFORCEMENT and to untiered sources only. The
+  // owner's amendment exempted "enforcement actions"; a data print, a policy
+  // statement and an appeal docket are established NOT to be those, so none of
+  // them keeps a claim on it.
+  const exempt =
+    CEILING_EXEMPT.has(String(archetype)) && (regNewsTier === undefined || regNewsTier === "ENFORCEMENT");
+  const ledgerOnly = regNewsTier === "ADMINISTRATIVE" || regNewsTier === "NON_MARKET";
+  return { score, reasons, exempt, ledgerOnly };
 }
 
 /** Default floor. Items below this never push; they land in the day's digest.
