@@ -18,8 +18,11 @@ Last reconciled against production D1: 2026-08-04.
 
 | Gate | Required | Measured in production | Source |
 |---|---|---|---|
-| Manual-post counter | >= 10 for Phase 2 | **0** | `post_log WHERE posted_manually=1` = 0; `cards WHERE posted_state IN ('yes','modified')` = 0 |
+| Manual-post counter | >= 10 for Phase 2 | **4** (was 0) | `SELECT COUNT(*) FROM post_log WHERE posted_manually=1` = 4, re-measured 2026-08-06T05:1xZ. Queue rows #1121, #1129, #1076, #1138; every one `edit_distance 0`; last at 00:22:14Z. 18 Threads-era rows carry `posted_manually=0` and are excluded. |
 | Phase 0 complete | all 6 merged-verified | **6 of 6 merged; p5-03's source rulings remain owner-blocked** | this ledger |
+
+**Counter gap: 6 posts.** It moves through the owner's thumbs, not through
+code. Nothing in items 1-6 of the wrap sprint changes it.
 
 Phase 2 and beyond are `blocked-gate` until BOTH clear. The counter moves
 through the owner's thumbs, not through code.
@@ -63,7 +66,60 @@ North star measured 2026-08-05, from the shipped query: last 7 days 651 cards,
 
 | Chunk | Scope | Status | PR | Verification |
 |---|---|---|---|---|
-| v2-copy-law | Owner rulings 2026-08-06: aphorism rule (cash-out scorer + definitions registry), attribution table (pinned plain forms, aliases, embedded form, redundancy flag), margin rule (272), PTR/10b5-1/Code P/Item 4.02/Reg FD/Reg SHO registry entries; v2 exemplar items 2-6 | in review | — | [2026-08-06-v2-copy-law](verification/2026-08-06-v2-copy-law.md) |
+| v2-copy-law | Owner rulings 2026-08-06: aphorism rule (cash-out scorer + definitions registry), attribution table (pinned plain forms, aliases, embedded form, redundancy flag), margin rule (272), PTR/10b5-1/Code P/Item 4.02/Reg FD/Reg SHO registry entries; v2 exemplar items 2-6 | merged-verified | [#152](https://github.com/sahilsapra391/skeptic-persona/pull/152) | [2026-08-06-v2-copy-law](verification/2026-08-06-v2-copy-law.md) |
+
+## Wrap sprint (p5-wrap), owner-scoped 2026-08-06
+
+Fixed scope. New findings go here for after Phase 2 opens, not into the sprint.
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Congress lane: diagnose zero cards, fix senate_ptr, first live CONGRESS_PTR card | in progress |
+| 2 | Render lane v1 (single-stat + diff templates, 13F breakdown card, CHUBB LTD SWITZ proof), image on every Telegram delivery | not started |
+| 3 | INSTITUTIONAL_13F_BREAKDOWN archetype + owner exemplar + live generation | not started (blocked by 2, and by D-28) |
+| 4 | Exemplar closeout: three approved trims, D-32 strip, D-33 Fed pin | **done** — all seven v2 install (264 / 272 / 271), bank has zero entries over margin |
+| 5 | D-31 ruling: provenance binds, metaphors retire, pending cards re-render | **done** — migration 0066 applied and verified; 4 cards, not 11 (see below) |
+| 6 | Ledger truth pass | **done** — results below |
+| 7 | Re-anchor chunk in background; watch `fallback_template` in the digest | standing |
+
+### Item 6: the truth pass, checked not assumed
+
+Every Phase 0 and Phase 1 PR was queried through the GitHub API and every
+verification doc was stat'd on disk. **All nine PRs are MERGED and all nine
+docs EXIST.** Nothing in the two tables is aspirational.
+
+Two rows are NOT "merged-verified" and are stated as they are, not rounded up:
+
+- **p5-03** is `blocked-owner` (D-13). The mechanism and the BEA/ONS ruling
+  merged; the drain does not follow from that ruling.
+- **p5-11** is "merged; rate_boe NOT fixed" (D-25). The chunk shipped, one
+  source in it did not.
+
+**p5-10** is parked by owner instruction and has no PR or doc by design.
+
+### Item 6: exemplar install status, measured
+
+```
+OWNER_EXEMPLARS (live bank)          27
+  of which owner pack v2              7   (the commentary seven, all <= 272)
+LEGACY_COMMENTARY_EXEMPLARS           7   retired v1, never prompt-injected
+PENDING_OWNER_EXEMPLARS               0   nothing held back
+PARKED_EXEMPLARS                      3   FED_STATEMENT_DIFF, TAPE_CHECK, NIGHTLY_RITUAL
+```
+
+- **The three short INSTITUTIONAL_13F exemplars: NOT INSTALLED, and cannot
+  be.** There is no `INSTITUTIONAL_13F` archetype in the registry (grep
+  returns 0 in both `archetypes.ts` and `types.ts`) and no 13F text anywhere
+  in the bank. This is D-28 unchanged: the lane fills its own tables and never
+  writes to `items`. O-1 remains open on the owner's side, but exemplars are
+  not the binding constraint.
+- **The 20-pack v2: NOT INSTALLED, none of the 20.** The bank is the
+  2026-07-28 set with exactly seven commentary entries swapped for the v2
+  pack. The 20-pack's own preconditions are unmet: pattern fields (item 2 of
+  that message) are unbuilt, so record-based takes like "fifth sale in six
+  months" have no licensed field, and the cashtag batch-map (item 3) has not
+  run, so 87% of holdings still resolve to issuer names.
+
 
 ## Phase 2 — Gate-cleared expansion
 
@@ -159,6 +215,8 @@ All `blocked-gate` (needs 10 manual posts + Phase 0 complete). Two are also
 | D-31 | 2026-08-06, owner ruling 1 | **The aphorism rule's first sweep, and it found the owner's own retired line still live.** Ruling 1 names "a 144 is the intent" as a RETIRED v1 line, to be installed as a negative test case. It is not retired: `A 144 is the intent. The Form 4 is the receipt.` is signed at [persona.md:112](persona.md), live at `archetypes.ts:240`, and rendered into **11 pending cards**. The scorer finds **22 distinct unbound definitional lines** across the beat library and exemplar bank: metaphors (`A grant is a paycheck`, `The item number is the confession`, `The cluster is the fact`, `A hold is a decision made by people who seriously considered moving`) and provenance statements (`The stake number is the filer's own`, `The class is the FDA's grading, not ours`, `The weekly change is the CFTC's own figure`). The provenance group arguably DOES cash out, to the payload's own attribution, and one registry entry would bind all of them. Not written here: it is a voice call on persona.md-signed text. The scorer runs on generated OUTPUT and is deliberately not in `FLOOR_GATES`; the full list is pinned in `test/aphorism.test.ts` so it cannot grow silently. | open, owner ruling needed |
 | D-32 | 2026-08-06, owner ruling 2 | **Three owner wire exemplars now carry the redundancy the amended rule flags:** `SEC instituted administrative proceedings..., per SEC`, `CFTC filed a complaint..., per CFTC`, `ECB holds the deposit facility rate... per ECB`. Owner-authored, so his to rewrite, and his own v2 [7] is exactly the fixed form of the first pattern (`The FTC just sued...`, no trailing phrase). Listed in `test/attributionRule.test.ts` with a staleness assertion, so a fourth cannot appear silently and a rewrite forces the list to shrink. | open, owner ruling needed |
 | D-33 | 2026-08-06, jargon sweep | **The Federal Reserve is pinned two ways:** `per Federal Reserve` (FED_PRESS archetype) and `per the Federal Reserve` (PRESS_ATTRIBUTION map). Both are registered in the attribution table so neither breaks, but one source with two display strings is precisely what the table exists to stop. Found while sweeping for eFD-class jargon. Owner call on which survives. | open, owner ruling needed |
+| D-34 | 2026-08-06, wrap sprint | **FED_PRESS has zero beats and always has.** Found by an assertion added while retiring the metaphor beats (D-31), then verified against `main` to confirm it is pre-existing and not caused by the retirement. Every other archetype has at least one. A beatless archetype renders fact-block-only posts forever, so FED_PRESS can never produce the fact+beat shape persona.md specifies. NOT fixed in the wrap sprint, per the owner's fixed-scope instruction: new findings go to the ledger for after Phase 2 opens. | open, deferred by scope |
+| D-35 | 2026-08-06, wrap sprint, self-caught | **D-12 recurred, and this time the artefact was not inert.** A diagnosis subagent wrote `test/tmp-payloads.ts` (245KB of production congress payloads) and `test/tmp-render-probe.test.ts` into `test/`, and my `git add -A src test docs migrations` committed both in `21a7bb5`. The subagent then deleted them from disk, which is what surfaced it: `git status` showed two tracked-but-missing files at PR time. D-12's instances were mostly inert because the duplicate test copies did not end in `.test.ts`; **this probe does**, so vitest would have collected it and run a render probe over 245KB of committed production payloads on every CI run. Fourth recurrence of the `git add -A` sweep in this repo. Removed from the index and `.gitignore` now blocks `test/tmp-*`. The real lesson is narrower than the pattern: `git add -A` over a directory a subagent can write to is unsafe, and the fix is to add named paths. | fixed |
 
 ### Known and accepted, recorded rather than fixed
 

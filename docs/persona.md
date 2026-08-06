@@ -100,7 +100,6 @@ at least 90 days, and is refused rather than softened below that.
 - `Code P. Bought, not granted.` [open-market buy]
 - `{lag} days from trade to filing.` [both dates parsed, lag ≥ 2]
 - `The stake number is the filer's own.` [sharesAfter parsed]
-- `An award is compensation. A P is a decision.` [P present]
 
 **Post budget note.** The platform limit is 280, not 500. The SEC's compound
 item titles alone can exceed it (Item 5.02 is 145 characters), so 8-K carries
@@ -109,7 +108,6 @@ semicolon and marks the cut. If every skeleton overflowed, the render would
 fail and the filing would silently never reach the queue.
 
 ### FORM 144 / INSIDER NOTICE (a sale filed BEFORE it happens)
-- `A 144 is the intent. The Form 4 is the receipt.`
 - `This one is filed before the sale, not after.`
 - `The broker is named in the filing.` [broker parsed]
 - `Acquired by option exercise, sold the same notice.` [the filing's own
@@ -127,7 +125,6 @@ fail and the filing would silently never reach the queue.
 - `Buys only. Code P across every filer.`
 - `Seven calendar days, not seven sessions.`
 - `{n} signatures, not one.`
-- `The cluster is the fact. The reason isn't filed.`
 
 **Escalation tier:** cluster-plus-tape coincidences (both facts parsed)
 are reserved for P5 when Skeptic's own tape data joins the lake. No market

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { aphorismCheck, definitionalClaims, payloadFacts } from "../src/rag/validate";
 import { DEFINITIONS, boundDefinitionsFor } from "../src/rag/definitions";
 import { OWNER_EXEMPLARS, MOVE_EXAMPLES } from "../src/rag/stylepack";
+import PERSONA_DOC from "../docs/persona.md?raw";
 import { ARCHETYPES } from "../src/templates/archetypes";
 import type { Payload } from "../src/templates/types";
 
@@ -125,18 +126,20 @@ describe("the definitions registry", () => {
 });
 
 /**
- * The beat library and exemplar bank predate this rule and carry definitional
- * lines the registry does not cover. They are OWNER-SIGNED text (persona.md
- * is the voice authority) so they are not mine to rewrite — but the gap is
- * pinned here rather than hidden, because "the pack teaches what the floor
- * rejects" is a defect this repo has already paid for once.
+ * What the aphorism rule still finds in artefacts that teach the model, AFTER
+ * the owner's D-31 ruling of 2026-08-06.
  *
- * Open with the owner as D-31. Note the first entry: "A 144 is the intent" is
- * one of the two lines the owner named as RETIRED, and it is live.
+ * The ruling split the group in two. Provenance beats STAY, bound by the
+ * `source-owned-figure` registry entry whose cash-out is the item's own
+ * resolved attribution. Metaphor beats RETIRE — `form4.decision`,
+ * `n144.noticeNotTrade` (persona.md:112, archetypes.ts:240) and
+ * `cluster.reason` are gone from both the library and the signed doc.
+ *
+ * What remains is exemplar text plus ONE beat, and the beat is a genuinely
+ * open classification rather than an oversight — see BEAT_CLASSIFICATION_OPEN.
  */
 const KNOWN_UNBOUND_APHORISMS = [
-  "A 144 is the intent",
-  "The Form 4 is the receipt",
+  // Exemplar text (wire register), owner-authored, not beats.
   "A grant is a paycheck",
   "A P is a decision",
   "The cluster is the fact",
@@ -147,39 +150,97 @@ const KNOWN_UNBOUND_APHORISMS = [
   "Two is a method",
   "not an enforcement regime, but a subscription fee for opacity",
   "This isn't an enforcement regime, it's a subscription fee for op",
-  "The code is the whole story so far",
-  // PROVENANCE STATEMENTS: "this figure is the agency's, not ours". These
-  // arguably DO cash out — to the payload's own attribution — and a registry
-  // entry would bind them. Writing that entry is a voice call on signed
-  // persona.md text, so it goes to the owner with the rest of D-31 rather
-  // than being decided here.
-  "The stake number is the filer's own",
-  "The class is the FDA's grading, not ours",
-  "The document is the source",
-  "The weekly change is the CFTC's own figure",
   "The lag is the product",
-  "A 13D is the activist form",
-  "A 13G is the passive one",
-  "This is the delisting, not the notice",
-  "That is the current advisory",
 ] as const;
+
+/**
+ * THE ONE BEAT THE RULING DOES NOT CLEANLY CLASSIFY.
+ *
+ * "The lag is the product." is a metaphor by form, so a strict reading of the
+ * ruling retires it. It is also CONGRESS_PTR's signature line, quoted in the
+ * measured congress notes, on the lane the same sprint exists to light up —
+ * and it was in neither group named in the report the ruling answers.
+ *
+ * Left in place and listed rather than retired on my own classification. It
+ * costs nothing today: CONGRESS_PTR has never produced a card, so zero live
+ * drafts carry it. One word from the owner settles it either way.
+ */
+const BEAT_CLASSIFICATION_OPEN = ["The lag is the product"] as const;
 
 describe("what the rule finds in artefacts that teach the model", () => {
   it("the beat library's unbound definitional lines are exactly the known list", () => {
     const found = new Set<string>();
     for (const arch of Object.values(ARCHETYPES)) {
+      // Resolve THIS archetype's citation, because that is the provenance
+      // group's cash-out. Scanning with attribution:null would report every
+      // provenance beat as unbound and hide the ruling's actual effect.
+      const attribution =
+        typeof arch.attribution === "string" ? arch.attribution : (Object.values(arch.attribution.map)[0] ?? null);
       for (const beat of arch.beats) {
         for (const c of definitionalClaims(beat.text)) {
-          if (boundDefinitionsFor(c, { payload: {}, numbers: new Set() }).length === 0) found.add(c);
+          if (boundDefinitionsFor(c, { payload: {}, numbers: new Set(), attribution }).length === 0) found.add(c);
         }
       }
     }
-    const unexpected = [...found].filter((f) => !KNOWN_UNBOUND_APHORISMS.some((k) => f.startsWith(k)));
-    expect(unexpected, "a new unbound aphorism entered the beat library").toEqual([]);
-    // "A 144 is the intent." is the owner's own retired-line example and it
-    // is signed in persona.md line 112. If this stops finding it, the beat
-    // was retired for real and D-31 can close.
-    expect([...found], "D-31: the owner's named negative case is live").toContain("A 144 is the intent");
+    // After the ruling, the beat library's ONLY unbound line is the one open
+    // classification. Everything else either retired or binds.
+    expect([...found].sort()).toEqual([...BEAT_CLASSIFICATION_OPEN].sort());
+  });
+
+  it("the retired metaphor beats are gone from the library AND from persona.md", () => {
+    const beatText = Object.values(ARCHETYPES)
+      .flatMap((a) => a.beats.map((b) => b.text))
+      .join("\n");
+    for (const gone of [
+      "An award is compensation. A P is a decision.",
+      "A 144 is the intent. The Form 4 is the receipt.",
+      "The cluster is the fact. The reason isn't filed.",
+    ]) {
+      expect(beatText, gone).not.toContain(gone);
+      expect(PERSONA_DOC, `${gone} still signed in persona.md`).not.toContain(gone);
+    }
+    // Retiring a beat must not strip an archetype bare. FED_PRESS was
+    // already beatless BEFORE this ruling (verified against main), so it is
+    // named rather than fixed here — a pre-existing gap belongs in the
+    // ledger, not in a sprint scoped to the owner's copy law.
+    const beatless = Object.entries(ARCHETYPES).filter(([, a]) => a.beats.length === 0).map(([id]) => id);
+    expect(beatless, "a retirement emptied an archetype").toEqual(["FED_PRESS"]);
+  });
+
+  it("the provenance group binds, and ONLY when the item resolves a source", () => {
+    // The owner's ruling in one assertion: payload attribution is the
+    // cash-out. Same sentence, same payload, different verdict.
+    const claims = [
+      "The stake number is the filer's own.",
+      "The class is the FDA's grading, not ours.",
+      "The weekly change is the CFTC's own figure.",
+      "The document is the source.",
+      "That is the current advisory.",
+      "This is the delisting, not the notice.",
+      "The code is the whole story so far.",
+    ];
+    for (const c of claims) {
+      expect(boundDefinitionsFor(c, { payload: {}, numbers: new Set(), attribution: "per SEC" }).map((d) => d.id), c).toContain(
+        "source-owned-figure",
+      );
+      expect(boundDefinitionsFor(c, { payload: {}, numbers: new Set(), attribution: null }), `${c} bound without a source`).toEqual([]);
+    }
+    // And it does not swallow an unrelated aphorism just because a source resolved.
+    expect(
+      boundDefinitionsFor("The filing is the announcement", { payload: {}, numbers: new Set(), attribution: "per SEC" }),
+    ).toEqual([]);
+  });
+
+  it("13D/13G binds to a citable rule rather than retiring", () => {
+    const d = DEFINITIONS.find((x) => x.id === "schedule-13d-13g")!;
+    expect(d.kind).toBe("rule");
+    expect(d.citation).toContain("240.13d-1");
+    expect(d.statement).toContain("changing or influencing control");
+    for (const c of ["A 13D is the activist form", "A 13G is the passive one"]) {
+      expect(boundDefinitionsFor(c, { payload: {}, numbers: new Set(), attribution: null }).map((x) => x.id), c).toContain(
+        "schedule-13d-13g",
+      );
+    }
   });
 
   it("no exemplar or move example introduces an unbound aphorism outside the known list", () => {
@@ -199,7 +260,7 @@ describe("what the rule finds in artefacts that teach the model", () => {
     // [5] and [6] are the two v2 texts carrying definitional lines, and both
     // bind — [5] to Regulation FD, [6] to the record count.
     const v2 = OWNER_EXEMPLARS.filter((e) => e.v2);
-    expect(v2.length, "the v2 commentary exemplars are installed").toBe(4);
+    expect(v2.length, "the v2 commentary exemplars are installed").toBe(7);
     for (const e of v2) {
       expect(check(e.text, { priorNonRelianceCount: 2 }), e.text.slice(0, 40)).toEqual([]);
     }

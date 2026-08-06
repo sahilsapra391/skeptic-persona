@@ -182,19 +182,12 @@ describe("the renderer stops emitting the redundancy it now flags", () => {
 });
 
 /**
- * Owner-authored WIRE exemplars written before the amendment existed, each
- * naming its source as both actor and citation. They are the owner's text
- * and his to rewrite, not mine — and his own v2 [7] is precisely the fixed
- * form of the first pattern ("The FTC just sued...", no trailing phrase).
- *
- * Listed rather than exempted so a FOURTH cannot appear silently. Open with
- * the owner as D-32.
+ * EMPTY, and it must stay empty. D-32 was three owner wire exemplars naming
+ * their source as both actor and citation; the owner ruled on 2026-08-06 that
+ * the redundant trailing tags come off, texts otherwise untouched. The list
+ * survives as the mechanism, not as an excuse.
  */
-const KNOWN_REDUNDANT_EXEMPLARS = [
-  "SEC instituted administrative proceedings",
-  "CFTC filed a complaint alleging manipulation",
-  "ECB holds the deposit facility rate",
-] as const;
+const KNOWN_REDUNDANT_EXEMPLARS: readonly string[] = [];
 
 describe("the exemplar bank obeys the amended rule", () => {
   it("no NEW entry carries both forms of attribution", () => {
