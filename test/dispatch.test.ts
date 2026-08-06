@@ -253,7 +253,29 @@ describe("tick time budget", () => {
     const effective = resolveConcurrency(tiny);
     expect(effective).toBeLessThanOrEqual(MAX_TICK_JOB_CONCURRENCY);
     expect(ran.length).toBeGreaterThanOrEqual(1); // something always progresses
-    expect(ran.length).toBeLessThanOrEqual(effective); // never more than the concurrency
+    // NO `ran.length <= effective` HERE. That bound is real but it belongs to
+    // a SPENT budget, and this fixture cannot guarantee the budget is spent.
+    //
+    // Failed on main 2026-08-06 (run 31074346093) with "expected 3 to be less
+    // than or equal to 2", and the tick's own log explains it:
+    //   ran:3 deferred:5 concurrency:2 wallMs:106
+    //   slowest: slowjob2 72ms, slowjob1 60ms, slowjob0 2ms
+    // slowjob0 returned in 2ms despite a 30ms sleep, so elapsed was still
+    // under the 10ms budget when a third job checked the guard — and the
+    // guard is `ran > 0 && elapsed >= budget` (src/dispatch.ts:228), which
+    // that job correctly passed. The dispatcher honoured its contract; the
+    // fixture's belief that three sleeps reliably burn wall time is what
+    // broke. It passed 5/5 locally and as a PR check on the same commit.
+    //
+    // This lesson was already learned ONE TEST OVER and never travelled. The
+    // sibling test below ("an already-spent budget lets at most `concurrency`
+    // jobs start") documents the same clock race in detail and fixed it by
+    // asserting PEAK IN-FLIGHT rather than cumulative starts: peak is bounded
+    // by the pool's runner count by construction, with no dependence on the
+    // clock, on claim outcomes, or on row ordering. Cumulative starts have no
+    // such bound. That is the property the design actually promises, it is
+    // asserted deterministically there, and nothing is lost by dropping the
+    // wrong version of it here.
     // Anti-vacuity: the guard must have actually stopped something. With 8
     // seeded and a concurrency of at most 3 this can only pass if the budget
     // was read and enforced.
