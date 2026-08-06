@@ -50,32 +50,27 @@ const MONEY_UNITS = [
 ] as const;
 
 /**
- * FOUR SIGNIFICANT FIGURES, capped at 2 decimals, trailing zeros stripped.
+ * UNIFORM 2 DECIMALS, all scales (owner ruling 2026-08-06, superseding the
+ * significant-figure reading).
  *
- * The ruling's prose said "at most 2 decimals", but every example it gave is
- * reproduced only by significant figures, and a literal 2-decimal reading
- * contradicts the owner's own exemplar in two places:
+ *   Divide to the largest unit >= 1, round to at most 2 decimals, strip
+ *   trailing zeros. NOT significant figures.
  *
- *   value                     2dp         4 sig figs   owner wrote
- *   192,725,735,072 / 1e9     192.73B     192.7B       192.7B
- *   203.99 (percent)          203.99%     204%         204%
- *   115,000,000 / 1e6         115M        115M         115M
- *   4,660,000,000,000 / 1e12  4.66T       4.66T        4.66T
- *   2,646,532,635 / 1e9       2.65B       2.65B        2.65B
+ * I derived a 4-sig-fig rule from the ruling's examples, because it was the
+ * only rule that reproduced all of them including "$192.7B" and "+204%". The
+ * owner has since ruled uniform 2dp explicitly, which renders those two as
+ * "$192.73B" and "+203.99%". Recorded because the earlier derivation was
+ * reasonable and is now WRONG, and a future reader finding "$192.7B" in an old
+ * draft should know which rule produced it.
  *
- * All nine figures across the ruling's examples and the exemplar match under
- * this rule and only under this rule. The 2-decimal clause survives as the
- * CAP, which is what keeps 2.646532 at "2.65" rather than "2.647".
- *
- * Recorded rather than silently chosen, because a rounding rule is copy law
- * here: it decides which strings are licensed, and the kill-tests refuse
- * everything else.
+ * The output of this function is the ONLY licensed rendering of a figure. It
+ * is pre-computed into payload display fields and the model uses them
+ * verbatim; a re-rounded "$2.6B" for "$2.65B" is refused as the unlicensed
+ * number it is. Full precision stays in the payload and the ledger.
  */
-export function trimNum(n: number, maxDp = 2, sigFigs = 4): string {
-  if (!Number.isFinite(n) || n === 0) return "0";
-  const exponent = Math.floor(Math.log10(Math.abs(n)));
-  const dp = Math.min(Math.max(sigFigs - 1 - exponent, 0), maxDp);
-  return String(Number(n.toFixed(dp)));
+export function trimNum(n: number, maxDp = 2): string {
+  if (!Number.isFinite(n)) return "0";
+  return String(Number(n.toFixed(maxDp)));
 }
 
 export function fmtUsd(n: number): string {
