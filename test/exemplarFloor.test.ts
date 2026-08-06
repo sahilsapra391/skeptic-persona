@@ -138,6 +138,19 @@ const KNOWN_FLOOR_CONFLICTS = [
   // "per MPC statement" STAYS: there is no rate_rbi source, and that
   // exemplar also names no institution at all. Both are owner calls.
   { archetype: "RATE_DECISION", detail: 'sourcing: attribution "per MPC statement" is not one of our records' },
+  // B-01.4. These two name a REAL issuer that IS in the real payload
+  // (`company`, straight off the EDGAR feed), and both exemplars validate
+  // CLEAN against it — checked directly against the stored payloads from
+  // docs/packs/2026-08-06-earnings-payloads.md before install.
+  //
+  // They trip only in THIS harness, and by its own design: the fixture
+  // deliberately withholds names, because licensing them would make
+  // entityCheck pass trivially and the test assert nothing. So the conflict
+  // is between the exemplar and the fixture, not between the exemplar and the
+  // floor. Listed rather than fixed, because the fixture's refusal to license
+  // names is the property worth keeping.
+  { archetype: "EARNINGS_EVENT", detail: 'entity: name "York Water Co" does not appear in the payload' },
+  { archetype: "EARNINGS_EVENT", detail: 'entity: name "Whitehawk Therapeutics" does not appear in the payload' },
 ] as const;
 
 /** Exact match on BOTH archetype and the whole detail string.

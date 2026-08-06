@@ -1,4 +1,5 @@
 import { namesSourceAsActor } from "./attribution";
+import { breakingPrefixFor, DEFAULT_BREAKING_MAX_AGE_HOURS } from "../pipeline/earnings";
 import { evaluateGate } from "./gate";
 import { POST_TEXT_LIMIT, weightedLength } from "./length";
 import type { Archetype, Beat, MediaRef, Payload } from "./types";
@@ -188,7 +189,14 @@ export function resolveAttribution(archetype: Archetype, payload: Payload): stri
 export function renderPost(
   archetype: Archetype,
   payload: Payload,
-  opts: { seed: string; rotation?: RotationState; allowSignature?: boolean },
+  opts: {
+    seed: string;
+    rotation?: RotationState;
+    allowSignature?: boolean;
+    /** B-01.10. Both required together, or no prefix is considered at all. */
+    now?: Date;
+    breakingMaxAgeHours?: number;
+  },
 ): RenderResult {
   const rotation = opts.rotation ?? EMPTY_ROTATION;
   const seed = seedHash(opts.seed);
@@ -252,6 +260,21 @@ export function renderPost(
     // The fact block is never sacrificed for a beat: if the post would
     // exceed the limit, the beat is what gets dropped.
     if (weightedLength(withBeat) <= POST_TEXT_LIMIT) text = withBeat;
+  }
+
+  // B-01.10: BREAKING as renderer furniture, earnings archetypes only, and
+  // only inside the freshness window. Applied AFTER the budget check on
+  // purpose — the prefix is furniture and must not be what pushes a fact
+  // block over the cap, so the skeleton is chosen against the body and the
+  // prefix rides on top of a body already known to fit.
+  if (opts.now) {
+    const prefix = breakingPrefixFor(
+      archetype.id,
+      payload as { filedIso?: unknown },
+      opts.now,
+      opts.breakingMaxAgeHours ?? DEFAULT_BREAKING_MAX_AGE_HOURS,
+    );
+    if (prefix) text = prefix + text;
   }
 
   // SLOT-LEAK GUARD. A skeleton builds its lines in code and never passes

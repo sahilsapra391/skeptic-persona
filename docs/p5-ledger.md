@@ -196,6 +196,34 @@ reading it, and the second worse than the first:
 | 5 | Bluesky app password: set it or lane stays frozen | — | **DONE 2026-08-06.** `BLUESKY_APP_PASSWORD` set and verified bound. p5-25 still `blocked-gate`; when built it also needs `BLUESKY_HANDLE` (the identifier for `createSession`), which is public and belongs in `[vars]`, not a secret | closed on the owner's side |
 | 6 | Re-card policy for expired cards | (c) promote path | **RULED 2026-08-06, FINAL: expired means declined.** No auto re-card, ever. The item stays in the lake as context; a NEW event on the same entity cards and may carry the old item as history. The p5-05 measurement does not argue against it (see D-27) | closed |
 
+### Owner decision 7 — the BREAKING prefix (B-01.10, 2026-08-06)
+
+| Decision | Scope | Status |
+|---|---|---|
+| `BREAKING: ` opens every fresh earnings card, event and results, as renderer furniture | **The two earnings archetypes ONLY** | **RULED, blanket, final** |
+
+**This overrules a rule the owner signed in three places**, and it is logged
+here as an owner decision rather than absorbed as an edit:
+
+- `docs/persona.md:58` — *no "BREAKING" on routine items*
+- `VOICE_CORE` in `src/rag/stylepack.ts` — same sentence
+- `ANTI_PATTERNS` "BREAKING on routine items" — *40% of studied congress posts
+  open with BREAKING; a routine print is not breaking*
+
+All three **remain in force for every other archetype** and now carry a dated
+note pointing here. The objection was put to the owner in full before he ruled
+— that an earnings 8-K is the most routine filing the SEC has, that the
+freshness gate controls staleness rather than routineness, and that repetitive
+shouting is a named spam signal in his own anti-corpus and the most plausible
+cause of the Threads ban. He reaffirmed, blanket, with the scope limit above.
+
+Mechanically: prepended by the renderer, never model-generated; renders only
+inside `BREAKING_MAX_AGE_HOURS` (env, default 24) measured from the FILING's
+accepted timestamp; fails closed on a missing, unparseable or future
+timestamp. Three kill-tests: a model-emitted prefix rejects as duplicated
+furniture, a prefix on a stale card rejects, and a prefix on any archetype
+outside the scope rejects.
+
 ## Owner tasks (hands, not rulings)
 
 | # | Task | Status | Blocks | Note |
