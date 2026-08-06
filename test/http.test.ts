@@ -1,4 +1,4 @@
-import { fetchMock } from "cloudflare:test";
+import { env, fetchMock } from "cloudflare:test";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildUserAgent, politeFetch } from "../src/lib/http";
 
@@ -106,5 +106,56 @@ describe("politeFetch", () => {
   it("rejects when the timeout elapses", async () => {
     fetchMock.get("https://slow.example").intercept({ path: "/hang" }).reply(200, "late").delay(500);
     await expect(politeFetch("https://slow.example/hang", { userAgent: UA, timeoutMs: 50 })).rejects.toThrow();
+  });
+});
+
+describe("/admin/probe: does Worker egress reach this host?", () => {
+  it("refuses without the admin key", async () => {
+    const { handleProbe } = await import("../src/admin");
+    const res = await handleProbe(
+      new Request("https://x/admin/probe", { method: "POST", body: JSON.stringify({ urls: ["https://example.gov/"] }) }),
+      env as never,
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("is https-only and bounded, because a probe that fetches anything is a proxy", async () => {
+    const { handleProbe } = await import("../src/admin");
+    const call = async (body: unknown) =>
+      handleProbe(
+        new Request("https://x/admin/probe", {
+          method: "POST",
+          headers: { "X-Admin-Key": env.TELEGRAM_WEBHOOK_SECRET as string },
+          body: JSON.stringify(body),
+        }),
+        env as never,
+      );
+    expect((await call({ urls: [] })).status).toBe(400);
+    expect((await call({ urls: Array.from({ length: 11 }, () => "https://example.gov/") })).status).toBe(400);
+    const mixed = await (await call({ urls: ["http://example.gov/", "not a url", 7] })).json<{
+      results: Array<{ error?: string }>;
+    }>();
+    expect(mixed.results.map((r) => r.error)).toEqual(["https only", "unparseable", "not a string"]);
+  });
+
+  it("returns status and shape, never the response body", async () => {
+    // The point is reachability, not relaying content through the Worker.
+    const { handleProbe } = await import("../src/admin");
+    fetchMock.activate();
+    fetchMock.get("https://feeds.example.gov").intercept({ path: "/rss" }).reply(200, "<rss><item/></rss>", {
+      headers: { "content-type": "application/rss+xml" },
+    });
+    const res = await handleProbe(
+      new Request("https://x/admin/probe", {
+        method: "POST",
+        headers: { "X-Admin-Key": env.TELEGRAM_WEBHOOK_SECRET as string },
+        body: JSON.stringify({ urls: ["https://feeds.example.gov/rss"] }),
+      }),
+      env as never,
+    );
+    const body = await res.json<{ egress: string; results: Array<Record<string, unknown>> }>();
+    expect(body.egress).toBe("cloudflare-worker");
+    expect(body.results[0]).toMatchObject({ status: 200, ok: true, contentType: "application/rss+xml" });
+    expect(JSON.stringify(body)).not.toContain("<rss>");
   });
 });
