@@ -152,6 +152,39 @@ All `blocked-gate` (needs 10 manual posts + Phase 0 complete). Two are also
 |---|---|---|---|---|
 | p5-40 | Create docs/EXCLUSIONS.md; each entry: what, why, what would reopen it | pending | — | — |
 
+## Build order (owner override 2026-08-06: the 10-post counter no longer gates build order)
+
+The counter remains the PUBLISH gate — nothing posts itself, Copy stays
+manual — and the per-lane approval and post rates stay in the digest so lane
+value is measured rather than assumed. Build order no longer waits on it.
+
+**Standing rule from the same message:** a genuine owner-only wall (legal,
+money, credentials, voice) is parked at `blocked-owner` with a one-line ask,
+and the next unblocked chunk starts immediately. There is always a next
+unblocked chunk.
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Senate courier (D-45) | **CLOSED 2026-08-06.** Three-egress measurement done ([doc](verification/2026-08-06-senate-egress-three-ways.md)); runners reach eFD; courier unparked onto `0 5,11,17 * * 1-5` with a maintenance soft-skip. Verified green on [run 31108713162](https://github.com/sahilsapra391/skeptic-persona/actions/runs/31108713162). First Senate cards land on the first scheduled run that catches an open window. |
+| 2 | p5-20 earnings events (8-K item 2.02) | in progress |
+| 3 | p5-21 PR wire re-probe | pending |
+| 4 | p5-22 geopolitics official statements | pending (body list is a `blocked-owner` sign-off when reached, not a stop) |
+| 5 | p5-23 China / p5-24 USDA / p5-25 Bluesky | pending (p5-25 `blocked-owner` on the app password) |
+
+### Item 1, what it cost and what it taught
+
+Two defects in my own work, both found by RUNNING the workflow rather than
+reading it, and the second worse than the first:
+
+1. The maintenance soft-skip exited the fetch step cleanly and the relay step
+   then ran anyway and died on a missing `bundle.json` — a clean skip
+   presented as a red workflow, which teaches the exact "ignore this one"
+   habit the skip existed to prevent.
+2. The fix gated the wrong step. I located it with `rindex` on the step name
+   and the HOUSE job's relay step is last in the file, so the condition landed
+   there. Corrected by locating the step inside the senate job's own block,
+   and asserted by parsing the YAML and printing the condition per job.
+
 ## Owner decisions (owner alone; no session answers these)
 
 | # | Decision | Plan's lean | Status | Blocks |
