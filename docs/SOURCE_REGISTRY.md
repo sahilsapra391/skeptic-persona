@@ -56,3 +56,23 @@ A source may be **fixed**, **replaced**, **parked** (temporarily unreachable,
 still probed, expected to recover) or **retired** (gone for good, state
 removed). It may not be none of those. If a source is failing and is not in
 this table with a date, that is itself the defect.
+
+## PR wires (p5-21), probed 2026-08-06 from RESIDENTIAL egress
+
+Live re-probe with the declared User-Agent. **Worker egress is NOT yet
+measured** — see the blocked-owner line below — so nothing here has an
+ingester yet. Building one before both egress points answer is exactly the
+mistake D-25 records three times over.
+
+| Feed | Residential | Parses? | Verdict |
+|---|---|---|---|
+| GlobeNewswire, public-company RSS | **200**, `application/rss+xml`, 32KB | **20 items**, first title read cleanly | **Candidate.** Answers clean. |
+| PR Newswire, financial-services RSS | **200**, `application/xml`, 44KB | **1 item** | **Candidate, with a question.** 44KB carrying one `<item>` suggests a different element shape, not a thin feed. Needs a parse pass before it counts as clean. |
+| PR Newswire, `news-releases-list.rss` | **301** | — | Redirect; the financial-services path is the live one. |
+| ACCESSWIRE `/newsroom/rss` | **301 → 404** | — | **No feed at this path.** |
+| ACCESSWIRE `/users/api/rss` | **500**, `application/json` | — | **No working endpoint found.** Two paths tried, both dead. |
+
+**ACCESSWIRE has no working public feed we can find.** Recorded as a finding,
+not as a failure to chase: the discovery-tier and corroboration rules mean a
+wire we cannot read is simply not a source, and there is no unpaid path that
+does not involve scraping their site, which the charter closes.
