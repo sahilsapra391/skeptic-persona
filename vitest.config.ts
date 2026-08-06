@@ -35,6 +35,9 @@ export default defineWorkersConfig(async () => {
               TELEGRAM_BOT_TOKEN: "TEST:TOKEN",
               TELEGRAM_CHAT_ID: "424242",
               TELEGRAM_WEBHOOK_SECRET: "test-webhook-secret",
+              // B-01.2: /admin/probe auth, deliberately separate from the
+              // webhook secret so a probe token can only ever cause a probe.
+              ADMIN_PROBE_TOKEN: "test-probe-token",
               QUEUE_NOTIFY_SPACING_MS: "0",
               BLS_POLL_INTERVAL_MS: "0",
               BLS_POLL_DEADLINE_MS: "300",
