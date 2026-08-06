@@ -68,8 +68,10 @@ const ENTRIES: readonly AttributionEntry[] = [
 
   // --- US agencies ----------------------------------------------------------
   E("per BLS", { actors: ["BLS", "Bureau of Labor Statistics"] }),
-  E("per Federal Reserve", { actors: ["Federal Reserve"] }),
-  E("per the Federal Reserve", { actors: ["Federal Reserve"] }),
+  // D-33, owner ruling 2026-08-06: ONE Fed pin. The archetype said "per
+  // Federal Reserve" and the press map said "per the Federal Reserve" — one
+  // source with two display strings is exactly what this table exists to stop.
+  E("per the Federal Reserve", { aliases: ["per Federal Reserve"], actors: ["Federal Reserve"] }),
   E("per US Treasury", { actors: ["US Treasury", "Treasury Department"] }),
   E("per FDA", { actors: ["FDA", "Food and Drug Administration"] }),
   E("per Federal Register"),

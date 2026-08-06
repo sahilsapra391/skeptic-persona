@@ -107,30 +107,44 @@ describe("the margin rule (owner ruling 2026-08-06)", () => {
 
   it("every v2 exemplar installed is inside the margin", () => {
     const v2 = OWNER_EXEMPLARS.filter((e) => e.v2);
-    expect(v2.length).toBe(4);
+    // All SEVEN, after the owner's three approved trims on 2026-08-06.
+    expect(v2.length).toBe(7);
     for (const e of v2) {
       expect(weightedLength(e.text), e.text.slice(0, 40)).toBeLessThanOrEqual(EXEMPLAR_MAX_WEIGHTED);
     }
   });
 
-  it("the three v2 texts held back are held, not trimmed, and are still verbatim", () => {
-    // "If any other installed exemplar sits above 272, report it, no silent
-    // trims." [4] carries the owner's OWN replacement line and still lands at
-    // 277: the swap moved it 280 -> 277, not under the margin.
-    expect(PENDING_OWNER_EXEMPLARS.map((p) => p.n)).toEqual([2, 4, 5]);
+  it("the held-back list is empty, and anything in it would be over the margin", () => {
+    // All three cleared on 2026-08-06 with the owner's approved trims. The
+    // export stays as the mechanism: an exemplar over 272 goes here and gets
+    // reported, it is never trimmed on our authority.
+    expect(PENDING_OWNER_EXEMPLARS).toEqual([]);
     for (const p of PENDING_OWNER_EXEMPLARS) {
       expect(weightedLength(p.text), `[${p.n}]`).toBe(p.weighted);
       expect(p.weighted, `[${p.n}] would have installed`).toBeGreaterThan(EXEMPLAR_MAX_WEIGHTED);
-      // None of them is in the live bank.
       expect(OWNER_EXEMPLARS.some((e) => e.text === p.text), `[${p.n}] leaked into the bank`).toBe(false);
     }
-    expect(PENDING_OWNER_EXEMPLARS.find((p) => p.n === 4)!.text).toContain(
-      "It'll still get called a red flag tonight by someone who didn't read past the dollar sign",
-    );
+  });
+
+  it("the owner's three trims are present, and [4] sits EXACTLY on the margin", () => {
+    // Each trim was the smallest deletion that reaches 272: "somewhere ",
+    // "back ", "own ". [4] has no room left at all — the next edit to it
+    // needs a re-measure, not a glance.
+    const byFragment = (f: string) => OWNER_EXEMPLARS.find((e) => e.v2 && e.text.includes(f));
+    const two = byFragment("bought between $100,001 and $250,000")!;
+    const four = byFragment("The sale was scheduled in March")!;
+    const five = byFragment("shares of their company this week")!;
+    expect(weightedLength(two.text)).toBe(264);
+    expect(weightedLength(four.text)).toBe(EXEMPLAR_MAX_WEIGHTED);
+    expect(weightedLength(five.text)).toBe(271);
+    // The pre-trim wording is gone from the live bank.
+    for (const stale of ["bought somewhere between", "scheduled back in March", "shares of their own company this week"]) {
+      expect(OWNER_EXEMPLARS.map((e) => e.text).join("\n"), stale).not.toContain(stale);
+    }
   });
 
   it("the retired v1 seven are kept verbatim and never injected into a prompt", () => {
-    expect(LEGACY_COMMENTARY_EXEMPLARS.length).toBe(4);
+    expect(LEGACY_COMMENTARY_EXEMPLARS.length).toBe(7);
     for (const l of LEGACY_COMMENTARY_EXEMPLARS) {
       expect(weightedLength(l.text), l.text.slice(0, 30)).toBe(l.weighted);
       expect(OWNER_EXEMPLARS.some((e) => e.text === l.text)).toBe(false);
@@ -141,12 +155,11 @@ describe("the margin rule (owner ruling 2026-08-06)", () => {
     }
   });
 
-  it("the only bank entries over the margin are the three whose v2 is blocked", () => {
+  it("no bank entry sits over the margin", () => {
     const over = OWNER_EXEMPLARS.filter((e) => weightedLength(e.text) > EXEMPLAR_MAX_WEIGHTED);
-    // Their v1 originals stay live so no archetype loses its commentary
-    // reference while the owner rules on the three rewrites.
-    expect(over.length, over.map((e) => e.text.slice(0, 30)).join(" | ")).toBe(PENDING_OWNER_EXEMPLARS.length);
-    expect(over.every((e) => e.register === "commentary")).toBe(true);
+    // Zero, now that all seven v1 commentary exemplars have been replaced.
+    // The bank no longer teaches the model to write above the target.
+    expect(over.map((e) => e.text.slice(0, 40).replace(/\n/g, " "))).toEqual([]);
   });
 });
 

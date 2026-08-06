@@ -274,11 +274,10 @@ Three months of trading, one PDF, zero consequences.` },
   // v1 (retired to LEGACY_COMMENTARY_EXEMPLARS).
   { archetype: "CONGRESS_PTR", register: "commentary", v2: true, text: `A House member bought $50,001 - $100,000 of a defense contractor's stock on April 2. We're only finding out today, per the House Clerk.
 The law gives 45 days to disclose. This took 87. The fine: $200. You'd pay more to park at the airport for a week.` },
-  { archetype: "CONGRESS_PTR", register: "commentary", text: `Senate PTR: purchase of $100,001 - $250,000, trade date June 10, filed today, per Senate eFD.
-
-Thirty-nine days late, in a bracket wide enough to hide a house in.
-
-Every account posting a precise dollar figure tonight is guessing. The record gives a range because the range is all anyone filed, and somehow that's the part nobody finds outrageous.` },
+  // v2 [2], 264 weighted after the owner's approved trim ("bought somewhere
+  // between" -> "bought between"). Replaces the 347-char v1.
+  { archetype: "CONGRESS_PTR", register: "commentary", v2: true, text: `A senator bought between $100,001 and $250,000 of one stock on June 10. Disclosed today, 39 days later, per Senate financial disclosures.
+That's the whole disclosure: a range wide enough to hide a house in. Anyone posting an exact dollar figure tonight made it up.` },
   // v2 [3], 258 weighted.
   { archetype: "CONGRESS_PTR", register: "commentary", v2: true, text: `A House member filed their stock trade disclosure on paper. A scanned image, per the House Clerk. Not searchable. Not sortable. Technically public.
 It is 2026. You can pay your taxes from a phone. A member of Congress can still disclose trades by photograph.` },
@@ -297,16 +296,15 @@ The cluster is the fact. The reason isn't filed and never will be.` },
   { archetype: "INSIDER_CLUSTER", register: "wire", text: `Three insiders bought $XYZ on the open market inside five sessions. 61,500 shares combined, per SEC.
 Three people, three separate decisions, one week.
 Could be nothing. The filing doesn't say, and anyone telling you it does is selling something.` },
-  { archetype: "FILING_FORM4", register: "commentary", text: `Form 4: CEO sold $4.2M on June 12 under a 10b5-1 plan adopted in March, per SEC.
-
-Scheduled three months out, executed on time, filed on time. The most boring document in finance.
-
-It'll still be posted tonight as a red flag by someone who didn't read past the dollar sign. The scheduled sales are the ones you can see coming. Worry about the other kind.` },
-  { archetype: "FILING_FORM4", register: "commentary", text: `Form 4: director's first open-market purchase since 2021. 40,000 shares, Code P, per SEC.
-
-Four years of taking grants without ever reaching for the checkbook. Then this week.
-
-The filing says what changed and stops there. Everyone who could explain it is legally barred from doing so, which is precisely why the buy is the loudest thing on the page.` },
+  // v2 [4], 272 weighted EXACTLY — the margin, not the cap. Two owner edits
+  // got it here: the closing line swap (280 -> 277) and dropping "back"
+  // (277 -> 272). Any further edit needs a re-measure.
+  { archetype: "FILING_FORM4", register: "commentary", v2: true, text: `A CEO sold $4.2M of their own company's stock on June 12, per SEC Form 4. The sale was scheduled in March under a preset trading plan.
+The most boring kind of insider sale there is. It'll still get called a red flag tonight by someone who didn't read past the dollar sign.` },
+  // v2 [5], 271 weighted after dropping "own". Carries the definitional line
+  // the aphorism rule binds to Regulation FD.
+  { archetype: "FILING_FORM4", register: "commentary", v2: true, text: `A board director bought 40,000 shares of their company this week, their first open-market purchase since 2021, per SEC Form 4.
+Four years of collecting stock grants without reaching for the checkbook. Then this. The buy is the only statement insiders are allowed to make.` },
   { archetype: "FILING_8K", register: "wire", text: `8-K, Item 4.02: prior financial statements should no longer be relied upon, per SEC.
 Their words, about their own numbers.
 "Do not trust our accounting" is a hell of a thing to file at 4:30 on a Friday.` },
@@ -320,10 +318,10 @@ The item number is the confession. The rest is drafting.` },
   // embedded attribution form: "told the SEC" IS the citation.
   { archetype: "FILING_8K", register: "commentary", v2: true, text: `A company just told the SEC that three quarters of its own financial statements can no longer be relied on. Plain English: the numbers were wrong.
 Second time in fourteen months from this company. One is a mistake. Two is a pattern. Filed after the bell on a Friday.` },
-  { archetype: "REGULATORY_NEWS", register: "wire", text: `SEC instituted administrative proceedings against a registered adviser over undisclosed fee arrangements, per SEC.
+  { archetype: "REGULATORY_NEWS", register: "wire", text: `SEC instituted administrative proceedings against a registered adviser over undisclosed fee arrangements.
 The order is public. The response isn't filed yet.
 Timeline's already reached a verdict. The respondent hasn't reached a lawyer.` },
-  { archetype: "REGULATORY_NEWS", register: "wire", text: `CFTC filed a complaint alleging manipulation in a physical commodity market, per CFTC.
+  { archetype: "REGULATORY_NEWS", register: "wire", text: `CFTC filed a complaint alleging manipulation in a physical commodity market.
 Complaint. Allegation. Not a finding.
 That distinction survives exactly zero headlines tonight and you know it.` },
   // v2 [7], 258 weighted. The exemplar that forced the attribution
@@ -346,7 +344,7 @@ One of them gets quoted tomorrow. It's never the revision, and the revision is u
   { archetype: "RATE_DECISION", register: "wire", text: `RBI holds the repo rate at 6.50%. Inflation projection unchanged at 4.5%, per MPC statement.
 Rate unchanged, projection unchanged.
 Everyone watched the rate. The projection was the only sentence that mattered, same as every meeting.` },
-  { archetype: "RATE_DECISION", register: "wire", text: `ECB holds the deposit facility rate at 2.00%. Third consecutive hold, per ECB.
+  { archetype: "RATE_DECISION", register: "wire", text: `ECB holds the deposit facility rate at 2.00%. Third consecutive hold.
 Nothing moved.
 A hold is a decision made by people who seriously considered moving. It just doesn't trend.` },
 ];
@@ -362,10 +360,11 @@ A hold is a decision made by people who seriously considered moving. It just doe
 export const EXEMPLAR_MAX_WEIGHTED = 272;
 
 /**
- * v1 commentary exemplars retired by the v2 pack, kept verbatim as the
- * before-and-after record for the legacy-seven ledger entry. NOT injected
- * into any prompt. Four of the seven; the other three are still live in
- * OWNER_EXEMPLARS because their v2 rewrites bust the margin rule.
+ * ALL SEVEN v1 commentary exemplars, retired by the v2 pack and kept verbatim
+ * as the before-and-after record for the legacy-seven ledger entry. NOT
+ * injected into any prompt (asserted). The last three joined on 2026-08-06
+ * when the owner's approved trims brought their v2 rewrites inside the
+ * margin.
  */
 export const LEGACY_COMMENTARY_EXEMPLARS: ReadonlyArray<{ archetype: ArchetypeId; weighted: number; text: string }> = [
   { archetype: "CONGRESS_PTR", weighted: 318, text: `House PTR: $50,001 - $100,000 purchase in a defense contractor, trade date April 2, disclosed today, per House Clerk.
@@ -388,26 +387,33 @@ One is a mistake. Two is a method. And it went out after the bell on a Friday, w
 Eleven months of integration planning, banker fees, and org charts, undone by one filing.
 
 Antitrust risk gets priced on announcement day, ignored by month three, and remembered all at once. Today is the remembering, and somebody's bonus just evaporated.` },
+  { archetype: "CONGRESS_PTR", weighted: 347, text: `Senate PTR: purchase of $100,001 - $250,000, trade date June 10, filed today, per Senate eFD.
+
+Thirty-nine days late, in a bracket wide enough to hide a house in.
+
+Every account posting a precise dollar figure tonight is guessing. The record gives a range because the range is all anyone filed, and somehow that's the part nobody finds outrageous.` },
+  { archetype: "FILING_FORM4", weighted: 354, text: `Form 4: CEO sold $4.2M on June 12 under a 10b5-1 plan adopted in March, per SEC.
+
+Scheduled three months out, executed on time, filed on time. The most boring document in finance.
+
+It'll still be posted tonight as a red flag by someone who didn't read past the dollar sign. The scheduled sales are the ones you can see coming. Worry about the other kind.` },
+  { archetype: "FILING_FORM4", weighted: 350, text: `Form 4: director's first open-market purchase since 2021. 40,000 shares, Code P, per SEC.
+
+Four years of taking grants without ever reaching for the checkbook. Then this week.
+
+The filing says what changed and stops there. Everyone who could explain it is legally barred from doing so, which is precisely why the buy is the loudest thing on the page.` },
 ];
 
 /**
- * v2 exemplars the owner sent that the MARGIN RULE will not let in.
+ * v2 exemplars the MARGIN RULE will not let in.
  *
- * Held here rather than trimmed, because the ruling that created the rule
- * says so in the same breath: "If any other installed exemplar sits above
- * 272, report it, no silent trims." [4] is the one to look at first — its
- * closing line is already the owner's own replacement, and the swap moved it
- * 280 -> 277, not under 272. Their v1 originals stay live in OWNER_EXEMPLARS
- * meanwhile, so no archetype loses its commentary reference.
+ * EMPTY as of 2026-08-06: the owner's three approved trims landed [2] at 264,
+ * [4] at 272 exactly, and [5] at 271, so all seven of the v2 pack are now
+ * installed. Kept as a named export rather than deleted because it is the
+ * mechanism the margin rule needs the next time a pack arrives — an exemplar
+ * over 272 goes here and gets reported, it is never trimmed on our authority.
  */
-export const PENDING_OWNER_EXEMPLARS: ReadonlyArray<{ n: number; archetype: ArchetypeId; weighted: number; text: string }> = [
-  { n: 2, archetype: "CONGRESS_PTR", weighted: 274, text: `A senator bought somewhere between $100,001 and $250,000 of one stock on June 10. Disclosed today, 39 days later, per Senate financial disclosures.
-That's the whole disclosure: a range wide enough to hide a house in. Anyone posting an exact dollar figure tonight made it up.` },
-  { n: 4, archetype: "FILING_FORM4", weighted: 277, text: `A CEO sold $4.2M of their own company's stock on June 12, per SEC Form 4. The sale was scheduled back in March under a preset trading plan.
-The most boring kind of insider sale there is. It'll still get called a red flag tonight by someone who didn't read past the dollar sign.` },
-  { n: 5, archetype: "FILING_FORM4", weighted: 275, text: `A board director bought 40,000 shares of their own company this week, their first open-market purchase since 2021, per SEC Form 4.
-Four years of collecting stock grants without reaching for the checkbook. Then this. The buy is the only statement insiders are allowed to make.` },
-];
+export const PENDING_OWNER_EXEMPLARS: ReadonlyArray<{ n: number; archetype: ArchetypeId; weighted: number; text: string }> = [];
 
 /**
  * Owner exemplars whose archetype does not EXIST in the engine yet. Not in

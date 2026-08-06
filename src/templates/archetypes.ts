@@ -472,7 +472,7 @@ const macroPrint: Archetype = {
 
 const fedPress: Archetype = {
   id: "FED_PRESS",
-  attribution: "per Federal Reserve",
+  attribution: "per the Federal Reserve", // D-33: one pin per source; the bare form is an alias
   skeletons: [
     {
       id: "fed.categoryLead",
