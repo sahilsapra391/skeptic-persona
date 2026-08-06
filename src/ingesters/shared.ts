@@ -132,3 +132,23 @@ export function bandSpan(band: string): number | null {
   if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo <= 0) return null;
   return Math.round((hi / lo) * 10) / 10;
 }
+
+/**
+ * "$NET". The cashtag form for a stock symbol (owner instruction 2026-08-06:
+ * every ticker in generated copy carries the $ prefix).
+ *
+ * ONLY EVER CALLED ON A REAL TICKER. Several draft builders resolve a symbol
+ * as `ticker ?? issuerName`, so the value reaching the line may be a company
+ * or asset name, and "$Cloudflare, Inc." would print a symbol that does not
+ * exist. Callers branch on the ticker itself rather than passing the resolved
+ * fallback through here, and Form 144 is deliberately excluded because it
+ * parses no symbol at all.
+ *
+ * The validator was already built for this shape: entityCheck matches
+ * /\$([A-Z]{1,5})\b/ and checks the captured symbol against the payload
+ * case-sensitively, so a $ ticker is the form it expects and an invented one
+ * is still refused.
+ */
+export function tickerTag(ticker: string): string {
+  return `$${ticker}`;
+}

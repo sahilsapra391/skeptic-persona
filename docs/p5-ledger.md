@@ -19,7 +19,7 @@ Last reconciled against production D1: 2026-08-04.
 | Gate | Required | Measured in production | Source |
 |---|---|---|---|
 | Manual-post counter | >= 10 for Phase 2 | **0** | `post_log WHERE posted_manually=1` = 0; `cards WHERE posted_state IN ('yes','modified')` = 0 |
-| Phase 0 complete | all 6 merged-verified | 0 of 6 | this ledger |
+| Phase 0 complete | all 6 merged-verified | **6 of 6 merged; p5-03's source rulings remain owner-blocked** | this ledger |
 
 Phase 2 and beyond are `blocked-gate` until BOTH clear. The counter moves
 through the owner's thumbs, not through code.
@@ -29,7 +29,7 @@ through the owner's thumbs, not through code.
 | Chunk | Scope | Status | PR | Verification |
 |---|---|---|---|---|
 | p5-01 | Regenerate becomes append-only; history retrievable | merged-verified | [#133](https://github.com/sahilsapra391/skeptic-persona/pull/133) | [2026-08-04-p5-01](verification/2026-08-04-p5-01-append-only-regenerate.md) |
-| p5-02 | Branch protection + a main CI run | blocked-owner (D-10) | — | — |
+| p5-02 | Branch protection + a main CI run | merged-verified | [#144](https://github.com/sahilsapra391/skeptic-persona/pull/144) | main CI run [31059545993](https://github.com/sahilsapra391/skeptic-persona/actions/runs/31059545993) green 1m29s; protection requires `test` |
 | p5-03 | REGULATORY_NEWS salience tier; drain pending cards | blocked-owner (D-13) — mechanism + BEA/ONS ruling merged; drain not achievable from that ruling | [#136](https://github.com/sahilsapra391/skeptic-persona/pull/136) | [2026-08-05-p5-03](verification/2026-08-05-p5-03-regulatory-news-tier.md) |
 | p5-04 | Polish bundle: attribution join, raw ISO in copy, PRODUCT_RECALL length window, over_budget split | merged-verified | [#137](https://github.com/sahilsapra391/skeptic-persona/pull/137) | [2026-08-05-p5-04](verification/2026-08-05-p5-04-polish-bundle.md) |
 | p5-05 | TTL-lake measurement; re-card policy decision | merged-verified (measurement delivered; policy is owner decision 6) | [#138](https://github.com/sahilsapra391/skeptic-persona/pull/138) | [2026-08-05-p5-05](verification/2026-08-05-p5-05-ttl-lake-measurement.md) |
@@ -38,7 +38,9 @@ through the owner's thumbs, not through code.
 Phase 0 acceptance: all six merged-verified AND the weekly digest shows the
 two rates. No Phase 2 branch may be created before this.
 
-**Status 2026-08-05: NOT met. Five of six are merged-verified and the digest
+**Status 2026-08-06: p5-02 CLOSED.** CI was re-enabled at the repo level, the first main CI run is green, and main now requires the `test` check. Five chunks are merged-verified and p5-03's mechanism shipped with its remaining source rulings owner-blocked.
+
+**Prior status 2026-08-05: NOT met. Five of six are merged-verified and the digest
 does now show both rates, but p5-02 is `blocked-owner` (D-10, CI is
 `disabled_manually` and that chunk's deliverable is a main CI run). p5-03's
 mechanism merged but its remaining source rulings are also owner-blocked.

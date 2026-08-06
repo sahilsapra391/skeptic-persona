@@ -77,7 +77,7 @@ describe("halts (live fixtures)", () => {
 
   it("draft: symbol, exchange-stated reason, ET time — all parsed", () => {
     const stkh = parseNasdaqHalts(NASDAQ_FIXTURE).find((e) => e.symbol === "STKH")!;
-    expect(draftHalt(stkh)).toBe("HALT: STKH (Steakholder Foods Ltd. ADS). News Pending, 19:50 ET");
+    expect(draftHalt(stkh)).toBe("HALT: $STKH (Steakholder Foods Ltd. ADS). News Pending, 19:50 ET");
   });
 });
 

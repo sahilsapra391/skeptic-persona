@@ -5,6 +5,7 @@ import { getSourceState, insertItem, putSourceState, recordSourceError, SCORE_LO
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
+import { tickerTag } from "./shared";
 
 // Nasdaq Reg SHO Threshold Securities List. Live-verified 2026-07-28T04:18Z:
 // 200, 2,485 bytes, pipe-delimited.
@@ -78,7 +79,7 @@ export function diffThreshold(prev: readonly string[], current: readonly Thresho
 /** Tier A. Every figure is a count of parsed rows. */
 export function draftThreshold(row: ThresholdRow, listDate: string): string {
   const name = row.name ? ` (${row.name})` : "";
-  return `${row.symbol}${name} joined the Nasdaq Reg SHO threshold list, ${listDate}`;
+  return `${tickerTag(row.symbol)}${name} joined the Nasdaq Reg SHO threshold list, ${listDate}`;
 }
 
 export async function pollRegSho(
