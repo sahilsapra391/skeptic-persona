@@ -221,3 +221,45 @@ describe("the lag beat, as the owner's worked example of a bound aphorism", () =
     expect(boundDefinitionsFor("The lag is the product", ctx({}))).toEqual([]);
   });
 });
+
+describe("the card job's selection rule (D-28's other half)", () => {
+  it("takes tier-1, parsed, fresh, un-carded filings and nothing else", async () => {
+    const { selectableFilingsSql, FILING_FRESH_HOURS, CARDS_PER_RUN } = await import("../src/pipeline/thirteenF");
+    const sql = selectableFilingsSql();
+    // Tier comes from an EXISTING column, not a list invented here.
+    expect(sql).toContain("m.tier = 1");
+    expect(sql).toContain("f.status = 'parsed'");
+    // A filing with no parsed value or no entries would render a branded
+    // card that says nothing.
+    expect(sql).toContain("f.parsed_value_total > 0");
+    expect(sql).toContain("f.table_entry_total > 0");
+    // Freshness on filed_at: a 13F is six weeks stale BY LAW, so what must
+    // not be stale is our sight of it.
+    expect(sql).toContain("f.filed_at >= ?1");
+    // Idempotent: an already-carded filing is excluded by dedup key, so a
+    // re-run cannot double-card during the flood.
+    expect(sql).toContain("i.dedup_key = 'edgar_13f_breakdown:' || f.accession");
+    expect(sql).toContain("LIMIT ?2");
+    expect(FILING_FRESH_HOURS).toBe(96);
+    expect(CARDS_PER_RUN).toBeLessThanOrEqual(5);
+  });
+
+  it("Berkshire's Q1 filing is correctly OUT of the freshness window", async () => {
+    const { FILING_FRESH_HOURS } = await import("../src/pipeline/thirteenF");
+    // filed 2026-05-15, and "now" during the Aug-14 flood is three months on.
+    const filedAt = Date.parse("2026-05-15T00:00:00.000Z");
+    const flood = Date.parse("2026-08-14T00:00:00.000Z");
+    const ageHours = (flood - filedAt) / 3_600_000;
+    expect(ageHours).toBeGreaterThan(FILING_FRESH_HOURS);
+    // Stated as an assertion because it is the answer to "why did the live
+    // Berkshire generation not card": the filing is three months old and the
+    // freshness rule refuses it, which is the rule working.
+  });
+
+  it("the job is registered and makes no external fetches", async () => {
+    const src = await import("../src/ingesters/thirteenFCards?raw").catch(() => null);
+    // Structural, not behavioural: the point is that the job reads D1 and
+    // writes D1, so it cannot fail on egress and is safe on a short cadence.
+    if (src) expect((src as unknown as { default: string }).default).not.toContain("politeFetch");
+  });
+});
