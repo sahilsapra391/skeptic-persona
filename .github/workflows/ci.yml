@@ -1,10 +1,23 @@
 name: CI
 
-# PRs only: the post-merge push run re-tested a commit that already passed
-# on its branch — pure Actions-minutes burn (private-repo minutes are
-# account-wide and shared with every other private repo).
+# PRs *and* main (p5-02). The earlier comment here said PRs only, because "the
+# post-merge push run re-tested a commit that already passed on its branch --
+# pure Actions-minutes burn". That was true of a FAST-FORWARD merge. It is not
+# true of this repo, and the difference is the whole reason main goes back:
+#
+#   Every PR here is SQUASH-merged. The commit that lands on main is a NEW
+#   commit that no CI run has ever seen: a different tree from the branch tip
+#   whenever main moved underneath, which it did repeatedly on 2026-08-05 while
+#   several chunks merged inside one hour. "It passed on the branch" is a
+#   statement about a commit that does not exist on main.
+#
+# The plan names the cost of assuming otherwise: 116+ merges with no main CI.
+# One run per merge is the price of knowing main is green, and it is small
+# against a broken main nobody notices until the next branch forks from it.
 on:
   pull_request:
+  push:
+    branches: [main]
 
 jobs:
   test:
