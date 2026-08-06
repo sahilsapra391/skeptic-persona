@@ -26,14 +26,79 @@ export function isFreshDateOnly(dateOnlyIso: string, now: Date): boolean {
   return age <= 2 * STALE_AT_INGEST_HOURS * 3_600_000;
 }
 
-/** Compact money formatting for drafts ($950, $617K, $1.2M) — display of parsed numbers. */
+/**
+ * Compact money, pipeline-wide copy law (owner ruling 2026-08-06).
+ *
+ *   Divide to the largest unit >= 1, round to AT MOST 2 decimals, strip
+ *   trailing zeros. Under $1K renders in full dollars.
+ *   $115M (not $115.00M), $2.65B, $4.66T, $617K, $950.
+ *
+ * THE OUTPUT OF THIS FUNCTION IS THE ONLY LICENSED RENDERING of a figure. It
+ * is pre-computed into payload display fields (value_display, delta_display,
+ * pct_display) and the model uses those VERBATIM. A model-side re-rounding —
+ * "$2.6B" where the payload says "$2.65B" — is refused with the same force as
+ * an unlicensed number, because it is one: a figure the payload never stated.
+ *
+ * Full precision stays in the payload and the ledger. This is display only,
+ * and it never becomes the stored value.
+ */
+const MONEY_UNITS = [
+  [1_000_000_000_000, "T"],
+  [1_000_000_000, "B"],
+  [1_000_000, "M"],
+  [1_000, "K"],
+] as const;
+
+/**
+ * FOUR SIGNIFICANT FIGURES, capped at 2 decimals, trailing zeros stripped.
+ *
+ * The ruling's prose said "at most 2 decimals", but every example it gave is
+ * reproduced only by significant figures, and a literal 2-decimal reading
+ * contradicts the owner's own exemplar in two places:
+ *
+ *   value                     2dp         4 sig figs   owner wrote
+ *   192,725,735,072 / 1e9     192.73B     192.7B       192.7B
+ *   203.99 (percent)          203.99%     204%         204%
+ *   115,000,000 / 1e6         115M        115M         115M
+ *   4,660,000,000,000 / 1e12  4.66T       4.66T        4.66T
+ *   2,646,532,635 / 1e9       2.65B       2.65B        2.65B
+ *
+ * All nine figures across the ruling's examples and the exemplar match under
+ * this rule and only under this rule. The 2-decimal clause survives as the
+ * CAP, which is what keeps 2.646532 at "2.65" rather than "2.647".
+ *
+ * Recorded rather than silently chosen, because a rounding rule is copy law
+ * here: it decides which strings are licensed, and the kill-tests refuse
+ * everything else.
+ */
+export function trimNum(n: number, maxDp = 2, sigFigs = 4): string {
+  if (!Number.isFinite(n) || n === 0) return "0";
+  const exponent = Math.floor(Math.log10(Math.abs(n)));
+  const dp = Math.min(Math.max(sigFigs - 1 - exponent, 0), maxDp);
+  return String(Number(n.toFixed(dp)));
+}
+
 export function fmtUsd(n: number): string {
-  // Billions tier: Treasury auctions run to tens of billions, and without
-  // this a $69B offering rendered as "$69000M".
-  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}B`;
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
-  return `$${Math.round(n)}`;
+  const neg = n < 0;
+  const abs = Math.abs(n);
+  const body = (() => {
+    for (const [size, suffix] of MONEY_UNITS) {
+      if (abs >= size) return `${trimNum(abs / size)}${suffix}`;
+    }
+    // Under $1K is stated in full dollars: compacting it would lose more
+    // precision than it saves characters.
+    return trimNum(abs, 0);
+  })();
+  return `${neg ? "-" : ""}$${body}`;
+}
+
+/** Percentages, same convention: +204%, -95.13%, at most 2 decimals, zeros
+ *  stripped. The sign is explicit because a delta without one reads as a
+ *  level. */
+export function fmtPct(n: number, opts: { signed?: boolean } = {}): string {
+  const signed = opts.signed ?? true;
+  const sign = signed && n > 0 ? "+" : "";
+  return `${sign}${trimNum(n)}%`;
 }
 
 export function fmtNum(n: number): string {

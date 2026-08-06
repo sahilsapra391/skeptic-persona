@@ -113,7 +113,7 @@ describe("draftAuction", () => {
   it("states only Treasury's own fields and never implies a tail", () => {
     const a = parseAuctions(FIXTURE).find((x) => x.cusip === "912797SK4")!;
     const d = draftAuction(a);
-    expect(d).toBe("US Treasury 13-Week Bill auction 2026-07-27: bid-to-cover 3.06, $92.0B offered");
+    expect(d).toBe("US Treasury 13-Week Bill auction 2026-07-27: bid-to-cover 3.06, $92B offered");
     expect(d).not.toContain("—");
     // A tail needs when-issued yield, which is vendor data we cannot license.
     expect(d.toLowerCase()).not.toContain("tail");
