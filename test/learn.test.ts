@@ -12,7 +12,7 @@ import {
   zeroEditStats,
   EDIT_DISTANCE_MAX_LEN,
 } from "../src/rag/learn";
-import { renderDigest, runVoiceDigest, northStarStats, renderNorthStar, DIGEST_WINDOW_DAYS } from "../src/rag/digest";
+import { renderDigest, runVoiceDigest, northStarStats, renderNorthStar, efdLatency, renderEfdLatency, DIGEST_WINDOW_DAYS } from "../src/rag/digest";
 import { MAX_OWNER_FINALS, ownerFinalsAllowance } from "../src/rag/generate";
 import { deliverCards } from "../src/rag/deliver";
 import { createQueueEntry, decideQueueEntry, insertItem, SCORE_POSTABLE } from "../src/lib/db";
@@ -604,5 +604,61 @@ describe("p5-06: the north star", () => {
     const text = renderDigest(stats as never, [], 7, renderNorthStar(NS({ cards: 100, approvals: 29 }), NS(), 7));
     expect(text).toContain("Post rate: 0%");
     expect(text).toContain("no posts published in the window"); // the zero-edit branch still ran
+  });
+});
+
+describe("p5-12: Senate eFD arrival latency", () => {
+  const L = (o: Partial<{ filings: number; medianDays: number | null; maxDays: number | null; lifetimePollFailures: number; consecutiveFailures: number; lastOkAt: string | null }> = {}) => ({
+    filings: 0, medianDays: null, maxDays: null, lifetimePollFailures: 0, consecutiveFailures: 0, lastOkAt: null, ...o,
+  });
+
+  it("reports median and slowest against a stated filing count", () => {
+    const out = renderEfdLatency(L({ filings: 6, medianDays: 4.5, maxDays: 7.5, lifetimePollFailures: 3, lastOkAt: "2026-08-02T13:30:01.000Z" }), 7).join("\n");
+    expect(out).toContain("6 filing(s)");
+    expect(out).toContain("median 4.5 days");
+    expect(out).toContain("slowest 7.5");
+  });
+
+  it("NO FILINGS is not zero latency, and the poll counters still print", () => {
+    // A quiet week and a lane that stopped arriving produce the identical
+    // filing count. The counters are the only thing that tells them apart, so
+    // they print on BOTH branches.
+    const out = renderEfdLatency(L({ consecutiveFailures: 3, lifetimePollFailures: 9, lastOkAt: "2026-08-02T13:30:01.000Z" }), 7).join("\n");
+    expect(out).toContain("no latency to report");
+    expect(out).not.toContain("0.0 days");
+    expect(out).toContain("3 consecutive failure(s) now");
+    expect(out).toContain("9 lifetime");
+  });
+
+  it("a thin sample is labelled a direction, not a measurement", () => {
+    const out = renderEfdLatency(L({ filings: 4, medianDays: 4.5, maxDays: 7.5 }), 7).join("\n");
+    expect(out).toContain("Small sample: 4 filing(s)");
+    expect(renderEfdLatency(L({ filings: 9, medianDays: 2, maxDays: 3 }), 7).join("\n")).not.toContain("Small sample");
+  });
+
+  it("names the confound rather than implying the latency is eFD's alone", () => {
+    // Latency cannot separate eFD publishing late from us polling badly, and
+    // the two imply different fixes. Saying so is the point of the line.
+    const out = renderEfdLatency(L({ filings: 6, medianDays: 4.5, maxDays: 7.5, lifetimePollFailures: 3 }), 7).join("\n");
+    expect(out).toContain("includes our polling gap");
+  });
+
+  it("never-succeeded is said outright, not rendered as a blank timestamp", () => {
+    const out = renderEfdLatency(L({ lastOkAt: null }), 7).join("\n");
+    expect(out).toContain("never succeeded");
+  });
+
+  it("computes latency from REAL rows: filed-to-ingest, in days", async () => {
+    const item = await insertItem(env.DB, {
+      source: "senate_ptr", externalId: "efd-lat-1", category: "congress",
+      eventAt: "2026-08-01T00:00:00.000Z", sourceUrl: "https://efdsearch.senate.gov/x",
+      payload: { member: "Jane Roe" }, score: SCORE_POSTABLE,
+    });
+    // insertItem stamps fetched_at = now, so drive event_at back a known gap.
+    await env.DB.prepare(`UPDATE items SET fetched_at = ?1, event_at = ?2 WHERE id = ?3`)
+      .bind("2026-08-05T00:00:00.000Z", "2026-08-01T00:00:00.000Z", item.id).run();
+    const l = await efdLatency(env.DB, new Date("2026-07-30T00:00:00.000Z"));
+    expect(l.filings).toBeGreaterThanOrEqual(1);
+    expect(l.maxDays).toBeGreaterThanOrEqual(4);
   });
 });
