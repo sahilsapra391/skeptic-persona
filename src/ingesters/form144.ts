@@ -214,7 +214,9 @@ export function relationshipLabel(doc: Form144Doc): string | null {
 export function draftForm144(doc: Form144Doc): string {
   const rel = relationshipLabel(doc);
   const who = rel ? `${doc.sellerName} (${rel})` : doc.sellerName;
-  const ticker = doc.issuerName;
+  // NOT a ticker: Form 144 parses no trading symbol at all, only the issuer
+  // name. Named honestly so nobody later 'fixes' this into $Company Inc.
+  const issuer = doc.issuerName;
   const parts: string[] = [];
   if (doc.unitsSold !== null) parts.push(`${fmtNum(doc.unitsSold)} shares`);
   if (doc.aggregateMarketValue !== null) parts.push(`${fmtUsd(doc.aggregateMarketValue)}`);
@@ -225,7 +227,7 @@ export function draftForm144(doc: Form144Doc): string {
   // rejected at the last gate. "Proposed sale" is also the form's own term.
   // No "Form 144:" prefix either: the renderer appends the attribution, and
   // naming the form twice in one line reads as a template seam.
-  return `${who} filed notice of a proposed sale${size ? ` of${size}` : ""} of ${ticker}${when}`;
+  return `${who} filed notice of a proposed sale${size ? ` of${size}` : ""} of ${issuer}${when}`;
 }
 
 // ---------------------------------------------------------------------------

@@ -69,7 +69,7 @@ describe("diffThreshold — the product is the diff", () => {
 describe("draftThreshold", () => {
   it("states the symbol, the name and the list date, nothing inferred", () => {
     const d = draftThreshold({ symbol: "ADVB", name: "ADVANCED BIOMED INC COM NEW", marketCategory: "S" }, "2026-07-27");
-    expect(d).toBe("ADVB (ADVANCED BIOMED INC COM NEW) joined the Nasdaq Reg SHO threshold list, 2026-07-27");
+    expect(d).toBe("$ADVB (ADVANCED BIOMED INC COM NEW) joined the Nasdaq Reg SHO threshold list, 2026-07-27");
     expect(d).not.toContain("—");
     // Never a claim about WHY a security is failing to deliver.
     expect(d.toLowerCase()).not.toMatch(/naked|manipulat|short seller/);

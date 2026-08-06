@@ -4,7 +4,7 @@ import { buildUserAgent, politeFetch, type PoliteResponse } from "../lib/http";
 import { decodeEntities, extractAll, extractFirst } from "../lib/xml";
 import { getSourceState, insertItem, putSourceState, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
-import { bandSpan, bandWidth, isFreshDateOnly, lagDays, lagWeeks, maxLagDays, mdyToIso } from "./shared";
+import { bandSpan, bandWidth, isFreshDateOnly, lagDays, lagWeeks, maxLagDays, mdyToIso, tickerTag } from "./shared";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -237,7 +237,7 @@ export function efdDateToIso(mdY: string): string {
 
 /** Tier A draft; the disclosure-lag line is the built-in editorial (all parsed). */
 function senateClause(t: EfdTxn): string {
-  const what = t.ticker ?? (t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName);
+  const what = t.ticker ? tickerTag(t.ticker) : t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName;
   return `${t.type} ${t.amount}, ${what} (${t.transactionDate})`;
 }
 

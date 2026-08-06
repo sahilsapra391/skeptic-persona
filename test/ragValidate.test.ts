@@ -866,3 +866,27 @@ describe("p5-04: the formatted date beat clears the validator", () => {
     expect(facts.dates.has("2026-8-4")).toBe(true);
   });
 });
+
+describe("cashtags pass the validator, invented ones still do not", () => {
+  const PAYLOAD = { ticker: "DOCS", issuerName: "Doximity, Inc.", sharesTraded: 50000, insider: "Jane Doe" };
+
+  it("a $ ticker the payload states is accepted", () => {
+    // entityCheck already had a dedicated /\$([A-Z]{1,5})\b/ branch, so the
+    // cashtag is the form it was built for rather than a new shape it has to
+    // tolerate.
+    expect(entityCheck("Jane Doe bought 50000 $DOCS", PAYLOAD)).toEqual([]);
+  });
+
+  it("an INVENTED cashtag is still refused, so the $ buys no new licence", () => {
+    const issues = entityCheck("Jane Doe bought 50000 $TSLA", PAYLOAD);
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues[0]!.rule).toBe("entity");
+    expect(issues[0]!.detail).toContain("$TSLA");
+  });
+
+  it("the cashtag is not read as a money figure", () => {
+    // $DOCS has no digits, so numberCheck must not treat it as an unlicensed
+    // dollar amount. Pinned because the two rules share the $ character.
+    expect(numberCheck("Jane Doe bought 50000 $DOCS", PAYLOAD)).toEqual([]);
+  });
+});
