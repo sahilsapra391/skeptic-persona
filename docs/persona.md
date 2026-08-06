@@ -55,7 +55,11 @@ pilot post is human-approved and all replies are human-written.
 
 Wire-terse or explainer-long, nothing in between. Median volume post
 ~100–140 chars. No hashtags, no engagement-bait questions, no fake urgency,
-no "BREAKING" on routine items. No em-dashes in post copy. Emoji only
+no "BREAKING" on routine items.
+**Exception, owner decision 2026-08-06 (B-01.10):** the two earnings
+archetypes carry `BREAKING: ` as renderer furniture inside a freshness
+window. Deliberate and blanket, scoped to those lanes only; this ban stays in
+force for every other archetype. No em-dashes in post copy. Emoji only
 purposeful: 🟢🔴 for tape, flags for countries, nothing decorative.
 Attribution on every fact: per SEC, per Senate eFD, per Nasdaq, per BLS,
 per Skeptic's tape. Advice language never: no buy/sell/watch/avoid, no
@@ -108,7 +112,7 @@ semicolon and marks the cut. If every skeleton overflowed, the render would
 fail and the filing would silently never reach the queue.
 
 ### EARNINGS EVENT (8-K item 2.02)
-- `The numbers are in the issuer's own release, not in this post.`
+- `The numbers are in the filing, linked. We don't play telephone with earnings.`
 - `Filing number {n} of this item from this issuer this year.` [real prior in the lake]
 
 **This archetype is defined by what it refuses to say.** Item 2.02 announces

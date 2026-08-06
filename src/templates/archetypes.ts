@@ -1075,7 +1075,14 @@ const earningsEvent: Archetype = {
       // The only claim this lane makes about content: where the numbers are.
       // It states a fact about the FILING, not about the results.
       id: "earn.numbersInExhibit",
-      text: "The numbers are in the issuer's own release, not in this post.",
+      // B-01.4, owner-written fixed furniture. Bound to the methodology
+      // registry entry (prose figures are linked, never retyped), so it
+      // passes the cash-out scorer instead of backing onto nothing.
+      //
+      // "linked" IS A CLAIM: the filing link must be in the delivery, or the
+      // line is false. Asserted in test/earnings.test.ts against the card
+      // path, not left to good intentions.
+      text: "The numbers are in the filing, linked. We don't play telephone with earnings.",
       tier: "base",
       when: { op: "has", field: "filedIso" },
     },

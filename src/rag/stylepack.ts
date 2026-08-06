@@ -59,7 +59,9 @@ characters. The commentary variant is the explainer register, and its
 contract is 200-280 weighted characters, fact block first, then the take
 (persona.md: wire-terse or explainer-long, nothing in between; commentary
 is the long form, never something in between). No hashtags. No
-engagement-bait questions. No fake urgency: no "BREAKING" on routine items.
+engagement-bait questions. No fake urgency: no "BREAKING" on routine items
+(EXCEPTION, owner decision 2026-08-06: the two earnings archetypes carry a
+BREAKING prefix as renderer furniture; every other archetype still bans it).
 No em-dashes in post copy. Emoji only purposeful (flags for countries,
 \u{1F7E2}\u{1F534} for tape). Attribution on every fact: per SEC, per Senate
 financial disclosures, per Nasdaq, per BLS. Advice language never: no buy/sell/watch/avoid, no targets,
@@ -160,6 +162,8 @@ export interface AntiPattern {
  */
 export const ANTI_PATTERNS: readonly AntiPattern[] = [
   {
+    // Still an anti-pattern EVERYWHERE except the earnings lanes, where the
+    // owner installed it deliberately on 2026-08-06 (B-01.10).
     name: "BREAKING on routine items",
     example: "BREAKING: CPI at 2.4%",
     why: "Fake urgency. 40% of studied congress posts open with BREAKING; a routine print is not breaking and the register bans pretending it is.",
@@ -334,6 +338,15 @@ Eleven months of integration planning, banker fees, and new org charts, headed f
   // production filing 301: $263.1B, 90 positions, 16 untouched at $192.73B
   // under the 2dp rule. The archetype's exemplar gate unblocks with this.
   { archetype: "INSTITUTIONAL_13F_BREAKDOWN", register: "commentary", v2: true, text: `Berkshire Q1, quick version: $263.1B across 90 positions, per SEC, as of March 31, filed May 15. New: Delta, $2.65B. Gone: Visa and Mastercard. Untouched: 16 names worth $192.7B. Full top ten on the card. 90 positions and the December book is still mostly recognizable.` },
+  // B-01.4, owner-authored 2026-08-06. Validated against the stored payloads
+  // in docs/packs/2026-08-06-earnings-payloads.md: every figure licensed,
+  // register clean, prefix and furniture counted in the weight.
+  //
+  // $MHH is NOT here. It measures 302 against the 272 margin, 30 over, and
+  // went back to the owner rather than being trimmed (B-01.11).
+  { archetype: "EARNINGS_EVENT", register: "commentary", v2: true, text: `BREAKING: York Water Co $YORW reported quarterly results, per SEC filing. Results and exhibits, nothing else attached. About as calm as a filing gets. The numbers are in the filing, linked. We don't play telephone with earnings.` },
+  { archetype: "EARNINGS_EVENT", register: "commentary", v2: true, text: `BREAKING: Whitehawk Therapeutics $WHWK reported quarterly results, per SEC filing. Public float: $64.9M, the SEC's smallest filer tier. Same paperwork as the trillion-dollar crowd. The numbers are in the filing, linked. We don't play telephone with earnings.` },
+  { archetype: "EARNINGS_EVENT", register: "commentary", v2: true, text: `BREAKING: BKV Corp $BKV reported quarterly results, per SEC filing. Give it an hour and the numbers will be everywhere, retyped in a race to be first. Speed and accuracy aren't the same sport. The numbers are in the filing, linked. We don't play telephone with earnings.` },
   { archetype: "HALT", register: "wire", text: `$XYZ halted 14:20 ET. Code T1, news pending, per Nasdaq.
 "News pending" is the entire disclosure.
 For five minutes nobody knows anything, which is the only time this market is fair.` },
@@ -418,7 +431,20 @@ The filing says what changed and stops there. Everyone who could explain it is l
  * because it is the mechanism the margin rule needs: an exemplar over 272
  * goes here and gets reported, never trimmed on our authority.
  */
-export const PENDING_OWNER_EXEMPLARS: ReadonlyArray<{ n: number; archetype: ArchetypeId; weighted: number; text: string }> = [];
+export const PENDING_OWNER_EXEMPLARS: ReadonlyArray<{ n: number; archetype: ArchetypeId; weighted: number; text: string }> = [
+  // B-01.4 / B-01.11. $MHH is the multi-item event card and it is the longest
+  // by construction: it names three co-filed items AND carries both the
+  // prefix and the furniture line. 302 against a 272 margin. Returned with
+  // the count rather than trimmed — the co-filing IS the story here
+  // (B-01.3b), so which 30 characters go is a voice decision, not a mechanical
+  // one.
+  {
+    n: 5,
+    archetype: "EARNINGS_EVENT",
+    weighted: 302,
+    text: `BREAKING: Mastech Digital $MHH packed three updates into one filing: quarterly results, a leadership change, and a rulebook change, per SEC. Same form, same minute. The filing says they share a timestamp. That's all it says. The numbers are in the filing, linked. We don't play telephone with earnings.`,
+  },
+];
 
 /**
  * Owner exemplars whose archetype does not EXIST in the engine yet. Not in

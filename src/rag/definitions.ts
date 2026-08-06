@@ -213,6 +213,10 @@ export const DEFINITIONS: readonly Definition[] = [
     invokes: [
       /\bnumbers are in the issuer's own release\b/i,
       /\bnot in this post\b/i,
+      /\bnumbers are in the filing, linked\b/i,
+      /\bdon't play telephone with earnings\b/i,
+      /\bfrom the filing, vs their own last year\b/i,
+      /\bno guesses\b/i,
       /\bwe link (?:the )?figures\b/i,
       /\bwe do not retype\b/i,
       /\bthe filing is here[,;]? the numbers are theirs\b/i,

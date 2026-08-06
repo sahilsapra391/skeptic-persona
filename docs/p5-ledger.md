@@ -167,7 +167,7 @@ unblocked chunk.
 |---|---|---|
 | 1 | Senate courier (D-45) | **CLOSED 2026-08-06.** Three-egress measurement done ([doc](verification/2026-08-06-senate-egress-three-ways.md)); runners reach eFD; courier unparked onto `0 5,11,17 * * 1-5` with a maintenance soft-skip. Verified green on [run 31108713162](https://github.com/sahilsapra391/skeptic-persona/actions/runs/31108713162). First Senate cards land on the first scheduled run that catches an open window. |
 | 2 | p5-20 earnings events (8-K item 2.02) | in progress |
-| 3 | p5-21 PR wire re-probe | pending |
+| 3 | p5-21 PR wire re-probe | **residential done, Worker half blocked-owner (D-49).** GlobeNewswire answers clean; PR Newswire answers with a parse question; ACCESSWIRE has no working feed at either path tried. No ingester until both egress points answer. |
 | 4 | p5-22 geopolitics official statements | pending (body list is a `blocked-owner` sign-off when reached, not a stop) |
 | 5 | p5-23 China / p5-24 USDA / p5-25 Bluesky | pending (p5-25 `blocked-owner` on the app password) |
 
@@ -195,6 +195,34 @@ reading it, and the second worse than the first:
 | 4 | Non-US corporate filings: park or rank one | park | blocked-owner | p5-34 |
 | 5 | Bluesky app password: set it or lane stays frozen | — | **DONE 2026-08-06.** `BLUESKY_APP_PASSWORD` set and verified bound. p5-25 still `blocked-gate`; when built it also needs `BLUESKY_HANDLE` (the identifier for `createSession`), which is public and belongs in `[vars]`, not a secret | closed on the owner's side |
 | 6 | Re-card policy for expired cards | (c) promote path | **RULED 2026-08-06, FINAL: expired means declined.** No auto re-card, ever. The item stays in the lake as context; a NEW event on the same entity cards and may carry the old item as history. The p5-05 measurement does not argue against it (see D-27) | closed |
+
+### Owner decision 7 — the BREAKING prefix (B-01.10, 2026-08-06)
+
+| Decision | Scope | Status |
+|---|---|---|
+| `BREAKING: ` opens every fresh earnings card, event and results, as renderer furniture | **The two earnings archetypes ONLY** | **RULED, blanket, final** |
+
+**This overrules a rule the owner signed in three places**, and it is logged
+here as an owner decision rather than absorbed as an edit:
+
+- `docs/persona.md:58` — *no "BREAKING" on routine items*
+- `VOICE_CORE` in `src/rag/stylepack.ts` — same sentence
+- `ANTI_PATTERNS` "BREAKING on routine items" — *40% of studied congress posts
+  open with BREAKING; a routine print is not breaking*
+
+All three **remain in force for every other archetype** and now carry a dated
+note pointing here. The objection was put to the owner in full before he ruled
+— that an earnings 8-K is the most routine filing the SEC has, that the
+freshness gate controls staleness rather than routineness, and that repetitive
+shouting is a named spam signal in his own anti-corpus and the most plausible
+cause of the Threads ban. He reaffirmed, blanket, with the scope limit above.
+
+Mechanically: prepended by the renderer, never model-generated; renders only
+inside `BREAKING_MAX_AGE_HOURS` (env, default 24) measured from the FILING's
+accepted timestamp; fails closed on a missing, unparseable or future
+timestamp. Three kill-tests: a model-emitted prefix rejects as duplicated
+furniture, a prefix on a stale card rejects, and a prefix on any archetype
+outside the scope rejects.
 
 ## Owner tasks (hands, not rulings)
 
@@ -264,6 +292,7 @@ reading it, and the second worse than the first:
 | D-46 | 2026-08-06, courier probe | **My own D-45 report conflated two different failures, corrected here.** I told the owner the Worker's `efd home 403` was "same family as cftc.gov 403, treasury.gov 525, rate_boe 500". The HOME-PAGE 403 is that family and D-45 stands on it. But the eFD DATA endpoint's 503 is **not** an egress block at all: the body is the Senate's own "WEBSITE TEMPORARILY UNAVAILABLE DUE TO MAINTENANCE" page with no Ray ID and no vendor markers, and it hits a residential client identically (4/4 at 20s intervals) while the same client got 200 with 12 real rows 27/27 eight hours earlier. Reporting both under one heading would have aimed a courier build at a problem no courier can solve, and made the eventual maintenance 503s read as the courier failing. The measurement that separates them is [three-ways](verification/2026-08-06-senate-egress-three-ways.md). | fixed |
 | D-47 | 2026-08-06, owner instruction 4 | **Occurrence counts were NOT running under the coverage guard, and the owner was right to ask.** `lookbackFieldsFor` returns `coverageDays` and nothing consumed it: `edgar8k.ts` wrote `sameItemOccurrence` unconditionally, and both occurrence beats (`8k.sameItemAgain`, `earn.repeat`) gate only on the count. So if our `edgar_8k` coverage began in July, a card could state "filing number 3 of this item this year" while January to June were invisible and the true count was unknowable. That is an unsupported claim about a window, which is the fabrication class, not a rounding issue. **Fixed by OMITTING the fields** rather than shrinking or annotating them — same rule as every pattern field — so the gates cannot match and no beat can state a count. Coverage and window both ride in the payload so the ledger records why. | fixed |
 | D-48 | 2026-08-06, owner instruction 1 | **Working rule recorded: a workflow or courier change requires one live dispatch run before merge. Reading is not verification.** Earned twice in one hour on the senate courier: the maintenance soft-skip left the relay step to die on a missing bundle (green on inspection, red in reality), and the fix for THAT gated the wrong job's step because I located it with `rindex` over the file. Neither was visible without running it. The corollary the owner attached: D-46's maintenance skip stays matched on the Senate's own page text, and **if the wording match ever misses, it fails loud** — a quiet skip on an unrecognised 503 would hide a real outage. | recorded, standing |
+| D-49 | 2026-08-06, p5-21 | **The Worker-egress half of the PR-wire probe is blocked on a credential.** `/admin/probe` shipped and is live (anonymous POST returns 401, so it is routed and the auth check works), but it is guarded by `TELEGRAM_WEBHOOK_SECRET` and that value is not available to this session — `wrangler secret list` gives names, not values. Residential results are recorded in the registry. **No PR-wire ingester will be written until the Worker side answers**, because building on one egress point's answer is the D-25 mistake this repo has now made three times. Parked at blocked-owner, one-line ask sent, next chunk started. | blocked-owner |
 
 ### Known and accepted, recorded rather than fixed
 

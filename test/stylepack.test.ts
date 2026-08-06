@@ -107,21 +107,21 @@ describe("the margin rule (owner ruling 2026-08-06)", () => {
 
   it("every v2 exemplar installed is inside the margin", () => {
     const v2 = OWNER_EXEMPLARS.filter((e) => e.v2);
-    // Seven commentary exemplars plus the 13F breakdown, all installed after
-    // the owner's approved edits on 2026-08-06.
-    expect(v2.length).toBe(8);
+    // Seven commentary exemplars, the 13F breakdown, and three earnings
+    // event cards (B-01.4). $MHH is held at 302, not installed.
+    expect(v2.length).toBe(11);
     for (const e of v2) {
       expect(weightedLength(e.text), e.text.slice(0, 40)).toBeLessThanOrEqual(EXEMPLAR_MAX_WEIGHTED);
     }
   });
 
   it("everything held back is genuinely over the margin, and none of it leaked into the bank", () => {
-    // All eight cleared on 2026-08-06 with the owner's approved edits: the
+    // All but one cleared on 2026-08-06 with the owner's approved edits: the
     // seven commentary trims, and "Ninety" -> "90" bringing the 13F breakdown
     // from 273 to 269. The export stays as the MECHANISM, not as a leftover —
     // an exemplar over the margin goes here and gets reported, and is never
     // trimmed on our authority.
-    expect(PENDING_OWNER_EXEMPLARS).toEqual([]);
+    expect(PENDING_OWNER_EXEMPLARS.map((p) => p.archetype)).toEqual(["EARNINGS_EVENT"]);
     for (const p of PENDING_OWNER_EXEMPLARS) {
       expect(weightedLength(p.text), `[${p.n}]`).toBe(p.weighted);
       expect(p.weighted, `[${p.n}] would have installed`).toBeGreaterThan(EXEMPLAR_MAX_WEIGHTED);
