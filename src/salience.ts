@@ -146,6 +146,15 @@ const ADMIN = rx(
   "\\bminutes\\b", "\\bspeech\\b", "\\bremarks\\b", "research paper", "\\breview\\b",
   "\\bcircular\\b", "consultation", "invites public comments", "draft guidelines",
   "\\bappeal no\\b", "\\bappointment", "calendar", "\\bagenda\\b", "working paper",
+  // PROCEDURAL CIRCULARS, added after the tier ruling's first live catch.
+  // RBI #919 was "Reporting of FCNR(B) Deposits, External Commercial
+  // Borrowings and Overseas Foreign Currency Borrowings mobilized under
+  // Reserve Bank's Swap Facility" — a circular about HOW TO REPORT, which the
+  // DATA matcher caught on "swap facility" and tiered as a macro print. An
+  // owner draft then stated "$40.82B" against a payload with no numeric field
+  // at all. The document class, not the subject, decides the tier.
+  "\\breporting of\\b", "\\bmaster direction\\b", "\\bnotification\\b",
+  "\\bframework\\b", "\\bamendment to\\b", "\\bguidelines\\b", "\\bFAQ",
 );
 
 /** A data print: the release itself, carrying figures. */

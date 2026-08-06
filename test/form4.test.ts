@@ -498,19 +498,32 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
 });
 
 describe("money and percent formatting is copy law (owner ruling 2026-08-06)", () => {
-  it("reproduces every figure the ruling and the exemplar state", () => {
-    // Four significant figures, capped at 2 decimals, zeros stripped. Derived
-    // from the owner's own examples rather than from the prose, because a
-    // literal 2-decimal reading contradicts his exemplar in two places.
+  it("reproduces every figure the ruling states, at uniform 2 decimals", () => {
+    // UNIFORM 2 DECIMALS at every scale, zeros stripped. Not significant
+    // figures: an earlier reading derived 4 sig figs from the examples, which
+    // reproduced "$192.7B" and "+204%", and the owner has since ruled the
+    // uniform rule explicitly. Those two now render "$192.73B" and "+203.99%",
+    // and the change is pinned here rather than left to be rediscovered.
     expect(fmtUsd(263_095_703_570)).toBe("$263.1B");
     expect(fmtUsd(2_646_532_635)).toBe("$2.65B");
     expect(fmtUsd(2_910_002_197)).toBe("$2.91B");
     expect(fmtUsd(2_275_897_610)).toBe("$2.28B");
-    expect(fmtUsd(192_725_735_072)).toBe("$192.7B");
+    expect(fmtUsd(192_725_735_072)).toBe("$192.73B");
     expect(fmtUsd(115_000_000)).toBe("$115M");          // not $115.00M
     expect(fmtUsd(4_660_000_000_000)).toBe("$4.66T");
-    expect(fmtPct(203.99)).toBe("+204%");
+    expect(fmtPct(203.99)).toBe("+203.99%");
     expect(fmtPct(-95.13)).toBe("-95.13%");
+    // The nine M-scale values the owner re-rendered by hand under the uniform
+    // rule. Pinned so the two derivations can never silently swap again.
+    expect(fmtUsd(9_581_424.2808)).toBe("$9.58M");
+    expect(fmtUsd(41_671_426.05)).toBe("$41.67M");
+    expect(fmtUsd(13_340_436.12)).toBe("$13.34M");
+    expect(fmtUsd(221_228_461)).toBe("$221.23M");
+    expect(fmtUsd(160_807_899)).toBe("$160.81M");
+    expect(fmtUsd(137_550_347)).toBe("$137.55M");
+    expect(fmtUsd(126_219_107)).toBe("$126.22M");
+    expect(fmtUsd(111_129_371)).toBe("$111.13M");
+    expect(fmtUsd(109_119_591)).toBe("$109.12M");
   });
 
   it("under $1K stays in full dollars, and negatives keep their sign", () => {
