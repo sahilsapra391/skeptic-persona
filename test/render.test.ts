@@ -189,3 +189,41 @@ describe("the render budget, in numbers", () => {
     expect(ms).toBeLessThan(5_000);
   });
 });
+
+describe("which archetypes get a card, and which correctly do not", () => {
+  it("renders only from fields the payload actually carries", async () => {
+    const { cardImageFor } = await import("../src/render/forArchetype");
+    // A real CONGRESS_PTR payload shape.
+    const ptr = {
+      chamber: "senate",
+      who: "Moreno, Bernardo",
+      amountBand: "$1,001 - $15,000",
+      tradeDate: "07/21/2026",
+      filedDate: "07/27/2026",
+    };
+    const img = await cardImageFor("CONGRESS_PTR", ptr);
+    expect(img, "a PTR with a band and a name must card").not.toBeNull();
+    expect(img!.filename).toBe("congress_ptr.png");
+
+    // Same archetype, no band parsed -> NO image. Inventing a figure to fill
+    // the template is the fabrication class this repo refuses.
+    expect(await cardImageFor("CONGRESS_PTR", { chamber: "senate", who: "Moreno, Bernardo" })).toBeNull();
+    // No resolvable citation -> no card. A branded image without its source
+    // is the one thing IMAGE_POLICY.md will not let out.
+    expect(await cardImageFor("CONGRESS_PTR", { ...ptr, chamber: "atlantis" })).toBeNull();
+  });
+
+  it("archetypes with no numeric field are absent ON PURPOSE", async () => {
+    const { cardImageFor, STAT_CARD_ARCHETYPES } = await import("../src/render/forArchetype");
+    // REGULATORY_NEWS and POLICY_ACTION carry no parsed numbers by
+    // construction ("these sources carry no parsed numbers, so the beats
+    // carry none either"), so they can never have a single-stat card.
+    for (const a of ["REGULATORY_NEWS", "POLICY_ACTION"]) {
+      expect(STAT_CARD_ARCHETYPES).not.toContain(a);
+      expect(await cardImageFor(a, { authority: "SEC", title: "x", factLine: "SEC: x" })).toBeNull();
+    }
+    // The table is short and every entry is deliberate; this pins the set so
+    // an addition is a decision rather than a drift.
+    expect([...STAT_CARD_ARCHETYPES].sort()).toEqual(["CONGRESS_PTR", "INSIDER_NOTICE", "OWNERSHIP_STAKE"]);
+  });
+});
