@@ -36,7 +36,7 @@ async function salienceHold(
   archetype: ArchetypeId,
   payload: Payload,
   now: Date,
-): Promise<"below_floor" | "category_cap" | null> {
+): Promise<"ledger_only" | "below_floor" | "category_cap" | null> {
   try {
     // Clamped to the score range: salienceFor caps at 100, so a fat-fingered
     // SALIENCE_FLOOR="450" would silently hold EVERY item in every category.
@@ -44,7 +44,20 @@ async function salienceHold(
     const floor =
       Number.isFinite(rawFloor) && rawFloor >= 0 && rawFloor <= 100 ? rawFloor : DEFAULT_SALIENCE_FLOOR;
     if (floor !== rawFloor) log("warn", "SALIENCE_FLOOR out of range; using default", { raw: env.SALIENCE_FLOOR ?? null, floor });
-    const { score, reasons, exempt } = salienceFor(archetype, payload);
+    const { score, reasons, exempt, ledgerOnly } = salienceFor(archetype, payload);
+
+    // LEDGER ONLY, checked before the floor and before the exemption, because
+    // it is a statement about what the item IS rather than how loud it is.
+    // Marked 'logged', never 'digested': digested means it met the bar and lost
+    // a slot, and these never met any bar. A DOJ helicopter-laser indictment in
+    // a finance digest is not a near miss, it is a category error.
+    if (ledgerOnly) {
+      log("info", "ledger only: content tier is never a card", { itemId, archetype, score, reasons });
+      await env.DB.prepare(`UPDATE items SET status = 'logged' WHERE id = ?1 AND status IN ('new', 'queued')`)
+        .bind(itemId)
+        .run();
+      return "ledger_only";
+    }
 
     if (!exempt && score < floor) {
       log("info", "held for digest: below floor", { itemId, archetype, score, floor, reasons });
@@ -88,7 +101,7 @@ export interface EnqueueResult {
   retryAfter: number | null;
   /** p4-03: the item was held for the daily digest instead of pushed. Not an
    *  error — callers keep draining, exactly as they do for queueId 0. */
-  held?: "below_floor" | "category_cap";
+  held?: "ledger_only" | "below_floor" | "category_cap";
 }
 
 export interface EnqueueOptions {
