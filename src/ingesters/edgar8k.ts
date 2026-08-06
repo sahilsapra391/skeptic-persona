@@ -282,9 +282,32 @@ async function drainPostables(env: Env, now: Date, budget: TickBudget): Promise<
         since: yearStart,
         itemId: row.id,
       });
-      payload.priorSameItemThisYear = fields.priorCount;
-      payload.sameItemOccurrence = fields.occurrence;
+      // THE COVERAGE GUARD (owner instruction 2026-08-06). An occurrence
+      // count is a claim about a WINDOW, and it is only licensed when our
+      // source coverage predates that window. If we started observing
+      // edgar_8k in July, "filing number 3 of this item this year" is not a
+      // fact we hold — we cannot see January to June, and the true count may
+      // be higher.
+      //
+      // OMITTED, not shrunk, exactly like every other pattern field: the
+      // fields simply do not appear on the payload, so the gates
+      // (`gte sameItemOccurrence 3`, `eq sameItemOccurrence 2`) cannot match
+      // and no beat can state a count. Coverage always rides along so the
+      // ledger records why.
+      const windowDays = Math.ceil((now.getTime() - Date.parse(yearStart)) / 86_400_000);
+      const covered = fields.coverageDays !== null && fields.coverageDays >= windowDays;
       payload.lookbackCoverageDays = fields.coverageDays;
+      payload.lookbackWindowDays = windowDays;
+      if (covered) {
+        payload.priorSameItemThisYear = fields.priorCount;
+        payload.sameItemOccurrence = fields.occurrence;
+      } else {
+        log("info", "occurrence claim omitted: coverage shorter than the window", {
+          itemId: row.id,
+          coverageDays: fields.coverageDays,
+          windowDays,
+        });
+      }
     }
 
     // ROUTING (p5-20). An item-2.02 filing is an EARNINGS EVENT, not a

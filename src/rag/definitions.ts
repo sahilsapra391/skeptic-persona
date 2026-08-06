@@ -197,6 +197,28 @@ export const DEFINITIONS: readonly Definition[] = [
     },
   },
   {
+    id: "figures-quoted-only-from-parsed-data",
+    term: "When this desk quotes a figure, and when it links to one",
+    kind: "rule",
+    statement:
+      "A figure is quoted only when it is verifiable from parsed source data — a field an ingester actually read out of a structured record. A figure that exists only in prose is LINKED, never retyped. This is why an earnings post states that results were filed and where to read them, and states no result.",
+    citation:
+      "docs/DATA_USE_POLICY.md and the standing no-fabrication rule (CLAUDE.md non-negotiable #1: every number in every post comes from a field an ingester actually parsed).",
+    verifiedAt: "2026-08-06",
+    // THE METHODOLOGY ENTRY (owner instruction 2026-08-06). The earnings
+    // signature line is a claim ABOUT THIS DESK'S METHOD, not about a
+    // company, so it cashes out to the rule itself rather than to a payload
+    // field. Without this entry the aphorism scorer would flag it as backing
+    // onto nothing — correctly, because until now it did.
+    invokes: [
+      /\bnumbers are in the issuer's own release\b/i,
+      /\bnot in this post\b/i,
+      /\bwe link (?:the )?figures\b/i,
+      /\bwe do not retype\b/i,
+      /\bthe filing is here[,;]? the numbers are theirs\b/i,
+    ],
+  },
+  {
     id: "repeat-count-pattern",
     term: "When a repeat becomes a pattern",
     kind: "record",

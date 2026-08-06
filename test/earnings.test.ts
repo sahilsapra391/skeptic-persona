@@ -176,3 +176,34 @@ describe("rendering", () => {
     expect(await cardImageFor("EARNINGS_EVENT", p)).not.toBeNull();
   });
 });
+
+describe("the coverage guard on occurrence claims", () => {
+  it("omits the count when source coverage does not predate the window", async () => {
+    // An occurrence count is a claim about a WINDOW. If we started observing
+    // edgar_8k in July, "filing number 3 of this item this year" is not a
+    // fact we hold: January to June are invisible and the true count may be
+    // higher. OMITTED, not shrunk — the same rule as every pattern field.
+    const { ARCHETYPES: A } = await import("../src/templates/archetypes");
+    const { evaluateGate } = await import("../src/templates/gate");
+    const beat = A.EARNINGS_EVENT.beats.find((b) => b.id === "earn.repeat")!;
+
+    // Covered: the field is present and the beat can fire.
+    expect(evaluateGate(beat.when, { sameItemOccurrence: 3, lookbackCoverageDays: 400, lookbackWindowDays: 218 })).toBe(true);
+    // Not covered: the ingester omits the field entirely, so the gate cannot
+    // match whatever the coverage numbers say.
+    expect(evaluateGate(beat.when, { lookbackCoverageDays: 30, lookbackWindowDays: 218 })).toBe(false);
+    // And the same guard protects the FILING_8K beats it was modelled on.
+    const b8k = A.FILING_8K.beats.find((b) => b.id === "8k.sameItemAgain")!;
+    expect(evaluateGate(b8k.when, { sameItemOccurrence: 4 })).toBe(true);
+    expect(evaluateGate(b8k.when, {})).toBe(false);
+  });
+
+  it("the beat's own text cannot render without the field", async () => {
+    const { fillSlots } = await import("../src/templates/render");
+    const text = "Filing number {sameItemOccurrence} of this item from this issuer this year.";
+    expect(fillSlots(text, { sameItemOccurrence: 3 })).toContain("number 3");
+    // fillSlots returns null on a missing field, so an omitted count drops
+    // the whole beat rather than rendering a hole.
+    expect(fillSlots(text, {})).toBeNull();
+  });
+});
