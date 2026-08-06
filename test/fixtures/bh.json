@@ -1,0 +1,132 @@
+[
+  {
+    "results": [
+      {
+        "cusip": "037833100",
+        "issuer": "APPLE INC",
+        "value_usd": 57843260493,
+        "shares": 227917808,
+        "sh_prn_type": "SH",
+        "put_call": "",
+        "class": "COM"
+      },
+      {
+        "cusip": "025816109",
+        "issuer": "AMERICAN EXPRESS CO",
+        "value_usd": 45859204536,
+        "shares": 151610700,
+        "sh_prn_type": "SH",
+        "put_call": "",
+        "class": "COM"
+      },
+      {
+        "cusip": "191216100",
+        "issuer": "COCA COLA CO",
+        "value_usd": 30420000000,
+        "shares": 400000000,
+        "sh_prn_type": "SH",
+        "put_call": "",
+        "class": "COM"
+      },
+      {
+        "cusip": "060505104",
+        "issuer": "BANK AMERICA CORP",
+        "value_usd": 25039178044,
+        "shares": 513624165,
+        "sh_prn_type": "SH",
+        "put_call": "",
+        "class": "COM"
+      },
+      {
+        "cusip": "166764100",
+        "issuer": "CHEVRON CORPORATION",
+        "value_usd": 17457364606,
+        "shares": 84375856,
+        "sh_prn_type": "SH",
+        "put_call": "",
+        "class": "COM"
+      },
+      {
+        "cusip": "674599105",
+        "issuer": "OCCIDENTAL PETE CORP",
+        "value_usd": 17221193015,
+        "shares": 264941431,
+        "sh_prn_type": "SH",
+        "put_call": "",
+        "class": "COM"
+      },
+      {
+        "cusip": "02079K305",
+        "issuer": "ALPHABET INC",
+        "value_usd": 15600071913,
+        "shares": 54249798,
+        "sh_prn_type": "SH",
+        "put_call": "",
+        "class": "CAP STK CL A"
+      },
+      {
+        "cusip": "H1467J104",
+        "issuer": "CHUBB LTD SWITZ",
+        "value_usd": 11162836215,
+        "shares": 34249183,
+        "sh_prn_type": "SH",
+        "put_call": "",
+        "class": "COM"
+      },
+      {
+        "cusip": "615369105",
+        "issuer": "MOODYS CORP",
+        "value_usd": 10762190653,
+        "shares": 24669778,
+        "sh_prn_type": "SH",
+        "put_call": "",
+        "class": "COM"
+      },
+      {
+        "cusip": "500754106",
+        "issuer": "KRAFT HEINZ CO",
+        "value_usd": 7323527057,
+        "shares": 325634818,
+        "sh_prn_type": "SH",
+        "put_call": "",
+        "class": "COM"
+      },
+      {
+        "cusip": "23918K108",
+        "issuer": "DAVITA INC",
+        "value_usd": 4626158909,
+        "shares": 30100585,
+        "sh_prn_type": "SH",
+        "put_call": "",
+        "class": "COM"
+      },
+      {
+        "cusip": "501044101",
+        "issuer": "KROGER CO",
+        "value_usd": 3618000000,
+        "shares": 50000000,
+        "sh_prn_type": "SH",
+        "put_call": "",
+        "class": "COM"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "ATL",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 0.7709
+      },
+      "duration": 0.7709,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 38150144,
+      "rows_read": 59,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

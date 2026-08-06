@@ -265,7 +265,9 @@ describe("doctrine: persona doc parity", () => {
         .replace(/\{publishedIso(?::date)?\}/g, "{date}")
         .replace(/\{listSize\}/g, "{n}")
         .replace(/\{ruleProvision\}/g, "{rule}")
-        .replace(/\{intensityKt\}/g, "{n}");
+        .replace(/\{intensityKt\}/g, "{n}")
+        .replace(/\{asOfIso(?::date)?\}/g, "{d1}")
+        .replace(/\{filedIso(?::date)?\}/g, "{d2}");
       const found = PERSONA_DOC.includes(beat.text) || PERSONA_DOC.includes(docForm);
       expect(found, `${archetype.id}/${beat.id} not found in persona.md: "${beat.text}"`).toBe(true);
     }
@@ -310,6 +312,12 @@ describe("doctrine: beats must be reachable (no dead library entries)", () => {
       DELISTING: ["exchangeInitiated", "ruleProvision", "factLine", "issuerName", "exchange", "securityClass"],
       SETTLEMENT_FAILURE: ["listDate", "symbol", "listSize", "factLine", "name"],
       REGULATORY_NEWS: ["authority", "publishedIso", "factLine", "title"],
+      // Produced by pipeline/thirteenF.ts buildBreakdownPayload, from the
+      // filings_13f / holdings_13f / diffs_13f tables.
+      INSTITUTIONAL_13F_BREAKDOWN: [
+        "manager", "aum_display", "positionCount_display", "asOfIso", "filedIso",
+        "newCount_display", "goneCount_display", "unchangedCount_display", "unchangedTotal_display",
+      ],
       OWNERSHIP_STAKE: ["isSchedule13D", "dateOfEvent", "topPercent", "isAmendment", "factLine", "topPersonName", "issuerName"],
       POSITIONING: ["reportDate", "changeLevNet", "openInterest", "factLine", "contract", "levNet"],
       POLICY_ACTION: ["signingDate", "publicationDate", "number", "documentNumber", "signingLagDays", "factLine", "title", "kind"],
@@ -489,6 +497,21 @@ describe("doctrine: rendered output survives the publish-time guard", () => {
       name: "ADVANCED BIOMED INC COM NEW",
       listDate: "2026-07-27",
       listSize: 30,
+    },
+    // Verbatim from production filing 301: BERKSHIRE HATHAWAY INC, period
+    // 2026-03-31, parsed_value_total 263,095,703,570, 90 entries, and the
+    // diff counts the owner's own exemplar quotes (3 new, 16 gone, 16
+    // unchanged worth $192.73B).
+    INSTITUTIONAL_13F_BREAKDOWN: {
+      manager: "BERKSHIRE HATHAWAY INC",
+      aum_display: "$263.1B",
+      positionCount_display: "90",
+      asOfIso: "2026-03-31",
+      filedIso: "2026-05-15T00:00:00.000Z",
+      newCount_display: "3",
+      goneCount_display: "16",
+      unchangedCount_display: "16",
+      unchangedTotal_display: "$192.73B",
     },
     REGULATORY_NEWS: {
       factLine: "UK FCA: FCA secures majority of victims' money back",

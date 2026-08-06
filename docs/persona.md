@@ -107,6 +107,19 @@ a guaranteed-short skeleton that cuts the title at the SEC's own first
 semicolon and marks the cut. If every skeleton overflowed, the render would
 fail and the filing would silently never reach the queue.
 
+### INSTITUTIONAL 13F BREAKDOWN (a quarter-end snapshot, filed weeks later)
+- `Full top ten on the card.`
+- `Positions as of {d1}. You are reading it {d2}.` [both dates parsed]
+
+**Dates are the whole discipline here.** A 13F is a snapshot of a quarter END,
+filed up to six weeks after it. A post stating only one date invites the reader
+to treat stale positions as current, so every skeleton requires BOTH and
+renders nothing without them.
+
+**"Gone" is a section label, never a verb.** A holding absent from a filing was
+not necessarily sold. The desk says it is not in this filing, which is what the
+record shows, and stops.
+
 ### FORM 144 / INSIDER NOTICE (a sale filed BEFORE it happens)
 - `This one is filed before the sale, not after.`
 - `The broker is named in the filing.` [broker parsed]
