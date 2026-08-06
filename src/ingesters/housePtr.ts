@@ -6,7 +6,7 @@ import { getSourceState, insertItem, putSourceState, SCORE_LOG_ONLY, SCORE_POSTA
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 import { enqueueForApproval } from "../pipeline/enqueue";
-import { bandSpan, bandWidth, isFreshDateOnly, lagDays, lagWeeks, maxLagDays, mdyToIso, tickerTag } from "./shared";
+import { bandSpan, bandWidth, isFreshOnDiscovery, lagDays, lagWeeks, maxLagDays, mdyToIso, tickerTag } from "./shared";
 import { scrubUrls } from "../lib/html";
 
 // House Clerk PTR discovery (live-verified 2026-07-26; ZIP fixture captured
@@ -389,10 +389,12 @@ export async function applyHousePtrText(
   now: Date,
 ): Promise<HouseTextOutcome> {
   const row = await env.DB.prepare(
-    `SELECT id, payload, source_url FROM items WHERE dedup_key = ?1`,
+    // fetched_at is DISCOVERY: when the Clerk's index row first reached our
+    // lake. It is the clock the freshness gate below actually runs on.
+    `SELECT id, payload, source_url, fetched_at FROM items WHERE dedup_key = ?1`,
   )
     .bind(`${SOURCE}:${docId}`)
-    .first<{ id: number; payload: string; source_url: string }>();
+    .first<{ id: number; payload: string; source_url: string; fetched_at: string }>();
   // No row means the courier is working from a doc list this Worker never
   // indexed. Reported, never invented: an item created here would have no
   // member name, no filing date, and nothing to attribute.
@@ -425,7 +427,16 @@ export async function applyHousePtrText(
     .slice()
     .sort((a, b) => (lagDays(filedIso, a.transactionDate)! < lagDays(filedIso, b.transactionDate)! ? -1 : 1))[0];
   const minLag = newest ? lagDays(filedIso, newest.transactionDate) : null;
-  const fresh = isFreshDateOnly(filedIso, now);
+  // FRESHNESS FROM DISCOVERY, not from the filing date (2026-08-06).
+  //
+  // isFreshDateOnly starts its clock at filedIso, which is hours before the
+  // Clerk's index tells us the filing exists and 64h+ before this courier
+  // carries its text. Measured: that ternary resolved false 152 times out of
+  // 152 in production, which is why zero CONGRESS_PTR cards have ever
+  // existed. The window now runs from when we could FIRST have known, with
+  // the filing's own age capped at CONGRESS_PTR's 96h queue TTL so a
+  // re-backfill of old filings still cannot flood the queue.
+  const fresh = isFreshOnDiscovery(filedIso, row.fetched_at, now);
 
   const merged = {
     ...payload,
