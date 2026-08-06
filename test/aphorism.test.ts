@@ -260,7 +260,7 @@ describe("what the rule finds in artefacts that teach the model", () => {
     // [5] and [6] are the two v2 texts carrying definitional lines, and both
     // bind — [5] to Regulation FD, [6] to the record count.
     const v2 = OWNER_EXEMPLARS.filter((e) => e.v2);
-    expect(v2.length, "the v2 exemplars are installed").toBe(8);
+    expect(v2.length, "the v2 exemplars are installed").toBe(11);
     for (const e of v2) {
       expect(check(e.text, { priorNonRelianceCount: 2 }), e.text.slice(0, 40)).toEqual([]);
     }

@@ -7,6 +7,7 @@ import { ALL_ATTRIBUTION_FORMS, ATTRIBUTION_ENTRIES } from "../templates/attribu
 import { POST_TEXT_LIMIT, weightedLength } from "../templates/length";
 import { ngramHashes, sharedNgrams } from "./echo";
 import { boundDefinitionsFor } from "./definitions";
+import { BREAKING_ARCHETYPES, BREAKING_PREFIX, isBreakingFresh } from "../pipeline/earnings";
 
 // Generated-draft validation (docs/p2r-plan.md Part D).
 //
@@ -907,6 +908,10 @@ function furnitureSet(): Set<string> {
     // an unlicensed proper name and rejected the exemplar that demonstrates
     // the approved device.
     "PLAIN ENGLISH",
+    // B-01.10: renderer furniture on earnings cards. Without this the
+    // all-caps token reads as an unlicensed proper name to entityCheck and
+    // every earnings card would fail the floor on its own furniture.
+    "BREAKING",
     "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST",
     "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
     "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY",
@@ -1340,6 +1345,46 @@ export function aphorismCheck(
   return issues;
 }
 
+/**
+ * B-01.10 kill-test one: the MODEL may never emit the prefix.
+ *
+ * "BREAKING: " is renderer furniture, exactly like attribution. A model that
+ * writes its own produces a card carrying it twice once the renderer prepends
+ * the real one — and, worse, a model that learns to shout has learned it as a
+ * VOICE rather than as a mechanical stamp, which is the failure the owner's
+ * scope limit exists to prevent.
+ */
+export function breakingFurnitureCheck(text: string): ValidationIssue[] {
+  return /\bBREAKING\b/.test(text)
+    ? [{ rule: "breaking_furniture", detail: 'BREAKING is renderer furniture; the model must not emit it' }]
+    : [];
+}
+
+/**
+ * B-01.10 kill-test two: no prefix outside the freshness window.
+ *
+ * Checked at publish time against the FILING'S accepted timestamp, so a card
+ * that sat in the queue past the window cannot still be shouting when the
+ * owner finally taps Copy. Also rejects the prefix on any archetype outside
+ * the owner's scope, which is what keeps the exception an exception.
+ */
+export function breakingFreshnessCheck(
+  text: string,
+  archetype: string | undefined,
+  payload: Payload,
+  now: Date,
+  maxAgeHours: number,
+): ValidationIssue[] {
+  if (!text.startsWith(BREAKING_PREFIX)) return [];
+  if (archetype === undefined || !BREAKING_ARCHETYPES.has(archetype)) {
+    return [{ rule: "breaking_scope", detail: `BREAKING is scoped to the earnings lanes; ${archetype ?? "no archetype"} may not carry it` }];
+  }
+  if (!isBreakingFresh(payload.filedIso, now, maxAgeHours)) {
+    return [{ rule: "breaking_stale", detail: `BREAKING on a card outside the ${maxAgeHours}h freshness window` }];
+  }
+  return [];
+}
+
 export function templateEchoCheck(text: string, templateDraft: string): ValidationIssue[] {
   const shared = sharedNgrams(templateDraft, text);
   return shared.length > 0
@@ -1504,6 +1549,8 @@ export async function validateVariant(db: D1Database, text: string, opts: Valida
     // to rule on, not mine to rewrite. test/aphorism.test.ts pins exactly
     // which bank entries flag, so the gap is measured rather than hidden
     // (D-31).
+    // The model's own output must never carry the prefix (B-01.10).
+    ...breakingFurnitureCheck(text),
     ...aphorismCheck(text, opts.payload, facts, {
       // The provenance group's cash-out (owner ruling on D-31): "the number
       // is the source's own" is checkable exactly when this item resolves a

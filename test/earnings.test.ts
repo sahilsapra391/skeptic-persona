@@ -207,3 +207,72 @@ describe("the coverage guard on occurrence claims", () => {
     expect(fillSlots(text, {})).toBeNull();
   });
 });
+
+describe("B-01.10: BREAKING as renderer furniture", () => {
+  it("renders only inside the freshness window, measured from the FILING", async () => {
+    const { breakingPrefixFor, isBreakingFresh, DEFAULT_BREAKING_MAX_AGE_HOURS } = await import("../src/pipeline/earnings");
+    const now = new Date("2026-08-06T15:00:00.000Z");
+    expect(DEFAULT_BREAKING_MAX_AGE_HOURS).toBe(24);
+    // Fresh filing -> prefix.
+    expect(breakingPrefixFor("EARNINGS_EVENT", { filedIso: "2026-08-06T13:00:00.000Z" }, now, 24)).toBe("BREAKING: ");
+    // Outside the window -> drops silently, no prefix.
+    expect(breakingPrefixFor("EARNINGS_EVENT", { filedIso: "2026-08-04T13:00:00.000Z" }, now, 24)).toBe("");
+    // Anchored on the FILING, not on when we polled: a filing we found late
+    // is not news because we found it late (the D-36 anchor mistake in
+    // reverse).
+    expect(isBreakingFresh("2026-08-06T14:59:00.000Z", now, 24)).toBe(true);
+    // Fails CLOSED: a missing, unparseable or FUTURE timestamp never shouts.
+    expect(isBreakingFresh(undefined, now, 24)).toBe(false);
+    expect(isBreakingFresh("not a date", now, 24)).toBe(false);
+    expect(isBreakingFresh("2026-08-07T00:00:00.000Z", now, 24)).toBe(false);
+  });
+
+  it("is scoped to the earnings lanes and nothing else", async () => {
+    const { breakingPrefixFor, BREAKING_ARCHETYPES } = await import("../src/pipeline/earnings");
+    const now = new Date("2026-08-06T15:00:00.000Z");
+    const fresh = { filedIso: "2026-08-06T14:00:00.000Z" };
+    expect([...BREAKING_ARCHETYPES].sort()).toEqual(["EARNINGS_EVENT", "EARNINGS_RESULTS"]);
+    // The owner's exception is scoped. persona.md:58 still governs the rest.
+    for (const a of ["CONGRESS_PTR", "FILING_8K", "REGULATORY_NEWS", "MACRO_PRINT"]) {
+      expect(breakingPrefixFor(a, fresh, now, 24), a).toBe("");
+    }
+  });
+
+  it("KILL-TEST: a model-emitted prefix rejects as duplicated furniture", async () => {
+    const { breakingFurnitureCheck } = await import("../src/rag/validate");
+    expect(breakingFurnitureCheck("BREAKING: $ABT reported results").map((i) => i.rule)).toEqual(["breaking_furniture"]);
+    // Anywhere in the text, not just the front — a model that learned to
+    // shout has learned it as a voice, which is what the scope limit exists
+    // to prevent.
+    expect(breakingFurnitureCheck("Results are in. BREAKING news.").length).toBe(1);
+    expect(breakingFurnitureCheck("$ABT reported results, per SEC")).toEqual([]);
+  });
+
+  it("KILL-TEST: a prefix on a stale card, or on the wrong archetype, rejects", async () => {
+    const { breakingFreshnessCheck } = await import("../src/rag/validate");
+    const now = new Date("2026-08-06T15:00:00.000Z");
+    const text = "BREAKING: $ABT reported quarterly results, per SEC filing.";
+    expect(breakingFreshnessCheck(text, "EARNINGS_EVENT", { filedIso: "2026-08-06T14:00:00.000Z" }, now, 24)).toEqual([]);
+    expect(breakingFreshnessCheck(text, "EARNINGS_EVENT", { filedIso: "2026-08-01T00:00:00.000Z" }, now, 24).map((i) => i.rule)).toEqual([
+      "breaking_stale",
+    ]);
+    expect(breakingFreshnessCheck(text, "CONGRESS_PTR", { filedIso: "2026-08-06T14:00:00.000Z" }, now, 24).map((i) => i.rule)).toEqual([
+      "breaking_scope",
+    ]);
+    // No prefix, nothing to check.
+    expect(breakingFreshnessCheck("$ABT reported results", "EARNINGS_EVENT", {}, now, 24)).toEqual([]);
+  });
+
+  it("the renderer prepends it, and only when given a clock", async () => {
+    const { renderPost } = await import("../src/templates/render");
+    const { ARCHETYPES: A } = await import("../src/templates/archetypes");
+    const p = { displayName: "$ABT", filedIso: "2026-08-06T14:00:00.000Z", formType: "8-K" };
+    const now = new Date("2026-08-06T15:00:00.000Z");
+    const withClock = renderPost(A.EARNINGS_EVENT, p, { seed: "a", now, breakingMaxAgeHours: 24 });
+    expect(withClock.ok && withClock.text.startsWith("BREAKING: ")).toBe(true);
+    // No clock passed -> no prefix considered at all, so every existing
+    // caller keeps its current behaviour until it opts in.
+    const noClock = renderPost(A.EARNINGS_EVENT, p, { seed: "a" });
+    expect(noClock.ok && noClock.text.startsWith("BREAKING: ")).toBe(false);
+  });
+});

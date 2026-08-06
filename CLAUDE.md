@@ -29,6 +29,15 @@ into docs/ here as needed). Current track: [docs/p2r-plan.md](docs/p2r-plan.md).
    and is the most plausible cause of the Threads ban.
 5. **No advice language.**
 
+## Relay protocol (B-01.1, adopted 2026-08-06)
+
+Owner instruction blocks carry IDs (`B-01.4`, `B-01.10`). **Acknowledge every
+numbered item by ID** with one of `applied` / `new-built` / `conflict`.
+Anything unacknowledged gets resent, so silence costs the owner a round trip.
+`conflict` is a legitimate answer and is expected when an item contradicts
+signed doctrine — say so, cite the lines, and wait for the ruling rather than
+resolving it quietly.
+
 ## Engineering discipline
 
 - One chunk per PR. Plan before code. Tests with every chunk. Code review

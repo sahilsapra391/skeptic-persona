@@ -160,3 +160,63 @@ export async function issuerFor(db: D1Database, cik: string): Promise<IssuerRow 
     .bind(n)
     .first<IssuerRow>();
 }
+
+// ---------------------------------------------------------------------------
+// B-01.10 — the BREAKING prefix, owner decision 2026-08-06
+//
+// This REVERSES a rule signed in three places (persona.md:58, VOICE_CORE:62,
+// ANTI_PATTERNS:163) and the owner overruled it deliberately, blanket, after
+// the objection was put to him in full. Recorded here so the next reader finds
+// the decision rather than an inconsistency:
+//
+//   SCOPE is the two earnings archetypes ONLY. Every other archetype still
+//   bans BREAKING, and those three lines stay in force with a dated note.
+//   There is no routineness test and no alternate prefix.
+//
+// It is RENDERER FURNITURE: prepended by the renderer, never model-generated.
+// A model that emits its own is rejected as duplicated furniture, the same way
+// a second attribution would be.
+// ---------------------------------------------------------------------------
+
+export const BREAKING_PREFIX = "BREAKING: ";
+export const DEFAULT_BREAKING_MAX_AGE_HOURS = 24;
+
+/** Archetypes the exception covers. Nothing else may ever carry the prefix. */
+export const BREAKING_ARCHETYPES: ReadonlySet<string> = new Set(["EARNINGS_EVENT", "EARNINGS_RESULTS"]);
+
+export function breakingMaxAgeHours(env: { BREAKING_MAX_AGE_HOURS?: string }): number {
+  const raw = Number(env.BREAKING_MAX_AGE_HOURS);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_BREAKING_MAX_AGE_HOURS;
+}
+
+/**
+ * Is this card fresh enough to shout?
+ *
+ * Measured from the FILING'S ACCEPTED TIMESTAMP, not from when we happened to
+ * poll: a filing we found late is not news just because we found it late. That
+ * is the same anchor mistake the House lane made in reverse (D-36), and the
+ * gate would be meaningless without it.
+ *
+ * Missing or unparseable timestamp -> NOT fresh. A prefix that fails open
+ * would shout on exactly the cards we know least about.
+ */
+export function isBreakingFresh(filedIso: unknown, now: Date, maxAgeHours: number): boolean {
+  if (typeof filedIso !== "string" || filedIso === "") return false;
+  const filed = Date.parse(filedIso);
+  if (!Number.isFinite(filed)) return false;
+  const ageMs = now.getTime() - filed;
+  // A filing timestamped in the FUTURE is a clock or data fault, not news.
+  if (ageMs < 0) return false;
+  return ageMs <= maxAgeHours * 3_600_000;
+}
+
+/** The prefix this card should carry: the string, or "". */
+export function breakingPrefixFor(
+  archetype: string,
+  payload: { filedIso?: unknown },
+  now: Date,
+  maxAgeHours: number = DEFAULT_BREAKING_MAX_AGE_HOURS,
+): string {
+  if (!BREAKING_ARCHETYPES.has(archetype)) return "";
+  return isBreakingFresh(payload.filedIso, now, maxAgeHours) ? BREAKING_PREFIX : "";
+}
