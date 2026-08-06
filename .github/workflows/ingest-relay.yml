@@ -246,6 +246,9 @@ jobs:
           echo "details=$(jq 'length' details.json)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Relay to Worker
+        # Skipped when eFD is in maintenance: there is no bundle to relay, and
+        # a step that runs anyway turns a clean skip into a red workflow.
+        if: steps.fetch.outputs.skipped != 'true'
         env:
           INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
           WORKER_URL: ${{ secrets.WORKER_URL }}
@@ -327,9 +330,6 @@ jobs:
           echo "withText=$(jq '[.docs[] | select(.text != "")] | length' bundle.json)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Relay to Worker
-        # Skipped when eFD is in maintenance: there is no bundle to relay, and
-        # a step that runs anyway turns a clean skip into a red workflow.
-        if: steps.fetch.outputs.skipped != 'true'
         env:
           INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
           WORKER_URL: ${{ secrets.WORKER_URL }}
