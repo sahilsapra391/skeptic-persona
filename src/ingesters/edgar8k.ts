@@ -175,6 +175,7 @@ export const MAX_ENQUEUES_PER_RUN = 10;
 
 export { isFreshAtIngest, STALE_AT_INGEST_HOURS } from "./shared";
 import { isFreshAtIngest } from "./shared";
+import { archetypeForItems, buildEarningsPayload, issuerFor } from "../pipeline/earnings";
 import { keepIssuer, lookupIssuer, minFloatUsd, referenceHealth, referenceIsAuthoritative } from "./issuers";
 
 /** Test seam: drive the real ingest path with hand-built entries. */
@@ -250,12 +251,12 @@ async function ingestEntries(env: Env, entries: Edgar8kEntry[], now: Date): Prom
 /** Notify postable items ('new' = not yet queued), paced for Telegram flood control. */
 async function drainPostables(env: Env, now: Date, budget: TickBudget): Promise<number> {
   const pending = await env.DB.prepare(
-    `SELECT id, source_url, payload FROM items
+    `SELECT id, source_url, payload, event_at FROM items
      WHERE source = ?1 AND status = 'new' AND score >= ?2
      ORDER BY id LIMIT ?3`,
   )
     .bind(SOURCE, SCORE_POSTABLE, MAX_ENQUEUES_PER_RUN)
-    .all<{ id: number; source_url: string; payload: string }>();
+    .all<{ id: number; source_url: string; payload: string; event_at: string | null }>();
 
 
   let sent = 0;
@@ -286,7 +287,27 @@ async function drainPostables(env: Env, now: Date, budget: TickBudget): Promise<
       payload.lookbackCoverageDays = fields.coverageDays;
     }
 
-    const result = await enqueueForApproval(env, row.id, "FILING_8K", payload, row.source_url, now);
+    // ROUTING (p5-20). An item-2.02 filing is an EARNINGS EVENT, not a
+    // generic 8-K, and gets a payload that carries no earnings figure at all.
+    // 4.02 outranks 2.02: a filing that both reports results and disclaims
+    // prior financials is a non-reliance story.
+    const archetype = archetypeForItems(codes);
+    let outbound = payload;
+    if (archetype === "EARNINGS_EVENT") {
+      const filedIso = typeof payload.filedIso === "string" ? payload.filedIso : (row.event_at ?? "");
+      outbound = buildEarningsPayload({
+        company: typeof payload.company === "string" ? payload.company : "",
+        cik,
+        formType: typeof payload.formType === "string" ? payload.formType : "8-K",
+        filedIso,
+        periodIso: typeof payload.periodIso === "string" ? payload.periodIso : null,
+        issuer: await issuerFor(env.DB, cik),
+        sameItemOccurrence: typeof payload.sameItemOccurrence === "number" ? payload.sameItemOccurrence : undefined,
+        priorSameItemThisYear: typeof payload.priorSameItemThisYear === "number" ? payload.priorSameItemThisYear : undefined,
+        lookbackCoverageDays: typeof payload.lookbackCoverageDays === "number" ? payload.lookbackCoverageDays : undefined,
+      });
+    }
+    const result = await enqueueForApproval(env, row.id, archetype, outbound, row.source_url, now);
     sent += 1;
     if (result.retryAfter !== null) {
       // Telegram flood control: stop batching; the rest are still 'new' and

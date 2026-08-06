@@ -204,3 +204,39 @@ export async function renderBreakdown(card: BreakdownCard): Promise<Uint8Array> 
   }
   return c.encode();
 }
+
+export interface EventCard extends CardBase {
+  /** Company as a cashtag when the CIK resolved, filed name when it did not. */
+  readonly subject: string;
+  /** What happened, in a few words. No figures. */
+  readonly headline: string;
+  readonly rows?: ReadonlyArray<readonly [string, string]>;
+}
+
+/**
+ * An event card: something HAPPENED, and there is deliberately no number.
+ *
+ * The earnings lane needs this shape because it has no figure by design — the
+ * results are in the issuer's press release and this desk does not extract
+ * numbers from prose. Reusing the single-stat template would have meant
+ * finding something to put in the hero slot, and the only honest candidates
+ * were a date or a ticker dressed up as a statistic. A card with no big
+ * number is the accurate rendering of a filing with no parsed number.
+ */
+export async function renderEvent(card: EventCard): Promise<Uint8Array> {
+  await ensureFonts();
+  const c = new Canvas(CARD_W, CARD_H);
+  chrome(c, card);
+
+  c.drawText("brand-xl", fitText("brand-xl", card.subject, CARD_W - PAD * 2), PAD, PAD + 150, BRAND.LIGHT);
+  c.drawText("brand-lg", fitText("brand-lg", card.headline, CARD_W - PAD * 2), PAD, PAD + 208, BRAND.LIGHT);
+
+  let y = PAD + 300;
+  for (const [k, v] of (card.rows ?? []).slice(0, 3)) {
+    c.fillRect(PAD, y - 22, CARD_W - PAD * 2, 1, RULE);
+    c.drawText("brand-sm", fitText("brand-sm", k.toUpperCase(), 520), PAD, y + 8, BRAND.GRAY, { letterSpacing: 1 });
+    c.drawText("mono-md", fitText("mono-md", v, 480), CARD_W - PAD - Math.min(measureText("mono-md", v), 480), y + 8, BRAND.LIGHT);
+    y += 56;
+  }
+  return c.encode();
+}

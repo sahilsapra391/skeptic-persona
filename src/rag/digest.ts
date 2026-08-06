@@ -264,6 +264,61 @@ export function renderNorthStar(current: NorthStar, prior: NorthStar, windowDays
  * Exported for tests, and because the wording IS the feature: a reviewer
  * should be able to read the no-data branch without standing up a database.
  */
+export interface LaneRate {
+  readonly archetype: string;
+  readonly cards: number;
+  readonly approvals: number;
+  readonly posts: number;
+}
+
+/**
+ * Per-lane approval and post rates (owner instruction, p5-20: "wire per-lane
+ * approval rate into the digest as the lane ships").
+ *
+ * SAME COHORT AND SAME UNION as the north star, deliberately: cards, approvals
+ * and posts are all counted over queue rows CREATED in the window, and an
+ * approval is `state IN ('approved','edited')` UNION an existing post_log row.
+ * Counting state alone loses every card that went on to post, which PR #115
+ * measured as the difference between 0.22% and 2.17% pipeline-wide.
+ *
+ * Lane value is what this measures. A lane that cards a lot and gets approved
+ * rarely is costing the owner attention, and that should be visible per lane
+ * rather than averaged into one number.
+ */
+export async function laneRates(db: D1Database, sinceIso: string, untilIso: string): Promise<LaneRate[]> {
+  const rows = await db
+    .prepare(
+      `SELECT q.archetype AS archetype,
+              COUNT(*) AS cards,
+              SUM(CASE WHEN q.state IN ('approved','edited')
+                         OR EXISTS(SELECT 1 FROM post_log p WHERE p.queue_id = q.id)
+                       THEN 1 ELSE 0 END) AS approvals,
+              SUM(CASE WHEN EXISTS(SELECT 1 FROM post_log p
+                                   WHERE p.queue_id = q.id AND p.posted_manually = 1)
+                       THEN 1 ELSE 0 END) AS posts
+       FROM queue q
+       WHERE q.created_at >= ?1 AND q.created_at < ?2
+       GROUP BY q.archetype
+       ORDER BY cards DESC`,
+    )
+    .bind(sinceIso, untilIso)
+    .all<LaneRate>();
+  return rows.results;
+}
+
+export function renderLaneRates(lanes: readonly LaneRate[]): string[] {
+  if (lanes.length === 0) return [];
+  const out = ["", "Per lane, this window:"];
+  for (const l of lanes) {
+    // A lane with no cards cannot have a rate; it is simply absent from the
+    // GROUP BY, so every row here has cards >= 1 and the division is safe.
+    const approval = Math.round((l.approvals / l.cards) * 100);
+    const posted = l.approvals > 0 ? `, ${l.posts} posted` : "";
+    out.push(`  ${l.archetype}: ${approval}% approved — ${l.approvals} of ${l.cards}${posted}`);
+  }
+  return out;
+}
+
 export function renderDigest(
   stats: ZeroEditStats,
   pairs: readonly EditPair[],
@@ -344,7 +399,14 @@ export async function runVoiceDigest(env: Env, now: Date, _budget: TickBudget = 
     stats,
     pairs,
     DIGEST_WINDOW_DAYS,
-    renderNorthStar(current, prior, DIGEST_WINDOW_DAYS),
+    // Per-lane rates ride WITH the north star, in the same block, for the
+    // same reason it does: they are most informative exactly when the
+    // headline numbers are zero, so they must clear renderDigest's early
+    // returns too.
+    [
+      ...renderNorthStar(current, prior, DIGEST_WINDOW_DAYS),
+      ...renderLaneRates(await laneRates(env.DB, since.toISOString(), now.toISOString())),
+    ],
     renderEfdLatency(efd, DIGEST_WINDOW_DAYS),
   );
   try {

@@ -63,6 +63,11 @@ const CATEGORY_BASE: Record<string, number> = {
   // has no claim to bypass the queue's own limits, and the Aug-14 flood is
   // precisely when those limits matter.
   INSTITUTIONAL_13F_BREAKDOWN: 50,
+  // p5-20. Base matches FILING_8K, which is what these filings were until
+  // this lane split them out — the split changes what the post SAYS, not how
+  // newsworthy an earnings release is. Size does the discriminating, via the
+  // magnitude branch below.
+  EARNINGS_EVENT: 50,
   PRODUCT_RECALL: 50,
   DELISTING: 50,
   STORM: 45,
@@ -120,6 +125,8 @@ export const CEILING_EXEMPT: ReadonlySet<string> = new Set(["CONGRESS_PTR", "REG
  * a fatal collision guilty plea and a child-pornography sentencing. Five of
  * five had no market subject.
  */
+import { sizeBump, type SizeTier } from "./pipeline/earnings";
+
 export type RegulatoryNewsTier =
   | "ENFORCEMENT"
   | "MACRO"
@@ -317,6 +324,21 @@ export function salienceFor(archetype: ArchetypeId | string, payload: Payload): 
   const base = CATEGORY_BASE[archetype] ?? DEFAULT_BASE;
   const reasons: string[] = [`base:${archetype}=${base}`];
   let magnitude = 0;
+  // EARNINGS_EVENT size branch (p5-20). public_float is present for only
+  // 4,380 of 8,056 issuers (54.4%, measured 2026-08-06), so it may RAISE a
+  // score and may never lower one: an issuer without a float is UNMEASURED,
+  // not small, and demoting it would suppress real news from half the
+  // universe on the strength of a missing field.
+  if (archetype === "EARNINGS_EVENT") {
+    const tier = typeof payload.sizeTier === "string" ? payload.sizeTier : "unmeasured";
+    const bump = sizeBump(tier as SizeTier);
+    if (bump > 0) {
+      magnitude += bump;
+      reasons.push(`size:${tier}=+${bump}`);
+    } else {
+      reasons.push(`size:${tier}=+0`);
+    }
+  }
   /** Set by the REGULATORY_NEWS case; also decides the ceiling exemption. */
   let regNewsTier: RegulatoryNewsTier | undefined;
 
