@@ -8,6 +8,13 @@ export interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
+  /**
+   * B-01.2. Auth for /admin/probe ONLY. Deliberately NOT
+   * TELEGRAM_WEBHOOK_SECRET: that secret's blast radius is the editorial
+   * chain (forged Approve/Posted taps), so it is never shared with a session
+   * and never reused for admin auth. A probe token can only cause a probe.
+   */
+  ADMIN_PROBE_TOKEN?: string;
   QUEUE_TTL_HOURS?: string;
   /** Per-archetype TTL overrides, "ARCHETYPE:hours,..." — merged key-by-key over the code defaults (see jobs.ts). */
   QUEUE_TTL_OVERRIDES?: string;

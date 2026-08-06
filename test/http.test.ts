@@ -125,31 +125,54 @@ describe("/admin/probe: does Worker egress reach this host?", () => {
       handleProbe(
         new Request("https://x/admin/probe", {
           method: "POST",
-          headers: { "X-Admin-Key": env.TELEGRAM_WEBHOOK_SECRET as string },
+          headers: { "X-Admin-Key": (env as { ADMIN_PROBE_TOKEN?: string }).ADMIN_PROBE_TOKEN as string },
           body: JSON.stringify(body),
         }),
         env as never,
       );
     expect((await call({ urls: [] })).status).toBe(400);
     expect((await call({ urls: Array.from({ length: 11 }, () => "https://example.gov/") })).status).toBe(400);
-    const mixed = await (await call({ urls: ["http://example.gov/", "not a url", 7] })).json<{
+    const mixed = await (await call({ urls: ["http://www.sec.gov/", "not a url", 7] })).json<{
       results: Array<{ error?: string }>;
     }>();
     expect(mixed.results.map((r) => r.error)).toEqual(["https only", "unparseable", "not a string"]);
+  });
+
+  it("B-01.2: refuses hosts that are not in the source registry", async () => {
+    // The endpoint answers "does Worker egress reach this host?". Unrestricted,
+    // it answers that for ANY host, which makes it an egress proxy wearing a
+    // diagnostic's clothes. Adding a host means putting it in the registry
+    // first — that ordering is the point.
+    const { handleProbe } = await import("../src/admin");
+    const res = await handleProbe(
+      new Request("https://x/admin/probe", {
+        method: "POST",
+        headers: { "X-Admin-Key": (env as { ADMIN_PROBE_TOKEN?: string }).ADMIN_PROBE_TOKEN as string },
+        body: JSON.stringify({ urls: ["https://evil.example.com/", "https://notsec.gov/", "https://data.sec.gov/x"] }),
+      }),
+      env as never,
+    );
+    const body = await res.json<{ results: Array<{ error?: string; url: string }> }>();
+    expect(body.results[0]!.error).toContain("not in the source registry");
+    // Suffix matching must not be fooled by a lookalike domain.
+    expect(body.results[1]!.error).toContain("not in the source registry");
+    // A real registry host passes the allowlist (it then fails to fetch in
+    // this harness, which is fine — the allowlist is what is under test).
+    expect(body.results[2]!.error ?? "").not.toContain("not in the source registry");
   });
 
   it("returns status and shape, never the response body", async () => {
     // The point is reachability, not relaying content through the Worker.
     const { handleProbe } = await import("../src/admin");
     fetchMock.activate();
-    fetchMock.get("https://feeds.example.gov").intercept({ path: "/rss" }).reply(200, "<rss><item/></rss>", {
+    fetchMock.get("https://www.globenewswire.com").intercept({ path: "/rss" }).reply(200, "<rss><item/></rss>", {
       headers: { "content-type": "application/rss+xml" },
     });
     const res = await handleProbe(
       new Request("https://x/admin/probe", {
         method: "POST",
-        headers: { "X-Admin-Key": env.TELEGRAM_WEBHOOK_SECRET as string },
-        body: JSON.stringify({ urls: ["https://feeds.example.gov/rss"] }),
+        headers: { "X-Admin-Key": (env as { ADMIN_PROBE_TOKEN?: string }).ADMIN_PROBE_TOKEN as string },
+        body: JSON.stringify({ urls: ["https://www.globenewswire.com/rss"] }),
       }),
       env as never,
     );
