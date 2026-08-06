@@ -33,6 +33,10 @@ into docs/ here as needed). Current track: [docs/p2r-plan.md](docs/p2r-plan.md).
 
 - One chunk per PR. Plan before code. Tests with every chunk. Code review
   before done. Secrets env-only; every PR description lists new env vars.
+- **Workflow and courier changes require one live dispatch run before merge.**
+  Reading the YAML is not verification (D-48). Earned twice in one hour: a
+  soft-skip that left the next step to die on a missing file, and its fix
+  applied to the wrong job's step.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.

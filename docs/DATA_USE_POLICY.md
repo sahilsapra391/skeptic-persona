@@ -45,6 +45,24 @@ consent to it. The right move was to surface it as the highest-value untested
 step and stop, which is what happened. This section exists so the next session
 finds a ruling rather than re-deriving the question.
 
+## Figures: quoted from parsed data, linked from prose
+
+**The methodology rule the earnings signature line cites.** A figure is quoted
+only when it is verifiable from **parsed source data** — a field an ingester
+actually read out of a structured record. A figure that exists only in prose is
+**linked, never retyped**.
+
+That is why an earnings post states that results were filed and where to read
+them, and states no result. Item 2.02's numbers live in Exhibit 99.1, a press
+release; retyping one would put a figure in a post that no ingester parsed, and
+a misread decimal in an earnings number is the most damaging thing this desk
+could publish.
+
+The rule is registered in `src/rag/definitions.ts` as
+`figures-quoted-only-from-parsed-data`, so a signature line invoking it **binds
+under the aphorism scorer's cash-out test** rather than backing onto nothing.
+It renders as fixed furniture on every earnings card.
+
 ## What this file does not cover
 
 SEC, FDA, BLS, Federal Register, Nasdaq and the central-bank sources are
