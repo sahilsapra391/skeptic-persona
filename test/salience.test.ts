@@ -699,3 +699,40 @@ describe("p5-03b: content tiers, written against REAL pending titles", () => {
     expect(s.ledgerOnly).toBe(false);
   });
 });
+
+describe("the tier ruling's first live catch: procedural circulars are not data prints", () => {
+  it("RBI #919 tiers as ADMINISTRATIVE, not MACRO", () => {
+    // The exact stored title. It matched the DATA pattern on "Swap Facility"
+    // and tiered as a macro print, which is how an owner draft came to state
+    // "$40.82B" against a payload carrying no numeric field at all. The
+    // document is a circular about HOW TO REPORT, so the document CLASS
+    // decides the tier, not the subject it mentions.
+    const title =
+      "Reporting of FCNR(B) Deposits, External Commercial Borrowings (ECBs) and Overseas Foreign Currency Borrowings (OFCBs) mobilized under Reserve Bank's Swap Facility";
+    const s = salienceFor("REGULATORY_NEWS", { authority: "Reserve Bank of India", title });
+    expect(s.ledgerOnly).toBe(true);
+    expect(s.reasons.join(",")).toContain("ADMINISTRATIVE");
+  });
+
+  it("...while a REAL RBI data print still cards at MACRO", () => {
+    // The fix must not swallow the lane it protects.
+    const macro = salienceFor("MACRO_PRINT", {}).score;
+    for (const title of [
+      "Money Market Operations as on August 4, 2026",
+      "Result of Yield/Price Based Auction of State Government Securities",
+      "RBI releases data on ECB / FCCB / RDB for June 2026",
+    ]) {
+      expect(salienceFor("REGULATORY_NEWS", { authority: "Reserve Bank of India", title }).score, title).toBe(macro);
+    }
+  });
+
+  it("other procedural shapes are caught too", () => {
+    for (const title of [
+      "Master Direction on Credit Card Operations",
+      "Notification under Section 42 of the RBI Act",
+      "Framework for Recognition of Self-Regulatory Organisations",
+    ]) {
+      expect(salienceFor("REGULATORY_NEWS", { authority: "Reserve Bank of India", title }).ledgerOnly, title).toBe(true);
+    }
+  });
+});
