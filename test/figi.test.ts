@@ -135,3 +135,46 @@ describe("the signed watchlist seed (migration 0061)", () => {
     expect(n?.n).toBe(0);
   });
 });
+
+describe("cashtags are a fabrication vector, so they are gated like a number", () => {
+  // Owner ruling 2026-08-06: "Tickers render as $TICKER in all copy, sourced
+  // ONLY from cusip_map via the payload. Unmapped: issuer name, never a
+  // guessed ticker."
+  //
+  // Measured the same day: 2,795 distinct CUSIPs in holdings_13f, 370 in
+  // cusip_map, so 87% are unmapped. The unmapped branch is the COMMON path
+  // here, not the edge case, which is exactly why it must never guess.
+
+  it("displayFor cannot emit a cashtag it was not given", () => {
+    // Berkshire's real Q1 2026 top ten: nine mapped, CHUBB unmapped.
+    expect(displayFor("AAPL", "APPLE INC")).toBe("$AAPL");
+    expect(displayFor("KHC", "KRAFT HEINZ CO")).toBe("$KHC");
+    // The unmapped one renders its filed issuer name. Not "$CB", which is the
+    // real Chubb ticker and precisely the plausible guess that must not happen.
+    expect(displayFor(null, "CHUBB LTD SWITZ")).toBe("CHUBB LTD SWITZ");
+    expect(displayFor("", "CHUBB LTD SWITZ")).toBe("CHUBB LTD SWITZ");
+    expect(displayFor(undefined, "CHUBB LTD SWITZ")).not.toContain("$");
+  });
+
+  it("KILL-TEST: a ticker absent from the payload rejects the draft", async () => {
+    const { entityCheck } = await import("../src/rag/validate");
+    const payload = { manager: "BERKSHIRE HATHAWAY INC", ticker: "AAPL", issuer: "APPLE INC" };
+    // The licensed one passes.
+    expect(entityCheck("$AAPL is the largest position", payload)).toEqual([]);
+    // A ticker the payload never stated is refused, exactly as an unlicensed
+    // number would be. $CB is the trap: a real ticker for a real holding whose
+    // CUSIP we simply have not mapped.
+    const issues = entityCheck("$CB is the largest position", payload);
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues[0]!.rule).toBe("entity");
+    expect(issues[0]!.detail).toContain("$CB");
+  });
+
+  it("KILL-TEST: the unmapped rendering survives the validator, so fail-open is real", async () => {
+    const { entityCheck } = await import("../src/rag/validate");
+    // The issuer name comes from the filing and is in the payload, so the
+    // fail-open path is not merely safe in principle: it validates.
+    const payload = { issuer: "CHUBB LTD SWITZ", value_usd: 11162836215 };
+    expect(entityCheck(`${displayFor(null, "CHUBB LTD SWITZ")} holds steady`, payload)).toEqual([]);
+  });
+});
