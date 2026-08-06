@@ -376,10 +376,20 @@ describe("watcher pre-release sleep", () => {
     fetchMock.activate();
     fetchMock.get("https://www.bls.gov").intercept({ path: "/news.release/cpi.nr0.htm" }).reply(200, CPI_FIXTURE).persist();
 
-    const started = Date.now();
     // `now` is BEFORE the scheduled instant: the sleep branch runs.
     await watchBls(env, new Date());
-    expect(Date.now() - started).toBeGreaterThanOrEqual(350);
+    // ASSERT THE CONTRACT, not a duration. The old form measured
+    // `Date.now() - started` against 350ms with `started` captured AFTER
+    // several awaited D1 writes and the fetchMock setup — so a slow CI runner
+    // had already burned part of the 400ms window before the clock started,
+    // and the sleep correctly ran for only what remained. It failed on CI at
+    // 290ms while passing 3/3 locally, which is the signature of a fixture
+    // measuring from the wrong origin rather than of a broken sleep.
+    //
+    // "Waits out the gap to the scheduled second" means exactly this: when
+    // the call returns, the scheduled instant has passed. That is immune to
+    // however long the setup took.
+    expect(Date.now()).toBeGreaterThanOrEqual(Date.parse(scheduled));
 
     const row = await env.DB.prepare("SELECT fired_at FROM release_calendar WHERE scheduled_at = ?1")
       .bind(scheduled)

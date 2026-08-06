@@ -1,7 +1,9 @@
 import type { Env } from "../env";
 import type { TickBudget } from "../lib/budget";
 import { newTickBudget } from "../lib/budget";
-import { sendMessage, type TgInlineButton } from "../lib/telegram";
+import { sendMessage, sendPhoto, type TgInlineButton } from "../lib/telegram";
+import { cardImageFor, type CardImage } from "../render/forArchetype";
+import type { Payload } from "../templates/types";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -239,9 +241,31 @@ export async function deliverCards(env: Env, now: Date, budget: TickBudget = new
   for (const row of due.results) {
     if (!budget.take(1, { reserved: true })) break;
     const card = await buildCard(env.DB, row.queue_id, row.archetype, row.terminal_status, row.render_id);
+    // THE IMAGE (owner ruling: every card's delivery carries one). Rendered
+    // from the item's own payload and NEVER invented — an archetype whose
+    // payload has no pre-computed display figure returns null and the card
+    // goes out as text, exactly as it did before this lane existed. A missing
+    // image is a far smaller failure than a wrong one.
+    //
+    // A render failure must never cost the owner the card itself, so the
+    // whole thing is best-effort and logged rather than thrown.
+    let image: CardImage | null = null;
+    if (!card.held) {
+      try {
+        image = await cardImageFor(row.archetype, await payloadFor(env.DB, row.queue_id));
+      } catch (e) {
+        log("warn", "card image render failed; delivering text only", { queueId: row.queue_id, error: String(e) });
+      }
+    }
     let messageId: number | null = null;
     try {
-      const sent = await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, card.text, { buttons: card.buttons });
+      const sent = image
+        ? await sendPhoto(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, image.png, {
+            caption: card.text,
+            buttons: card.buttons,
+            filename: image.filename,
+          })
+        : await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, card.text, { buttons: card.buttons });
       messageId = sent.message_id;
     } catch (e) {
       log("error", "card delivery failed; will retry", { queueId: row.queue_id, error: String(e) });
@@ -255,6 +279,27 @@ export async function deliverCards(env: Env, now: Date, budget: TickBudget = new
     )
       .bind(row.queue_id, messageId, iso(now), row.render_id)
       .run();
-    log("info", "card delivered", { queueId: row.queue_id, renderId: row.render_id, held: card.held, replacedStale: Boolean(row.stale_card) });
+    log("info", "card delivered", { queueId: row.queue_id, renderId: row.render_id, held: card.held, image: image !== null, replacedStale: Boolean(row.stale_card) });
+  }
+}
+
+/**
+ * The item's stored payload, or an empty object.
+ *
+ * Returns `{}` rather than throwing on unparseable JSON: a payload this
+ * pipeline could not read is already terminal for generation
+ * (`rejected:payload`), and the card should still reach the owner. An empty
+ * payload simply produces no image, which is the correct answer.
+ */
+async function payloadFor(db: D1Database, queueId: number): Promise<Payload> {
+  const row = await db
+    .prepare(`SELECT i.payload FROM queue q JOIN items i ON i.id = q.item_id WHERE q.id = ?1`)
+    .bind(queueId)
+    .first<{ payload: string }>();
+  if (!row?.payload) return {};
+  try {
+    return JSON.parse(row.payload) as Payload;
+  } catch {
+    return {};
   }
 }
