@@ -349,7 +349,15 @@ const congressPtr: Archetype = {
   // Both chambers share this archetype (same disclosure regime, same beats),
   // but NOT the same source. Hardcoding Senate here would have stamped every
   // House filing with a citation to a system it never touched.
-  attribution: { field: "chamber", map: { senate: "per Senate eFD", house: "per House Clerk" } },
+  // PINNED PLAIN-ENGLISH FORMS (owner ruling 2026-08-06). "eFD" is the
+  // Senate's internal system name and means nothing to a reader; the House
+  // form keeps its article. Both old strings survive as aliases in
+  // templates/attribution.ts, so legacy drafts still validate — but nothing
+  // renders them again.
+  attribution: {
+    field: "chamber",
+    map: { senate: "per Senate financial disclosures", house: "per the House Clerk" },
+  },
   skeletons: [
     {
       id: "ptr.trades",
