@@ -38,3 +38,7 @@ test/*.scratch.ts
 # "* [0-9].*" would also swallow a legitimate "Q1 2.md".
 * 2.*
 * 3.*
+
+# Subagent/probe scratch files. D-12 recurred on 2026-08-06 when `git add -A`
+# swept two of these into a commit; they are never repo content.
+test/tmp-*

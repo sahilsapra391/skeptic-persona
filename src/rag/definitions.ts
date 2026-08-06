@@ -27,6 +27,13 @@ export interface DefinitionContext {
   readonly payload: Payload;
   /** Canonical numeric values the payload states (validate.ts PayloadFacts). */
   readonly numbers: ReadonlySet<string>;
+  /**
+   * The citation this item resolves to, or null when it resolves to none.
+   * This is the cash-out for the provenance group (owner ruling on D-31):
+   * "the number is the source's own" is a checkable claim exactly when the
+   * item HAS a resolved source, and an empty one otherwise.
+   */
+  readonly attribution?: string | null;
 }
 
 export interface Definition {
@@ -137,6 +144,41 @@ export const DEFINITIONS: readonly Definition[] = [
     citation: "17 CFR § 242.203(c)(6) (threshold security) and § 242.203(b)(3) (close-out).",
     verifiedAt: "2026-08-06",
     invokes: [/\bthreshold security\b/i, /\bfails? to deliver\b/i, /\breg(?:ulation)? sho\b/i],
+  },
+  {
+    id: "source-owned-figure",
+    term: "Provenance: the figure is the source's, not ours",
+    kind: "record",
+    statement:
+      "The number, grade or document named in the post came from the record this item cites, and the desk added nothing to it. The claim cashes out to the item's own resolved attribution.",
+    citation: "Skeptic's own payload: the archetype's resolved attribution for this item (templates/attribution.ts).",
+    verifiedAt: "2026-08-06",
+    // The provenance FORM, not a hand-list of the seven beats that use it
+    // today. Each pattern is a way of saying "this came from them, not us".
+    invokes: [
+      /\bis\s+(?:the\s+)?[\w']+(?:'s)?\s+own\b/i,
+      /\bnot\s+ours\b/i,
+      /\b(?:document|text|filing|record|order) is the source\b/i,
+      /\bis the (?:current|latest|official)\s+\w+/i,
+      /\bis the \w+, not the \w+/i,
+      /\bis the whole story\b/i,
+    ],
+    // OWNER RULING (D-31): payload attribution IS the cash-out. An item whose
+    // citation does not resolve cannot claim its figure belongs to a source,
+    // because there is no source. That is a real gate, not a formality: the
+    // renderer already refuses to post such an item at all.
+    requires: ({ attribution }) => typeof attribution === "string" && attribution.length > 0,
+  },
+  {
+    id: "schedule-13d-13g",
+    term: "Schedule 13D vs 13G",
+    kind: "rule",
+    statement:
+      "A beneficial owner of more than 5% of a class of equity securities files Schedule 13D. Schedule 13G may be filed instead only by a person who acquired the securities in the ordinary course of business and not with the purpose nor with the effect of changing or influencing control of the issuer.",
+    citation:
+      "17 CFR § 240.13d-1, “Filing of Schedules 13D and 13G”; the 13G condition quoted from § 240.13d-1(b)(1)(i).",
+    verifiedAt: "2026-08-06",
+    invokes: [/\b13D\b/, /\b13G\b/, /\bschedule 13[dg]\b/i],
   },
   {
     id: "repeat-count-pattern",

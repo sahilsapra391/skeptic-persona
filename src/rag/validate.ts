@@ -1,6 +1,7 @@
 import type { Payload } from "../templates/types";
 import type { ArchetypeId } from "../templates/types";
 import { ARCHETYPES } from "../templates/archetypes";
+import { resolveAttribution } from "../templates/render";
 import { attributionVerdict, checkRegister } from "../templates/validate";
 import { ALL_ATTRIBUTION_FORMS, ATTRIBUTION_ENTRIES } from "../templates/attribution";
 import { POST_TEXT_LIMIT, weightedLength } from "../templates/length";
@@ -1318,8 +1319,13 @@ export function definitionalClaims(text: string): string[] {
   return out;
 }
 
-export function aphorismCheck(text: string, payload: Payload, facts: PayloadFacts): ValidationIssue[] {
-  const ctx = { payload, numbers: facts.numbers };
+export function aphorismCheck(
+  text: string,
+  payload: Payload,
+  facts: PayloadFacts,
+  opts?: { attribution?: string | null },
+): ValidationIssue[] {
+  const ctx = { payload, numbers: facts.numbers, attribution: opts?.attribution ?? null };
   const issues: ValidationIssue[] = [];
   for (const claim of definitionalClaims(text)) {
     // The claim is matched against the WHOLE draft's registry invocations
@@ -1498,7 +1504,13 @@ export async function validateVariant(db: D1Database, text: string, opts: Valida
     // to rule on, not mine to rewrite. test/aphorism.test.ts pins exactly
     // which bank entries flag, so the gap is measured rather than hidden
     // (D-31).
-    ...aphorismCheck(text, opts.payload, facts),
+    ...aphorismCheck(text, opts.payload, facts, {
+      // The provenance group's cash-out (owner ruling on D-31): "the number
+      // is the source's own" is checkable exactly when this item resolves a
+      // source. Passed in rather than recomputed inside the registry so the
+      // definition file stays a leaf.
+      attribution: opts.archetype ? resolveAttribution(ARCHETYPES[opts.archetype], opts.payload) : null,
+    }),
   ];
   if (opts.variant === "commentary") issues.push(...templateEchoCheck(text, opts.templateDraft));
   issues.push(...(await collisionCheck(db, opts.queueId, opts.skeletonHash, opts.openerHash)));
