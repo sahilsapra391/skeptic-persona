@@ -1,0 +1,175 @@
+import { describe, expect, it } from "vitest";
+import HOLD from "./fixtures/bh.json?raw";
+import DIFF from "./fixtures/bd.json?raw";
+import CMAP from "./fixtures/cm.json?raw";
+import { buildBreakdownPayload, instrumentLabel, isPrincipal, displayName } from "../src/pipeline/thirteenF";
+import { renderPost, humanDate, UNFILLED_SLOT_RE } from "../src/templates/render";
+import { ARCHETYPES } from "../src/templates/archetypes";
+import { checkRegister } from "../src/templates/validate";
+import { renderBreakdown } from "../src/render/cards";
+
+// INSTITUTIONAL_13F_BREAKDOWN, against PRODUCTION filing 301 (Berkshire
+// Hathaway, period 2026-03-31). D-28 was "the 13F lane fills its own tables
+// and never writes to items"; this is the missing half, tested against the
+// same rows the owner wrote his exemplar from.
+
+const HOLDINGS = JSON.parse(HOLD)[0].results;
+const DIFFS = JSON.parse(DIFF)[0].results;
+const MAP = new Map<string, string>(JSON.parse(CMAP)[0].results.map((r: { cusip: string; ticker: string }) => [r.cusip, r.ticker]));
+const FILING = {
+  id: 301,
+  cik: "1067983",
+  manager_name: "BERKSHIRE HATHAWAY INC",
+  form: "13F-HR",
+  period: "2026-03-31",
+  filed_at: "2026-05-15T00:00:00.000Z",
+  parsed_value_total: 263095703570,
+  table_entry_total: 90,
+};
+
+const payload = () => buildBreakdownPayload(FILING, HOLDINGS, DIFFS, MAP);
+
+describe("the payload reproduces the owner's exemplar from live rows", () => {
+  it("every figure the exemplar states comes back out of the data", () => {
+    const p = payload();
+    // "Berkshire Q1, quick version: $263.1B across 90 positions... 16 names
+    // worth $192.7B" — the last under the uniform-2dp rule (D-30) is $192.73B,
+    // and D-30 says installed exemplars stay untouched while the formatter
+    // governs going forward. Both numbers are the same number.
+    expect(p.aum_display).toBe("$263.1B");
+    expect(p.positionCount_display).toBe("90");
+    expect(p.sections.new.count_display).toBe("3");
+    expect(p.sections.gone.count_display).toBe("16");
+    expect(p.sections.unchanged.count_display).toBe("16");
+    expect(p.sections.unchanged.total_display).toBe("$192.73B");
+    // "New: Delta" and "Gone: Visa and Mastercard".
+    expect(p.newNames).toContain("$DAL");
+    expect(p.goneNames.slice(0, 2)).toEqual(["$V", "$MA"]);
+  });
+
+  it("cashtags come from cusip_map and nowhere else", () => {
+    const p = payload();
+    // CHUBB LTD SWITZ is genuinely in Berkshire's top ten and genuinely
+    // unmapped, which is why the owner chose it as the long-name proof.
+    const chubb = p.top.find((t) => t.name.includes("CHUBB"));
+    expect(chubb, "CHUBB is in the real top ten").toBeDefined();
+    expect(chubb!.name.startsWith("$"), "an unmapped CUSIP must never become a ticker").toBe(false);
+    // And a mapped one does resolve.
+    expect(p.top[0]!.name).toBe("$AAPL");
+    // The guard itself, directly: an unknown CUSIP returns the filed name.
+    expect(displayName("000000000", "SOME ISSUER INC", MAP)).toBe("SOME ISSUER INC");
+  });
+
+  it("EXIT rows are valued on their PREVIOUS value, because they have no current one", () => {
+    const p = payload();
+    // "Gone" is a section label, never a verb. An exit has no value in THIS
+    // filing by definition, so summing value_usd would report $0 and imply
+    // the positions were worthless rather than absent.
+    expect(p.sections.gone.total_usd).toBeGreaterThan(0);
+    const exits = DIFFS.filter((d: { status: string }) => d.status === "EXIT");
+    expect(p.sections.gone.count).toBe(exits.length);
+  });
+});
+
+describe("PRN is a principal amount, not a share count", () => {
+  it("labels convertible notes and plain principal, and leaves share rows alone", () => {
+    // 63 rows pipeline-wide are PRN and 44 of Soros's 507 are. A draft reading
+    // "194,500,000 shares of Spotify" against one would be false.
+    expect(instrumentLabel({ sh_prn_type: "PRN", class: "CONV NOTE 0% 2026", put_call: null })).toBe("convertible notes");
+    expect(instrumentLabel({ sh_prn_type: "PRN", class: "COM", put_call: null })).toBe("principal amount");
+    expect(instrumentLabel({ sh_prn_type: "SH", class: "COM", put_call: null })).toBeNull();
+    expect(isPrincipal({ sh_prn_type: "PRN" })).toBe(true);
+    expect(isPrincipal({ sh_prn_type: "SH" })).toBe(false);
+  });
+
+  it("put/call outranks everything, and the tag is the label the copy law demands", () => {
+    expect(instrumentLabel({ sh_prn_type: "SH", class: "COM", put_call: "Put" })).toBe("Put");
+    expect(instrumentLabel({ sh_prn_type: "SH", class: "COM", put_call: "CALL" })).toBe("Call");
+  });
+});
+
+describe("the archetype", () => {
+  const flat = () => {
+    const p = payload();
+    return {
+      manager: p.manager,
+      aum_display: p.aum_display,
+      positionCount_display: p.positionCount_display,
+      asOfIso: p.asOfIso,
+      filedIso: p.filedIso,
+      newCount_display: p.sections.new.count_display,
+      goneCount_display: p.sections.gone.count_display,
+      unchangedCount_display: p.sections.unchanged.count_display,
+      unchangedTotal_display: p.sections.unchanged.total_display,
+    };
+  };
+
+  it("renders both skeletons with BOTH dates, and passes the register", () => {
+    for (const seed of ["a", "b", "c", "d"]) {
+      const r = renderPost(ARCHETYPES.INSTITUTIONAL_13F_BREAKDOWN, flat(), { seed });
+      expect(r.ok, `seed ${seed}`).toBe(true);
+      if (!r.ok) continue;
+      // A 13F is a quarter-END snapshot filed weeks later. One date invites
+      // the reader to treat stale positions as current.
+      expect(r.text).toContain("March 31");
+      expect(r.text).toContain("May 15");
+      expect(checkRegister(r.text, "INSTITUTIONAL_13F_BREAKDOWN", flat())).toEqual([]);
+    }
+  });
+
+  it("refuses to render when either date is missing", () => {
+    for (const drop of ["asOfIso", "filedIso"]) {
+      const p: Record<string, unknown> = { ...flat() };
+      delete p[drop];
+      expect(renderPost(ARCHETYPES.INSTITUTIONAL_13F_BREAKDOWN, p, { seed: "x" }).ok, drop).toBe(false);
+    }
+  });
+});
+
+describe("the slot-leak guard", () => {
+  it("refuses a post that still carries slot syntax", () => {
+    // FOUND IN THE FIRST LIVE 13F RENDER. Skeletons build their lines in code
+    // and never pass through fillSlots, so "{asOfIso:date}" reached
+    // copy-ready text verbatim. This repo shipped a raw ISO to a copy-ready
+    // draft once already (D-16); this is the same defect, louder.
+    expect(UNFILLED_SLOT_RE.test("filed {filedIso:date}, per SEC")).toBe(true);
+    expect(UNFILLED_SLOT_RE.test("filed May 15, per SEC")).toBe(false);
+
+    const leaky = {
+      ...ARCHETYPES.HALT,
+      skeletons: [{ id: "leak", build: () => ({ lines: ["$XYZ halted at {haltTime:date}"] }) }],
+    };
+    const r = renderPost(leaky as never, { symbol: "XYZ", reasonCode: "T1" }, { seed: "s" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("unfilled_slot");
+  });
+
+  it("humanDate is what a skeleton should call instead", () => {
+    expect(humanDate("2026-03-31")).toBe("March 31");
+    expect(humanDate("2026-05-15T00:00:00.000Z")).toBe("May 15");
+    expect(humanDate("not a date")).toBeNull();
+  });
+});
+
+describe("the card, from the same payload", () => {
+  it("renders the real Berkshire book", async () => {
+    const p = payload();
+    const png = await renderBreakdown({
+      kind: "13F",
+      attribution: "per SEC",
+      manager: p.manager,
+      periodLine: `${p.form} · as of March 31 · filed May 15`,
+      aum: p.aum_display,
+      top: p.top.map((t) => ({ name: t.name, value: t.value_display, change: t.pct_display, tag: t.tag })),
+      strips: [
+        { label: "new", count: p.sections.new.count_display, total: p.sections.new.total_display },
+        { label: "adds", count: p.sections.adds.count_display, total: p.sections.adds.total_display },
+        { label: "trims", count: p.sections.trims.count_display, total: p.sections.trims.total_display },
+        { label: "gone", count: p.sections.gone.count_display, total: p.sections.gone.total_display },
+      ],
+    });
+    expect(png.length).toBeGreaterThan(10_000);
+    const dv = new DataView(png.buffer, png.byteOffset, png.byteLength);
+    expect(dv.getUint32(16)).toBe(1200);
+  });
+});

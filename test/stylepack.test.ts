@@ -114,11 +114,14 @@ describe("the margin rule (owner ruling 2026-08-06)", () => {
     }
   });
 
-  it("the held-back list is empty, and anything in it would be over the margin", () => {
-    // All three cleared on 2026-08-06 with the owner's approved trims. The
-    // export stays as the mechanism: an exemplar over 272 goes here and gets
-    // reported, it is never trimmed on our authority.
-    expect(PENDING_OWNER_EXEMPLARS).toEqual([]);
+  it("everything held back is genuinely over the margin, and none of it leaked into the bank", () => {
+    // The seven commentary exemplars cleared on 2026-08-06 with the owner's
+    // approved trims. The 13F breakdown exemplar did not: 273 against a 272
+    // margin. An exemplar over the margin goes here and gets reported, it is
+    // never trimmed on our authority.
+    // One entry: the 13F breakdown exemplar at 273, one weighted character
+    // over the owner's own margin. Held, not trimmed.
+    expect(PENDING_OWNER_EXEMPLARS.map((p) => p.archetype)).toEqual(["INSTITUTIONAL_13F_BREAKDOWN"]);
     for (const p of PENDING_OWNER_EXEMPLARS) {
       expect(weightedLength(p.text), `[${p.n}]`).toBe(p.weighted);
       expect(p.weighted, `[${p.n}] would have installed`).toBeGreaterThan(EXEMPLAR_MAX_WEIGHTED);
