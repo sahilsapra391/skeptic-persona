@@ -1,0 +1,1504 @@
+[
+  {
+    "results": [
+      {
+        "cusip": "02005N100",
+        "ticker": "ALLY"
+      },
+      {
+        "cusip": "02079K107",
+        "ticker": "GOOG"
+      },
+      {
+        "cusip": "02079K305",
+        "ticker": "GOOGL"
+      },
+      {
+        "cusip": "025816109",
+        "ticker": "AXP"
+      },
+      {
+        "cusip": "037833100",
+        "ticker": "AAPL"
+      },
+      {
+        "cusip": "060505104",
+        "ticker": "BAC"
+      },
+      {
+        "cusip": "14040H105",
+        "ticker": "COF"
+      },
+      {
+        "cusip": "166764100",
+        "ticker": "CVX"
+      },
+      {
+        "cusip": "191216100",
+        "ticker": "KO"
+      },
+      {
+        "cusip": "21036P108",
+        "ticker": "STZ"
+      },
+      {
+        "cusip": "23918K108",
+        "ticker": "DVA"
+      },
+      {
+        "cusip": "247361702",
+        "ticker": "DAL"
+      },
+      {
+        "cusip": "47233W109",
+        "ticker": "JEF"
+      },
+      {
+        "cusip": "500754106",
+        "ticker": "KHC"
+      },
+      {
+        "cusip": "501044101",
+        "ticker": "KR"
+      },
+      {
+        "cusip": "526057104",
+        "ticker": "LEN"
+      },
+      {
+        "cusip": "526057302",
+        "ticker": "LEN/B"
+      },
+      {
+        "cusip": "530909100",
+        "ticker": "LLYVA"
+      },
+      {
+        "cusip": "530909308",
+        "ticker": "LLYVK"
+      },
+      {
+        "cusip": "546347105",
+        "ticker": "LPX"
+      },
+      {
+        "cusip": "55616P104",
+        "ticker": "M"
+      },
+      {
+        "cusip": "615369105",
+        "ticker": "MCO"
+      },
+      {
+        "cusip": "62944T105",
+        "ticker": "NVR"
+      },
+      {
+        "cusip": "650111107",
+        "ticker": "NYT"
+      },
+      {
+        "cusip": "670346105",
+        "ticker": "NUE"
+      },
+      {
+        "cusip": "674599105",
+        "ticker": "OXY"
+      },
+      {
+        "cusip": "829933100",
+        "ticker": "SIRI"
+      },
+      {
+        "cusip": "92343E102",
+        "ticker": "VRSN"
+      },
+      {
+        "cusip": "H1467J104",
+        "ticker": null
+      },
+      {
+        "cusip": "023135106",
+        "ticker": "AMZN"
+      },
+      {
+        "cusip": "047726302",
+        "ticker": "BATRK"
+      },
+      {
+        "cusip": "16119P108",
+        "ticker": "CHTR"
+      },
+      {
+        "cusip": "25243Q205",
+        "ticker": "DEO"
+      },
+      {
+        "cusip": "25754A201",
+        "ticker": "DPZ"
+      },
+      {
+        "cusip": "422806208",
+        "ticker": "HEI/A"
+      },
+      {
+        "cusip": "512816109",
+        "ticker": "LAMR"
+      },
+      {
+        "cusip": "531229755",
+        "ticker": "FWONK"
+      },
+      {
+        "cusip": "57636Q104",
+        "ticker": "MA"
+      },
+      {
+        "cusip": "73278L105",
+        "ticker": "POOL"
+      },
+      {
+        "cusip": "91324P102",
+        "ticker": "UNH"
+      },
+      {
+        "cusip": "92826C839",
+        "ticker": "V"
+      },
+      {
+        "cusip": "G0176J109",
+        "ticker": null
+      },
+      {
+        "cusip": "G0403H108",
+        "ticker": null
+      },
+      {
+        "cusip": "G9001E102",
+        "ticker": null
+      },
+      {
+        "cusip": "G9001E128",
+        "ticker": null
+      },
+      {
+        "cusip": "11271J107",
+        "ticker": "BN"
+      },
+      {
+        "cusip": "30303M102",
+        "ticker": "META"
+      },
+      {
+        "cusip": "42806J700",
+        "ticker": "HTZ"
+      },
+      {
+        "cusip": "44267T102",
+        "ticker": "HHH"
+      },
+      {
+        "cusip": "594918104",
+        "ticker": "MSFT"
+      },
+      {
+        "cusip": "76131D103",
+        "ticker": "QSR"
+      },
+      {
+        "cusip": "812215200",
+        "ticker": "SEG"
+      },
+      {
+        "cusip": "90353T100",
+        "ticker": "UBER"
+      },
+      {
+        "cusip": "43300A203",
+        "ticker": "HLT"
+      },
+      {
+        "cusip": "007903107",
+        "ticker": "AMD"
+      },
+      {
+        "cusip": "01609W102",
+        "ticker": "BABA"
+      },
+      {
+        "cusip": "056752108",
+        "ticker": "BIDU"
+      },
+      {
+        "cusip": "058498106",
+        "ticker": "BALL"
+      },
+      {
+        "cusip": "219350105",
+        "ticker": "GLW"
+      },
+      {
+        "cusip": "29273V100",
+        "ticker": "ET"
+      },
+      {
+        "cusip": "464286772",
+        "ticker": "EWY"
+      },
+      {
+        "cusip": "47215P106",
+        "ticker": "JD"
+      },
+      {
+        "cusip": "500767306",
+        "ticker": "KWEB"
+      },
+      {
+        "cusip": "502431109",
+        "ticker": "LHX"
+      },
+      {
+        "cusip": "512807306",
+        "ticker": "LRCX"
+      },
+      {
+        "cusip": "55087P104",
+        "ticker": "LYFT"
+      },
+      {
+        "cusip": "55336V100",
+        "ticker": "MPLX"
+      },
+      {
+        "cusip": "595112103",
+        "ticker": "MU"
+      },
+      {
+        "cusip": "629377508",
+        "ticker": "NRG"
+      },
+      {
+        "cusip": "67066G104",
+        "ticker": "NVDA"
+      },
+      {
+        "cusip": "722304102",
+        "ticker": "PDD"
+      },
+      {
+        "cusip": "747525103",
+        "ticker": "QCOM"
+      },
+      {
+        "cusip": "75513E101",
+        "ticker": "RTX"
+      },
+      {
+        "cusip": "80004C200",
+        "ticker": "SNDK"
+      },
+      {
+        "cusip": "874039100",
+        "ticker": "TSM"
+      },
+      {
+        "cusip": "92840M102",
+        "ticker": "VST"
+      },
+      {
+        "cusip": "963320106",
+        "ticker": "WHR"
+      },
+      {
+        "cusip": "D18190898",
+        "ticker": null
+      },
+      {
+        "cusip": "N07059210",
+        "ticker": null
+      },
+      {
+        "cusip": "02376R102",
+        "ticker": "AAL"
+      },
+      {
+        "cusip": "382550101",
+        "ticker": "GT"
+      },
+      {
+        "cusip": "46266C105",
+        "ticker": "IQV"
+      },
+      {
+        "cusip": "464287184",
+        "ticker": "FXI"
+      },
+      {
+        "cusip": "608190104",
+        "ticker": "MHK"
+      },
+      {
+        "cusip": "690742101",
+        "ticker": "OC"
+      },
+      {
+        "cusip": "910047109",
+        "ticker": "UAL"
+      },
+      {
+        "cusip": "00187Y100",
+        "ticker": "APG"
+      },
+      {
+        "cusip": "051774107",
+        "ticker": "AUR"
+      },
+      {
+        "cusip": "051774115",
+        "ticker": "AUROW"
+      },
+      {
+        "cusip": "092667104",
+        "ticker": "SRTA"
+      },
+      {
+        "cusip": "11135F101",
+        "ticker": "AVGO"
+      },
+      {
+        "cusip": "144285103",
+        "ticker": "CRS"
+      },
+      {
+        "cusip": "235851102",
+        "ticker": "DHR"
+      },
+      {
+        "cusip": "343928107",
+        "ticker": "FLYX"
+      },
+      {
+        "cusip": "343928115",
+        "ticker": "FLYX/WS"
+      },
+      {
+        "cusip": "42806J148",
+        "ticker": "HTZWW"
+      },
+      {
+        "cusip": "44812J104",
+        "ticker": "HUT"
+      },
+      {
+        "cusip": "482480100",
+        "ticker": "KLAC"
+      },
+      {
+        "cusip": "538034109",
+        "ticker": "LYV"
+      },
+      {
+        "cusip": "576323109",
+        "ticker": "MTZ"
+      },
+      {
+        "cusip": "62548M209",
+        "ticker": "CTEV"
+      },
+      {
+        "cusip": "655844108",
+        "ticker": "NSC"
+      },
+      {
+        "cusip": "78463V107",
+        "ticker": "GLD"
+      },
+      {
+        "cusip": "82835W108",
+        "ticker": "SPRY"
+      },
+      {
+        "cusip": "879433829",
+        "ticker": "TDS"
+      },
+      {
+        "cusip": "88023U101",
+        "ticker": "SGI"
+      },
+      {
+        "cusip": "893641100",
+        "ticker": "TDG"
+      },
+      {
+        "cusip": "907818108",
+        "ticker": "UNP"
+      },
+      {
+        "cusip": "92189F676",
+        "ticker": "SMH"
+      },
+      {
+        "cusip": "G25508105",
+        "ticker": null
+      },
+      {
+        "cusip": "G8068L108",
+        "ticker": null
+      },
+      {
+        "cusip": "071734107",
+        "ticker": "BHC"
+      },
+      {
+        "cusip": "126408103",
+        "ticker": "CSX"
+      },
+      {
+        "cusip": "147528103",
+        "ticker": "CASY"
+      },
+      {
+        "cusip": "169656105",
+        "ticker": "CMG"
+      },
+      {
+        "cusip": "199908104",
+        "ticker": "FIX"
+      },
+      {
+        "cusip": "21037T109",
+        "ticker": "CEG"
+      },
+      {
+        "cusip": "22160N109",
+        "ticker": "CSGP"
+      },
+      {
+        "cusip": "49177J102",
+        "ticker": "KVUE"
+      },
+      {
+        "cusip": "50212V100",
+        "ticker": "LPLA"
+      },
+      {
+        "cusip": "69331C108",
+        "ticker": "PCG"
+      },
+      {
+        "cusip": "69331C306",
+        "ticker": null
+      },
+      {
+        "cusip": "69331CAL2",
+        "ticker": null
+      },
+      {
+        "cusip": "743315103",
+        "ticker": "PGR"
+      },
+      {
+        "cusip": "77311W101",
+        "ticker": "RKT"
+      },
+      {
+        "cusip": "883556102",
+        "ticker": "TMO"
+      },
+      {
+        "cusip": "L8681T102",
+        "ticker": null
+      },
+      {
+        "cusip": "M98068105",
+        "ticker": null
+      },
+      {
+        "cusip": "025537101",
+        "ticker": "AEP"
+      },
+      {
+        "cusip": "071705107",
+        "ticker": "BLCO"
+      },
+      {
+        "cusip": "12662P108",
+        "ticker": "CVI"
+      },
+      {
+        "cusip": "126633205",
+        "ticker": "UAN"
+      },
+      {
+        "cusip": "12769G100",
+        "ticker": "CZR"
+      },
+      {
+        "cusip": "155923105",
+        "ticker": "CTRI"
+      },
+      {
+        "cusip": "278768106",
+        "ticker": "ECHO"
+      },
+      {
+        "cusip": "451100101",
+        "ticker": "IEP"
+      },
+      {
+        "cusip": "459506101",
+        "ticker": "IFF"
+      },
+      {
+        "cusip": "477143101",
+        "ticker": "JBLU"
+      },
+      {
+        "cusip": "610236101",
+        "ticker": "MNRO"
+      },
+      {
+        "cusip": "80007P869",
+        "ticker": "SD"
+      },
+      {
+        "cusip": "844895102",
+        "ticker": "SWX"
+      },
+      {
+        "cusip": "00130H105",
+        "ticker": "AES"
+      },
+      {
+        "cusip": "002824100",
+        "ticker": "ABT"
+      },
+      {
+        "cusip": "00404A109",
+        "ticker": "ACHC"
+      },
+      {
+        "cusip": "00676P107",
+        "ticker": "ADEA"
+      },
+      {
+        "cusip": "01021M104",
+        "ticker": "AKTS"
+      },
+      {
+        "cusip": "013872106",
+        "ticker": "AA"
+      },
+      {
+        "cusip": "01741R102",
+        "ticker": "ATI"
+      },
+      {
+        "cusip": "018802108",
+        "ticker": "LNT"
+      },
+      {
+        "cusip": "023939101",
+        "ticker": "AMTM"
+      },
+      {
+        "cusip": "026874784",
+        "ticker": "AIG"
+      },
+      {
+        "cusip": "03152W109",
+        "ticker": null
+      },
+      {
+        "cusip": "033853102",
+        "ticker": "ANDG"
+      },
+      {
+        "cusip": "03753U106",
+        "ticker": null
+      },
+      {
+        "cusip": "03761U502",
+        "ticker": "MFIC"
+      },
+      {
+        "cusip": "03769M106",
+        "ticker": "APO"
+      },
+      {
+        "cusip": "03940C100",
+        "ticker": null
+      },
+      {
+        "cusip": "03990B101",
+        "ticker": "ARES"
+      },
+      {
+        "cusip": "04271T100",
+        "ticker": "ARRY"
+      },
+      {
+        "cusip": "049468101",
+        "ticker": "TEAM"
+      },
+      {
+        "cusip": "06652K103",
+        "ticker": "BKU"
+      },
+      {
+        "cusip": "084670702",
+        "ticker": "BRK/B"
+      },
+      {
+        "cusip": "088929104",
+        "ticker": "BGC"
+      },
+      {
+        "cusip": "090043100",
+        "ticker": "BILL"
+      },
+      {
+        "cusip": "090043AF7",
+        "ticker": null
+      },
+      {
+        "cusip": "090168105",
+        "ticker": "BLLN"
+      },
+      {
+        "cusip": "092244102",
+        "ticker": "BRCB"
+      },
+      {
+        "cusip": "09239BAF6",
+        "ticker": null
+      },
+      {
+        "cusip": "09260D107",
+        "ticker": "BX"
+      },
+      {
+        "cusip": "09261X102",
+        "ticker": "BXSL"
+      },
+      {
+        "cusip": "09581B103",
+        "ticker": "OWL"
+      },
+      {
+        "cusip": "095924106",
+        "ticker": "OTF"
+      },
+      {
+        "cusip": "09681N106",
+        "ticker": "BOBS"
+      },
+      {
+        "cusip": "10922N103",
+        "ticker": "BHF"
+      },
+      {
+        "cusip": "10948W103",
+        "ticker": "AAMI"
+      },
+      {
+        "cusip": "12008R107",
+        "ticker": "BLDR"
+      },
+      {
+        "cusip": "125269100",
+        "ticker": "CF"
+      },
+      {
+        "cusip": "12572Q105",
+        "ticker": "CME"
+      },
+      {
+        "cusip": "125896100",
+        "ticker": "CMS"
+      },
+      {
+        "cusip": "127537207",
+        "ticker": "CDZI"
+      },
+      {
+        "cusip": "14316J108",
+        "ticker": "CG"
+      },
+      {
+        "cusip": "151290889",
+        "ticker": "CX"
+      },
+      {
+        "cusip": "152413100",
+        "ticker": "CBC"
+      },
+      {
+        "cusip": "16115Q308",
+        "ticker": null
+      },
+      {
+        "cusip": "163072AA9",
+        "ticker": null
+      },
+      {
+        "cusip": "172573107",
+        "ticker": "CRCL"
+      },
+      {
+        "cusip": "174610105",
+        "ticker": "CFG"
+      },
+      {
+        "cusip": "18453H106",
+        "ticker": "CCO"
+      },
+      {
+        "cusip": "185123106",
+        "ticker": null
+      },
+      {
+        "cusip": "18915M107",
+        "ticker": "NET"
+      },
+      {
+        "cusip": "20030N101",
+        "ticker": "CMCSA"
+      },
+      {
+        "cusip": "20451Q104",
+        "ticker": "CODI"
+      },
+      {
+        "cusip": "21871X109",
+        "ticker": "CRBG"
+      },
+      {
+        "cusip": "21873S108",
+        "ticker": "CRWV"
+      },
+      {
+        "cusip": "21874A106",
+        "ticker": "CORZ"
+      },
+      {
+        "cusip": "21874A114",
+        "ticker": "CORZW"
+      },
+      {
+        "cusip": "21874C102",
+        "ticker": "CNM"
+      },
+      {
+        "cusip": "22266T109",
+        "ticker": "CPNG"
+      },
+      {
+        "cusip": "233331107",
+        "ticker": "DTE"
+      },
+      {
+        "cusip": "23804L103",
+        "ticker": "DDOG"
+      },
+      {
+        "cusip": "23954D109",
+        "ticker": null
+      },
+      {
+        "cusip": "252131AM9",
+        "ticker": null
+      },
+      {
+        "cusip": "253868103",
+        "ticker": "DLR"
+      },
+      {
+        "cusip": "25402DAB8",
+        "ticker": null
+      },
+      {
+        "cusip": "254687106",
+        "ticker": "DIS"
+      },
+      {
+        "cusip": "25809K105",
+        "ticker": "DASH"
+      },
+      {
+        "cusip": "26210CAD6",
+        "ticker": null
+      },
+      {
+        "cusip": "26614N102",
+        "ticker": null
+      },
+      {
+        "cusip": "267475101",
+        "ticker": "DY"
+      },
+      {
+        "cusip": "285512109",
+        "ticker": "EA"
+      },
+      {
+        "cusip": "29084Q100",
+        "ticker": "EME"
+      },
+      {
+        "cusip": "29275Y102",
+        "ticker": "ENS"
+      },
+      {
+        "cusip": "29332G102",
+        "ticker": null
+      },
+      {
+        "cusip": "29364G103",
+        "ticker": "ETR"
+      },
+      {
+        "cusip": "29445S100",
+        "ticker": "EQPT"
+      },
+      {
+        "cusip": "29476L107",
+        "ticker": "EQR"
+      },
+      {
+        "cusip": "29786A106",
+        "ticker": "ETSY"
+      },
+      {
+        "cusip": "29786AAJ5",
+        "ticker": null
+      },
+      {
+        "cusip": "30040W108",
+        "ticker": "ES"
+      },
+      {
+        "cusip": "30052F100",
+        "ticker": "EVGO"
+      },
+      {
+        "cusip": "30161N101",
+        "ticker": "EXC"
+      },
+      {
+        "cusip": "314911108",
+        "ticker": "FRMI"
+      },
+      {
+        "cusip": "337932107",
+        "ticker": "FE"
+      },
+      {
+        "cusip": "343412102",
+        "ticker": "FLR"
+      },
+      {
+        "cusip": "34631F102",
+        "ticker": "FPS"
+      },
+      {
+        "cusip": "349381103",
+        "ticker": "FIGR"
+      },
+      {
+        "cusip": "35834F104",
+        "ticker": "TE"
+      },
+      {
+        "cusip": "36168Q104",
+        "ticker": "GFL"
+      },
+      {
+        "cusip": "36317J209",
+        "ticker": "GLXY"
+      },
+      {
+        "cusip": "37940XAU6",
+        "ticker": null
+      },
+      {
+        "cusip": "37959E102",
+        "ticker": "GL"
+      },
+      {
+        "cusip": "381013101",
+        "ticker": "GDEN"
+      },
+      {
+        "cusip": "39818P799",
+        "ticker": "PKST"
+      },
+      {
+        "cusip": "39874R101",
+        "ticker": "GO"
+      },
+      {
+        "cusip": "436440101",
+        "ticker": null
+      },
+      {
+        "cusip": "438516106",
+        "ticker": null
+      },
+      {
+        "cusip": "444859102",
+        "ticker": "HUM"
+      },
+      {
+        "cusip": "447011107",
+        "ticker": "HUN"
+      },
+      {
+        "cusip": "45073V108",
+        "ticker": "ITT"
+      },
+      {
+        "cusip": "451107106",
+        "ticker": "IDA"
+      },
+      {
+        "cusip": "453204109",
+        "ticker": "PI"
+      },
+      {
+        "cusip": "457152106",
+        "ticker": "INGM"
+      },
+      {
+        "cusip": "45841N107",
+        "ticker": "IBKR"
+      },
+      {
+        "cusip": "46284V101",
+        "ticker": "IRM"
+      },
+      {
+        "cusip": "464286509",
+        "ticker": "EWC"
+      },
+      {
+        "cusip": "464287242",
+        "ticker": "LQD"
+      },
+      {
+        "cusip": "464288414",
+        "ticker": "MUB"
+      },
+      {
+        "cusip": "464288513",
+        "ticker": "HYG"
+      },
+      {
+        "cusip": "46434G764",
+        "ticker": "EMXC"
+      },
+      {
+        "cusip": "465741106",
+        "ticker": "ITRI"
+      },
+      {
+        "cusip": "46625H100",
+        "ticker": "JPM"
+      },
+      {
+        "cusip": "46982L108",
+        "ticker": "J"
+      },
+      {
+        "cusip": "471024109",
+        "ticker": "JAN"
+      },
+      {
+        "cusip": "472145AF8",
+        "ticker": null
+      },
+      {
+        "cusip": "47215PAJ5",
+        "ticker": null
+      },
+      {
+        "cusip": "477839AB0",
+        "ticker": null
+      },
+      {
+        "cusip": "478160104",
+        "ticker": "JNJ"
+      },
+      {
+        "cusip": "48251W104",
+        "ticker": "KKR"
+      },
+      {
+        "cusip": "500081104",
+        "ticker": "KDK"
+      },
+      {
+        "cusip": "50077B207",
+        "ticker": "KTOS"
+      },
+      {
+        "cusip": "52476L109",
+        "ticker": "LGN"
+      },
+      {
+        "cusip": "530307305",
+        "ticker": "LBRDK"
+      },
+      {
+        "cusip": "532457108",
+        "ticker": "LLY"
+      },
+      {
+        "cusip": "534187109",
+        "ticker": "LNC"
+      },
+      {
+        "cusip": "549498202",
+        "ticker": "LCID"
+      },
+      {
+        "cusip": "550021109",
+        "ticker": "LULU"
+      },
+      {
+        "cusip": "55024UAD1",
+        "ticker": null
+      },
+      {
+        "cusip": "55024UAF6",
+        "ticker": null
+      },
+      {
+        "cusip": "55293N109",
+        "ticker": "MDA"
+      },
+      {
+        "cusip": "553368101",
+        "ticker": "MP"
+      },
+      {
+        "cusip": "554489104",
+        "ticker": null
+      },
+      {
+        "cusip": "574795100",
+        "ticker": null
+      },
+      {
+        "cusip": "576690101",
+        "ticker": "MTRN"
+      },
+      {
+        "cusip": "579780206",
+        "ticker": "MKC"
+      },
+      {
+        "cusip": "580135101",
+        "ticker": "MCD"
+      },
+      {
+        "cusip": "58507V107",
+        "ticker": "MDLN"
+      },
+      {
+        "cusip": "591774104",
+        "ticker": "MCB"
+      },
+      {
+        "cusip": "59356Q108",
+        "ticker": "MIAX"
+      },
+      {
+        "cusip": "62886HBD2",
+        "ticker": null
+      },
+      {
+        "cusip": "63001N106",
+        "ticker": "NATL"
+      },
+      {
+        "cusip": "637870106",
+        "ticker": null
+      },
+      {
+        "cusip": "64073B103",
+        "ticker": "NP"
+      },
+      {
+        "cusip": "64110L106",
+        "ticker": "NFLX"
+      },
+      {
+        "cusip": "65339F655",
+        "ticker": null
+      },
+      {
+        "cusip": "666807102",
+        "ticker": "NOC"
+      },
+      {
+        "cusip": "67059NAK4",
+        "ticker": null
+      },
+      {
+        "cusip": "67079K100",
+        "ticker": "SMR"
+      },
+      {
+        "cusip": "679295AF2",
+        "ticker": null
+      },
+      {
+        "cusip": "68237F108",
+        "ticker": "OFRM"
+      },
+      {
+        "cusip": "68278B107",
+        "ticker": null
+      },
+      {
+        "cusip": "683712129",
+        "ticker": "OPENW"
+      },
+      {
+        "cusip": "683712137",
+        "ticker": "OPENL"
+      },
+      {
+        "cusip": "68389X204",
+        "ticker": null
+      },
+      {
+        "cusip": "69121K104",
+        "ticker": "OBDC"
+      },
+      {
+        "cusip": "69351T106",
+        "ticker": "PPL"
+      },
+      {
+        "cusip": "70975L107",
+        "ticker": "PEN"
+      },
+      {
+        "cusip": "718172109",
+        "ticker": "PM"
+      },
+      {
+        "cusip": "732908108",
+        "ticker": "PONY"
+      },
+      {
+        "cusip": "736508847",
+        "ticker": "POR"
+      },
+      {
+        "cusip": "74623V103",
+        "ticker": "PCT"
+      },
+      {
+        "cusip": "750491102",
+        "ticker": "RDNT"
+      },
+      {
+        "cusip": "753422104",
+        "ticker": "RPD"
+      },
+      {
+        "cusip": "75524B104",
+        "ticker": "RBC"
+      },
+      {
+        "cusip": "75734B100",
+        "ticker": "RDDT"
+      },
+      {
+        "cusip": "76954AAB9",
+        "ticker": null
+      },
+      {
+        "cusip": "781846209",
+        "ticker": "RUSHA"
+      },
+      {
+        "cusip": "78409V104",
+        "ticker": "SPGI"
+      },
+      {
+        "cusip": "784305104",
+        "ticker": "HTO"
+      },
+      {
+        "cusip": "78462F103",
+        "ticker": "SPY"
+      },
+      {
+        "cusip": "78464A474",
+        "ticker": "SPSB"
+      },
+      {
+        "cusip": "78468R556",
+        "ticker": "XOP"
+      },
+      {
+        "cusip": "78475V103",
+        "ticker": "MWH"
+      },
+      {
+        "cusip": "79466L302",
+        "ticker": "CRM"
+      },
+      {
+        "cusip": "81211K100",
+        "ticker": null
+      },
+      {
+        "cusip": "81369Y506",
+        "ticker": "XLE"
+      },
+      {
+        "cusip": "81369Y605",
+        "ticker": "XLF"
+      },
+      {
+        "cusip": "81619Q105",
+        "ticker": null
+      },
+      {
+        "cusip": "816851109",
+        "ticker": "SRE"
+      },
+      {
+        "cusip": "81686C104",
+        "ticker": null
+      },
+      {
+        "cusip": "81762P102",
+        "ticker": "NOW"
+      },
+      {
+        "cusip": "82489W107",
+        "ticker": "SHLS"
+      },
+      {
+        "cusip": "83304AAH9",
+        "ticker": null
+      },
+      {
+        "cusip": "83304AAK2",
+        "ticker": null
+      },
+      {
+        "cusip": "833445109",
+        "ticker": "SNOW"
+      },
+      {
+        "cusip": "85423L103",
+        "ticker": "SARO"
+      },
+      {
+        "cusip": "86384P109",
+        "ticker": "STUB"
+      },
+      {
+        "cusip": "866966104",
+        "ticker": "SUNB"
+      },
+      {
+        "cusip": "86771W105",
+        "ticker": "RUN"
+      },
+      {
+        "cusip": "87256C101",
+        "ticker": "TKO"
+      },
+      {
+        "cusip": "872657101",
+        "ticker": "TPG"
+      },
+      {
+        "cusip": "87265H109",
+        "ticker": null
+      },
+      {
+        "cusip": "87427V103",
+        "ticker": "TALK"
+      },
+      {
+        "cusip": "880345103",
+        "ticker": "TNC"
+      },
+      {
+        "cusip": "880881107",
+        "ticker": null
+      },
+      {
+        "cusip": "88160R101",
+        "ticker": "TSLA"
+      },
+      {
+        "cusip": "88362T103",
+        "ticker": null
+      },
+      {
+        "cusip": "902685106",
+        "ticker": null
+      },
+      {
+        "cusip": "903731107",
+        "ticker": "ULS"
+      },
+      {
+        "cusip": "91733P107",
+        "ticker": "USAR"
+      },
+      {
+        "cusip": "918284100",
+        "ticker": "VSEC"
+      },
+      {
+        "cusip": "918284209",
+        "ticker": null
+      },
+      {
+        "cusip": "922280AD4",
+        "ticker": null
+      },
+      {
+        "cusip": "92343V104",
+        "ticker": "VZ"
+      },
+      {
+        "cusip": "92345Y106",
+        "ticker": "VRSK"
+      },
+      {
+        "cusip": "92892B103",
+        "ticker": "VOYG"
+      },
+      {
+        "cusip": "92939U106",
+        "ticker": "WEC"
+      },
+      {
+        "cusip": "931142103",
+        "ticker": "WMT"
+      },
+      {
+        "cusip": "934423104",
+        "ticker": "WBD"
+      },
+      {
+        "cusip": "947890109",
+        "ticker": "WBS"
+      },
+      {
+        "cusip": "97785W106",
+        "ticker": "WOLF"
+      },
+      {
+        "cusip": "980745103",
+        "ticker": "WWD"
+      },
+      {
+        "cusip": "98389B100",
+        "ticker": "XEL"
+      },
+      {
+        "cusip": "G0260P102",
+        "ticker": null
+      },
+      {
+        "cusip": "G1151C101",
+        "ticker": null
+      },
+      {
+        "cusip": "G16910120",
+        "ticker": null
+      },
+      {
+        "cusip": "G1827P106",
+        "ticker": null
+      },
+      {
+        "cusip": "G1828S109",
+        "ticker": null
+      },
+      {
+        "cusip": "G39387108",
+        "ticker": null
+      },
+      {
+        "cusip": "G4124C109",
+        "ticker": null
+      },
+      {
+        "cusip": "G54950103",
+        "ticker": null
+      },
+      {
+        "cusip": "G8267P108",
+        "ticker": null
+      },
+      {
+        "cusip": "G8377R101",
+        "ticker": null
+      },
+      {
+        "cusip": "H11356104",
+        "ticker": null
+      },
+      {
+        "cusip": "H2927K103",
+        "ticker": null
+      },
+      {
+        "cusip": "N14506104",
+        "ticker": null
+      },
+      {
+        "cusip": "N82405106",
+        "ticker": null
+      },
+      {
+        "cusip": "00912X302",
+        "ticker": null
+      },
+      {
+        "cusip": "014491104",
+        "ticker": null
+      },
+      {
+        "cusip": "018802AC2",
+        "ticker": null
+      },
+      {
+        "cusip": "02156V109",
+        "ticker": "OKLO"
+      }
+    ],
+    "success": true,
+    "meta": {
+      "served_by": "v3-prod",
+      "served_by_region": "ENAM",
+      "served_by_colo": "ATL",
+      "served_by_primary": true,
+      "timings": {
+        "sql_duration_ms": 5.0364
+      },
+      "duration": 5.0364,
+      "changes": 0,
+      "last_row_id": 0,
+      "changed_db": false,
+      "size_after": 38150144,
+      "rows_read": 370,
+      "rows_written": 0,
+      "total_attempts": 1
+    }
+  }
+]

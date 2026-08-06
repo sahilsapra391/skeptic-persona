@@ -413,7 +413,24 @@ The filing says what changed and stops there. Everyone who could explain it is l
  * mechanism the margin rule needs the next time a pack arrives — an exemplar
  * over 272 goes here and gets reported, it is never trimmed on our authority.
  */
-export const PENDING_OWNER_EXEMPLARS: ReadonlyArray<{ n: number; archetype: ArchetypeId; weighted: number; text: string }> = [];
+export const PENDING_OWNER_EXEMPLARS: ReadonlyArray<{ n: number; archetype: ArchetypeId; weighted: number; text: string }> = [
+  // The INSTITUTIONAL_13F_BREAKDOWN exemplar, owner-authored 2026-08-06.
+  // 273 weighted: ONE over the margin he set in the same sprint. Every figure
+  // in it validates against production filing 301 ($263.1B, 90 positions, 16
+  // untouched at $192.73B under the 2dp rule), so this is a length call and
+  // nothing else. Held rather than trimmed, per "return anything still over".
+  //
+  // CONSEQUENCE, stated because it is the answer to "confirm gate unblocks":
+  // it does NOT. The exemplar gate needs one installed exemplar for the
+  // archetype, so generation for this archetype returns skipped_no_exemplar
+  // until one character comes out of this text.
+  {
+    n: 8,
+    archetype: "INSTITUTIONAL_13F_BREAKDOWN",
+    weighted: 273,
+    text: `Berkshire Q1, quick version: $263.1B across 90 positions, per SEC, as of March 31, filed May 15. New: Delta, $2.65B. Gone: Visa and Mastercard. Untouched: 16 names worth $192.7B. Full top ten on the card. Ninety positions and the December book is still mostly recognizable.`,
+  },
+];
 
 /**
  * Owner exemplars whose archetype does not EXIST in the engine yet. Not in

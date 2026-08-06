@@ -1,5 +1,6 @@
 import { fmtNum, fmtUsd } from "../ingesters/shared";
 import { POST_TEXT_LIMIT, weightedLength } from "./length";
+import { humanDate } from "./render";
 import { RATE_ATTRIBUTION } from "../ingesters/rateAttribution";
 import { PRESS_ATTRIBUTION } from "../ingesters/pressAttribution";
 import type { Archetype, ArchetypeId, Payload, PendingBeat } from "./types";
@@ -930,6 +931,86 @@ const regulatoryNews: Archetype = {
 };
 
 // ---------------------------------------------------------------------------
+// INSTITUTIONAL_13F_BREAKDOWN
+//
+// The long-form filing post, made short. The owner ruled out X Premium, so
+// the POST is a hook plus two or three headline facts plus both dates, and
+// the FULL breakdown (top ten, new/add/trim/gone) rides on the rendered card.
+//
+// Both dates are non-negotiable and the skeletons enforce it by construction:
+// a 13F is a snapshot of a quarter END filed up to six weeks later, and a
+// post that states only one date invites a reader to treat stale positions as
+// current. Every skeleton here requires asOfIso AND filedIso, so a payload
+// missing either renders nothing rather than a half-dated claim.
+//
+// "Gone" is a section label, never a verb. A holding absent from a filing was
+// not necessarily sold, and no beat or skeleton below says it was.
+
+const institutional13fBreakdown: Archetype = {
+  id: "INSTITUTIONAL_13F_BREAKDOWN",
+  attribution: "per SEC",
+  skeletons: [
+    {
+      id: "f13.quickVersion",
+      build: (p) => {
+        const manager = str(p, "manager");
+        const aum = str(p, "aum_display");
+        const count = str(p, "positionCount_display");
+        const asOf = str(p, "asOfIso");
+        const filed = str(p, "filedIso");
+        if (!manager || !aum || !count || !asOf || !filed) return null;
+        // Formatted HERE, not with slot syntax: skeleton lines are built in
+        // code and never pass through fillSlots, so "{asOfIso:date}" would
+        // reach copy verbatim. renderPost now refuses such a post outright.
+        const a = humanDate(asOf);
+        const f = humanDate(filed);
+        if (!a || !f) return null;
+        return { lines: [`${manager}: ${aum} across ${count} positions, as of ${a}, filed ${f}`] };
+      },
+    },
+    {
+      id: "f13.sectionCounts",
+      build: (p) => {
+        const manager = str(p, "manager");
+        const nNew = str(p, "newCount_display");
+        const nGone = str(p, "goneCount_display");
+        const asOf = str(p, "asOfIso");
+        const filed = str(p, "filedIso");
+        if (!manager || !nNew || !nGone || !asOf || !filed) return null;
+        const a = humanDate(asOf);
+        const f = humanDate(filed);
+        if (!a || !f) return null;
+        const unchanged = str(p, "unchangedCount_display");
+        const unchangedTotal = str(p, "unchangedTotal_display");
+        const tail = unchanged && unchangedTotal ? `, ${unchanged} untouched worth ${unchangedTotal}` : "";
+        return { lines: [`${manager}: ${nNew} new, ${nGone} gone${tail}, as of ${a}, filed ${f}`] };
+      },
+    },
+  ],
+  beats: [
+    {
+      id: "f13.cardCarriesIt",
+      text: "Full top ten on the card.",
+      tier: "base",
+      when: { op: "has", field: "aum_display" },
+    },
+    {
+      id: "f13.lag",
+      // The signature fact of this archetype: what you are reading is old.
+      text: "Positions as of {asOfIso:date}. You are reading it {filedIso:date}.",
+      tier: "base",
+      when: {
+        op: "all",
+        of: [
+          { op: "has", field: "asOfIso" },
+          { op: "has", field: "filedIso" },
+        ],
+      },
+    },
+  ],
+};
+
+// ---------------------------------------------------------------------------
 // SETTLEMENT_FAILURE (Reg SHO threshold list entry)
 
 const settlementFailure: Archetype = {
@@ -1151,6 +1232,7 @@ export const ARCHETYPES: Record<ArchetypeId, Archetype> = {
   POSITIONING: positioning,
   OWNERSHIP_STAKE: ownershipStake,
   REGULATORY_NEWS: regulatoryNews,
+  INSTITUTIONAL_13F_BREAKDOWN: institutional13fBreakdown,
   SETTLEMENT_FAILURE: settlementFailure,
   DELISTING: delisting,
   STORM: storm,

@@ -93,6 +93,21 @@ function formatSlot(raw: unknown, format: string | undefined): string | null {
   return null;
 }
 
+/**
+ * The human date form, exported because SKELETONS need it too.
+ *
+ * Skeletons build their lines in code and only BEATS go through fillSlots, so
+ * a skeleton writing "{asOfIso:date}" emits that literal string into
+ * copy-ready text. Caught in the first live 13F render; the guard in
+ * renderPost is the general fix, this is what a skeleton should call instead.
+ */
+export function humanDate(raw: unknown): string | null {
+  return formatSlot(raw, "date");
+}
+
+/** Slot syntax that survived rendering. Nothing may reach copy carrying it. */
+export const UNFILLED_SLOT_RE = /\{[a-zA-Z0-9_.]+(?::[a-z]+)?\}/;
+
 export function fillSlots(text: string, payload: Payload): string | null {
   const markers = text.match(/\{[a-zA-Z0-9_.]+(?::[a-z]+)?\}/g);
   if (!markers) return text;
@@ -238,6 +253,14 @@ export function renderPost(
     // exceed the limit, the beat is what gets dropped.
     if (weightedLength(withBeat) <= POST_TEXT_LIMIT) text = withBeat;
   }
+
+  // SLOT-LEAK GUARD. A skeleton builds its lines in code and never passes
+  // through fillSlots, so a skeleton author who writes "{asOfIso:date}" gets
+  // that literal string in copy-ready output. That happened on the very first
+  // 13F render. Refusing the post is right: this repo has already shipped a
+  // raw ISO timestamp to a copy-ready draft once (D-16), and a visible
+  // "{filedIso:date}" is the same defect wearing a louder costume.
+  if (UNFILLED_SLOT_RE.test(text)) return { ok: false, reason: "unfilled_slot" };
 
   return {
     ok: true,

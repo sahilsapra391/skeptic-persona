@@ -52,6 +52,17 @@ const CATEGORY_BASE: Record<string, number> = {
   // discriminated by magnitude below rather than by base.
   FILING_8K: 50,
   OWNERSHIP_STAKE: 50,
+  // DERIVED, not invented: the same base as OWNERSHIP_STAKE, its nearest
+  // neighbour in every respect that matters. Both are SEC ownership
+  // disclosures, both say who holds what rather than what happened, and
+  // neither was measured in the engagement study (n < 25). The archetype is
+  // scoped to the tier-1 watchlist by the ingester, so the base does not have
+  // to carry the selectivity.
+  //
+  // NOT ceiling-exempt. A quarterly filing that is six weeks stale on arrival
+  // has no claim to bypass the queue's own limits, and the Aug-14 flood is
+  // precisely when those limits matter.
+  INSTITUTIONAL_13F_BREAKDOWN: 50,
   PRODUCT_RECALL: 50,
   DELISTING: 50,
   STORM: 45,
