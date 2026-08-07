@@ -16,7 +16,16 @@ import {
   pollNyseHalts,
   HALT_CODES,
 } from "../src/ingesters/halts";
-import { draftCpi, parseBlsIcs, parseCpiRelease, RELEASES, releaseUrl, syncBlsCalendar, watchBls } from "../src/ingesters/bls";
+import {
+  draftCpi,
+  parseBlsIcs,
+  parseCpiRelease,
+  RELEASE_MONTH_RE,
+  RELEASES,
+  releaseUrl,
+  syncBlsCalendar,
+  watchBls,
+} from "../src/ingesters/bls";
 import { getSourceState } from "../src/lib/db";
 import { zonedTimeToUtc, ET } from "../src/lib/time";
 
@@ -78,6 +87,49 @@ describe("halts (live fixtures)", () => {
   it("draft: symbol, exchange-stated reason, ET time — all parsed", () => {
     const stkh = parseNasdaqHalts(NASDAQ_FIXTURE).find((e) => e.symbol === "STKH")!;
     expect(draftHalt(stkh)).toBe("HALT: $STKH (Steakholder Foods Ltd. ADS). News Pending, 19:50 ET");
+  });
+});
+
+describe("D-65: RELEASE_MONTH_RE does not backtrack exponentially", () => {
+  // The old pattern was /[A-Z]{2,}[A-Z ]*\s*[-–—]+\s*([A-Z]+ \d{4})/ and it ran
+  // against the whole release page. Adjacent quantifiers accepted overlapping
+  // input, so a FAILING match was exponential: 235ms at n=160, and n=2000 did
+  // not finish in 180 seconds. A blown CPU limit kills the entire tick.
+
+  it("still finds the month on the real 90KB release page", () => {
+    // The behaviour this guards. If the fix ever narrows the match, this fails
+    // before the timing test does, which is the ordering we want.
+    expect(RELEASE_MONTH_RE.exec(CPI_FIXTURE)?.[1]).toBe("JUNE 2026");
+  });
+
+  it("stays flat on the adversarial shape that killed the old pattern", () => {
+    // Caps then spaces then no dash: every split point was a distinct path.
+    const worst = (n: number) => "A".repeat(n) + " ".repeat(n) + " ";
+    const timeAt = (n: number) => {
+      const s = worst(n);
+      const t0 = performance.now();
+      RELEASE_MONTH_RE.test(s);
+      return performance.now() - t0;
+    };
+    // n=4000 is 2x what hung the old pattern for over three minutes.
+    const big = timeAt(4000);
+    expect(big).toBeLessThan(50);
+
+    // Bound the SHAPE, not just one point: doubling input must not blow up.
+    // Generous factor because a 0.0x ms baseline makes ratios noisy; an
+    // exponential pattern misses this by orders of magnitude, not percent.
+    const growth = timeAt(2000) > 0.05 ? timeAt(4000) / timeAt(2000) : 1;
+    expect(growth).toBeLessThan(8);
+  });
+
+  it("has no two adjacent quantifiers accepting the same character", () => {
+    // The structural property that makes the above true, asserted directly so
+    // a future edit that reintroduces the ambiguity is caught by reading.
+    const src = RELEASE_MONTH_RE.source;
+    expect(src).not.toContain("[A-Z]{2,}[A-Z ]*");
+    expect(src).not.toContain("[A-Z ]*\\s*");
+    // The bounded run is the load-bearing part of the fix.
+    expect(src).toContain("[A-Z ]{1,120}");
   });
 });
 
