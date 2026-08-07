@@ -22,6 +22,8 @@ import { pollForm13f } from "./ingesters/form13f";
 import { pollThirteenFCards } from "./ingesters/thirteenFCards";
 import { prWireJob, WIRE_SOURCES } from "./ingesters/prWires";
 import { blueskyJob, SOURCE as BLUESKY_SOURCE } from "./ingesters/bluesky";
+import { s1Job, SOURCE as S1_SOURCE } from "./ingesters/s1Ipo";
+import { proxyContestJob, SOURCE as PROXY_SOURCE } from "./ingesters/proxyContest";
 import { pollNoaaStorms } from "./ingesters/noaaStorms";
 import { pollNasdaqHalts, pollNyseHalts } from "./ingesters/halts";
 import { pollHousePtr } from "./ingesters/housePtr";
@@ -238,6 +240,12 @@ export function registerJobs(): void {
   // construction as the wires, and stricter for the same reason: a wire item
   // at least comes from an issuer's PR desk, a social post from anyone.
   registry[BLUESKY_SOURCE] = blueskyJob();
+  // p5-30 / p5-31. Both ingest at log-only for now: neither has an archetype
+  // or an exemplar bank, and the gate refuses generation when a bank is empty,
+  // so scoring them postable would manufacture the voiceless-template defect
+  // B-08 just removed. The archetypes are the follow-on chunk.
+  registry[S1_SOURCE] = s1Job();
+  registry[PROXY_SOURCE] = proxyContestJob();
   registry["cftc_cot"] = pollCftc;
   registry["sec_schedule13"] = pollSchedule13;
   for (const src of PRESS_SOURCES) registry[src.id] = makePressHandler(src);
