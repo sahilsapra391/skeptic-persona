@@ -270,9 +270,17 @@ export async function editMessageText(
 }
 
 /** Mandatory after every callback button press (clients show a spinner until called). */
-export async function answerCallbackQuery(token: string, callbackQueryId: string, text?: string): Promise<void> {
+export async function answerCallbackQuery(
+  token: string,
+  callbackQueryId: string,
+  text?: string,
+  /** Modal instead of a toast. For REFUSALS: a toast is easy to miss, and a
+   *  refusal the owner misses reads as a button that silently did nothing. */
+  showAlert = false,
+): Promise<void> {
   await tgCall(token, "answerCallbackQuery", {
     callback_query_id: callbackQueryId,
     ...(text ? { text } : {}),
+    ...(showAlert ? { show_alert: true } : {}),
   });
 }

@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { checkRegister } from "../src/templates/validate";
+import { ALL_ATTRIBUTION_FORMS } from "../src/templates/attribution";
 import { describe, expect, it } from "vitest";
 import {
   beatShapeCheck,
@@ -956,5 +957,52 @@ describe("B-08.1 (D-73): a pinned attribution's digits are furniture, not claims
     expect(
       checkRegister("CFTC orders a $35,000 payment, per SEC Form 4 filings.", "REGULATORY_NEWS", payload).length,
     ).toBeGreaterThan(0);
+  });
+});
+
+describe("B-08.5 (D-77): gate precision, without touching the floor", () => {
+  // From re-running the four contested REGULATORY_NEWS fallbacks through the
+  // current stack. Two of the three things I first flagged were real; the
+  // third turned out to be the gate working, and is asserted here as such.
+
+  it("a proper name never spans a LINE BREAK", () => {
+    // `[-\s]` matched `\n`, so the detector stitched the last word of one line
+    // to the first word of the next and invented a name nobody wrote. Measured
+    // live: 'name "India\nPublished August" does not appear in the payload'.
+    const payload = { authority: "SEBI", title: "Market update", factLine: "SEBI published a circular in India" };
+    const across = "SEBI issued a circular in India\nPublished August 4, per SEBI.";
+    const issues = entityCheck(across, payload as never);
+    expect(issues.map((i) => i.detail).join(" ")).not.toContain("India");
+    // A real two-word name on ONE line is still caught.
+    const sameLine = "Complete Health Partners filed, per SEBI.";
+    expect(entityCheck(sameLine, payload as never).length).toBeGreaterThan(0);
+    // And a hyphenated compound still works, which is why the separator set
+    // keeps the hyphen (bypass #19).
+    expect(entityCheck("Ocasio-Cortez filed, per SEBI.", payload as never).length).toBeGreaterThan(0);
+  });
+
+  it("'per DOJ' is accepted, because the payload calls the source DOJ", () => {
+    // authority === "DOJ" and the factLine opens "DOJ:". sourcingCheck refused
+    // it while entityCheck treated DOJ as furniture — the two disagreed about
+    // the same string.
+    expect(ALL_ATTRIBUTION_FORMS).toContain("per DOJ");
+    const payload = { authority: "DOJ", factLine: "DOJ: Illegal Alien Convicted of Conspiracy to Export Firearms" };
+    expect(checkRegister("Federal jury convicted a defendant, per DOJ.", "REGULATORY_NEWS", payload as never)).toEqual([]);
+  });
+
+  it("STILL kills a foreign source, so the alias narrowed nothing", () => {
+    const payload = { authority: "DOJ", factLine: "DOJ: a conviction" };
+    expect(checkRegister("Federal jury convicted a defendant, per SEC.", "REGULATORY_NEWS", payload as never).length).toBeGreaterThan(0);
+  });
+
+  it("YTM stays REJECTED: that one was the gate working, not over-rejecting", () => {
+    // I first listed this as imprecision. The payload disproved it: these
+    // REGULATORY_NEWS payloads carry only authority/title/categories/
+    // publishedIso/factLine and NO yield fields at all, so the model
+    // hallucinated an entire Treasury auction table onto a news item.
+    // Exempting YTM would have relaxed the fabrication floor to admit it.
+    const payload = { authority: "US Treasury", title: "Daily update", factLine: "Treasury published a notice" };
+    expect(JSON.stringify(payload)).not.toContain("YTM");
+    expect(entityCheck("Auction results: YTM 5.2780%, per US Treasury.", payload as never).length).toBeGreaterThan(0);
   });
 });

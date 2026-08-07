@@ -1060,7 +1060,19 @@ export function entityCheck(text: string, payload: Payload, precomputed?: Payloa
   }
   // Multi-word proper nouns INCLUDING hyphenated compounds ("Ocasio-Cortez");
   // space-only matching split those into unchecked single words (bypass #19).
-  for (const m of text.matchAll(/\b([A-Z][a-z]+(?:[-\s][A-Z][a-z]+)+)\b/g)) {
+  //
+  // THE SEPARATOR EXCLUDES NEWLINES (D-77, B-08.5). `[-\s]` matched `\n`, so
+  // the detector stitched the last word of one line to the first word of the
+  // next and invented a name that nobody wrote. Measured on real rejected
+  // variants: `name "India\nPublished August" does not appear in the payload`
+  // and `name "India\nThe" does not appear in the payload`.
+  //
+  // A proper name never spans a line break in this format. The structural law
+  // puts the fact block first and the beat on its own line, so a cross-line
+  // "name" is ALWAYS a false positive — and a false positive here costs a
+  // whole variant. Tab and non-breaking space stay in, because those really
+  // do sit inside names; `\n` and `\r` do not.
+  for (const m of text.matchAll(/\b([A-Z][a-z]+(?:[-\t  ][A-Z][a-z]+)+)\b/g)) {
     const name = m[1]!;
     // Exact furniture phrases only — a PREFIX skip exempted "Senate Ethics
     // Committee" wholesale (bypass #6).
