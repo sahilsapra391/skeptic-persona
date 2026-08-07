@@ -21,6 +21,7 @@ import { pollForm25 } from "./ingesters/form25";
 import { pollForm13f } from "./ingesters/form13f";
 import { pollThirteenFCards } from "./ingesters/thirteenFCards";
 import { prWireJob, WIRE_SOURCES } from "./ingesters/prWires";
+import { blueskyJob, SOURCE as BLUESKY_SOURCE } from "./ingesters/bluesky";
 import { pollNoaaStorms } from "./ingesters/noaaStorms";
 import { pollNasdaqHalts, pollNyseHalts } from "./ingesters/halts";
 import { pollHousePtr } from "./ingesters/housePtr";
@@ -231,6 +232,12 @@ export function registerJobs(): void {
   // p5-21. DISCOVERY only: these rows are log-only by construction and never
   // enqueue. The desk publishes the company's own filing, not the wire.
   for (const w of WIRE_SOURCES) registry[w.id] = prWireJob(w);
+  // p5-25 (B-03.6). Registered ALWAYS so the dispatcher can never claim a slot
+  // with no handler (D-43); the handler itself no-ops unless BLUESKY_ENABLED
+  // is "true", which is where the flag actually lives. Same discovery-only
+  // construction as the wires, and stricter for the same reason: a wire item
+  // at least comes from an issuer's PR desk, a social post from anyone.
+  registry[BLUESKY_SOURCE] = blueskyJob();
   registry["cftc_cot"] = pollCftc;
   registry["sec_schedule13"] = pollSchedule13;
   for (const src of PRESS_SOURCES) registry[src.id] = makePressHandler(src);
