@@ -46,6 +46,20 @@ resolving it quietly.
   Reading the YAML is not verification (D-48). Earned twice in one hour: a
   soft-skip that left the next step to die on a missing file, and its fix
   applied to the wrong job's step.
+- **Redact a command's input, never filter its error output** (D-56). Piping
+  `wrangler secret put` through a `grep -v secret` to avoid echoing values ate
+  the line saying the write had FAILED, and the call read as success. If a
+  command takes a secret, hide it on the way in (stdin, env, a file), and let
+  stderr through untouched.
+- **A secret or config write is not applied until it is proven against the
+  deployed target** (D-56). Not against local state, not against an exit code,
+  not against the absence of an error message. `INGEST_SECRET` rotated on
+  GitHub and silently failed on the Worker, because `wrangler secret put`
+  refuses when the newest version is not the deployed one and Workers Builds
+  uploads a version per PR build. The half-state was invisible precisely
+  because the courier was already down: it would have detonated on recovery.
+  Prove it with a live call that can tell auth-passed from auth-failed (a
+  `400` on a junk body, not just "no 401").
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.

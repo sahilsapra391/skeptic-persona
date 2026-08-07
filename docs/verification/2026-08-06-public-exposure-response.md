@@ -112,14 +112,71 @@ scratch file carries none. That is a policy gap, not a legal breach, and the
 call on whether to purge it from history belongs to the owner. Flagged, not
 decided.
 
-### OpenFIGI fixtures — third-party, still in the tree
+### OpenFIGI fixtures — resolved against primary terms (B-06.3)
 
-798 KB across two fixtures, in the current tree, from Bloomberg's OpenFIGI
-API (ticker↔FIGI mapping used by the 13F CUSIP lane). Verbatim third-party
-API responses. OpenFIGI is published as open symbology, but the licence has
-**not** been verified against a primary source in this pass and no
-verification record exists for it. Recorded as an open question, not as a
-clearance.
+**Source:** <https://www.openfigi.com/docs/terms-of-service>, "Last Updated:
+November 27, 2018", fetched 2026-08-06 with the declared UA.
+
+The terms draw a line, and our fixtures sat on the wrong side of it.
+
+**Clause 1, Public Domain Dedication**, is scoped to a defined term:
+
+> "Bloomberg hereby dedicates FIGI Identifiers to the public domain and makes
+> FIGI Identifiers available to the public at large for free"
+
+> "'FIGI Identifier' or 'FIGI' means a unique string of alphanumeric characters
+> that designate a specific security or other financial instrument."
+
+> "FIGI Identifiers may be freely reproduced, distributed, transmitted, used,
+> modified, built upon, or otherwise exploited by anyone for any purpose,
+> commercial or non-commercial"
+
+**Clause 3, Disclaimer**, introduces a *second* category and never grants
+anything for it:
+
+> "THE DESCRIPTIONS OF THE ASSOCIATED SECURITIES AND FINANCIAL INSTRUMENTS
+> PROVIDED BY BLOOMBERG IN DATABASES OR COMPILATIONS OF FIGI IDENTIFIERS
+> ('RELATED SECURITY DESCRIPTIONS')"
+
+Clause 3 is a warranty disclaimer. It says both categories are provided "AS
+IS". It is not a licence.
+
+So: the identifiers (`figi`, `compositeFIGI`, `shareClassFIGI`) are public
+domain and could be stored freely. The descriptive metadata (`name`, `ticker`,
+`exchCode`, `securityType`, `securityType2`, `marketSector`,
+`securityDescription`) is **Related Security Descriptions**, and the terms are
+silent on redistributing it. Silence is not permission, and B-06.3 says no
+claim of clearance without a citation. There is no citation to make.
+
+Separately confirmed by inspection, and it matters: **the responses contain no
+CUSIP, ISIN or SEDOL.** OpenFIGI does not return third-party proprietary
+identifiers; CUSIPs appear only in our *request*. So the licensing-sensitive
+identifier was never in the cached bytes.
+
+**Action taken** (B-06.3's conservative branch): the verbatim response bodies
+are deleted and the fixtures are projected to the three fields
+`src/lib/figi.ts` actually reads, confirmed by grep as `ticker` (25 refs),
+`name` (16), `exchCode` (5), and nothing else.
+
+```
+openfigi-batch1.json.fixture   475.0 KB -> 106.1 KB   (77.7% removed)
+openfigi-batch2.json.fixture   324.3 KB ->  75.1 KB   (76.8% removed)
+job slots 10 -> 10, rows 1710 -> 1710 and 1278 -> 1278
+remaining fields: exchCode, name, ticker
+```
+
+Row count and ordering are preserved deliberately, because two tests assert on
+the *shape* of a live response and would lose their evidence otherwise: FIRST
+HORIZON's US listing sits at position 6 behind five German venues, and EXXON
+returns eleven entries with zero `exchCode US`. Those are what prove the
+"never emit a foreign ticker" rule, which is a fabrication guard. 34 tests
+pass after the projection.
+
+The honest residue: 181 KB of `ticker`/`name`/`exchCode` is still Bloomberg
+metadata. Keeping it is a judgement that a working mapping for 20 CUSIPs is
+not the same act as redistributing a 2,988-row compilation, and that the
+fabrication guard is worth more than the last 181 KB. Stated so it can be
+overruled rather than buried.
 
 ## 4. Workflow trigger audit (B-05.3)
 
@@ -191,7 +248,90 @@ traffic API gives identities no finer than a count.
 Honest bound: this data can show that nothing was *discovered*. It cannot
 prove nothing was *cloned* by someone who found the URL another way.
 
-## 6. Not done, awaiting the owner's explicit line (B-05.6)
+## 6a. History purge — proven on a throwaway, ready to fire (B-06.2)
+
+B-06.2's "verify no other test fixture carries the same shape" was answered by
+scanning **every blob in history**, not a candidate list. All 430 blobs, for
+PTR amount-band patterns (`$X,XXX - $Y,YYY`) co-occurring with a name field:
+
+```
+test/tmp-payloads.ts   1217 bands, 64 name fields
+(everything else)      none
+```
+
+Three other files matched a looser field-name probe
+(`ragValidate.test.ts`, `templates.test.ts`, `zzcoverage.probe.test.ts`) and
+were cleared by inspection: they carry the *field names* `member`/`factLine`/
+`tradeLine` in synthetic test rows, and **zero** real member names.
+
+The purge was rehearsed on a `--mirror` clone rather than the live repo:
+
+```
+git filter-repo --force --strip-blobs-bigger-than 200K
+```
+
+That threshold is not arbitrary. Exactly three blobs in the entire history
+exceed 200K, and they are exactly the three files at issue:
+
+```
+475.0 KB  test/fixtures/openfigi-batch1.json.fixture   (verbatim, pre-projection)
+324.3 KB  test/fixtures/openfigi-batch2.json.fixture   (verbatim, pre-projection)
+243.8 KB  test/tmp-payloads.ts                         (39 members' PTR rows)
+```
+
+The projected fixtures (106 KB / 75 KB) sit under the threshold and survive.
+One pass therefore satisfies B-06.2 and the history half of B-06.3 together.
+
+Rehearsal result on the throwaway:
+
+```
+tmp-payloads objects remaining : 0
+files still carrying PTR rows  : NONE  (429 blobs re-scanned)
+main tree hash   before/after  : 66a6090… / 66a6090…   IDENTICAL
+main commit count before/after : 269 / 269
+PR branch trees (x3)           : IDENTICAL
+```
+
+No content is lost from any branch tip. Nothing on `main` is pruned.
+
+### Why it is not fired yet
+
+Not a stall, a sequencing constraint, and B-06.2 named it ("coordinate the
+rewrite with the visibility flip so it happens once"):
+
+1. **Rewriting history does not evict anything from GitHub by itself.** Old
+   objects stay reachable by direct SHA until GitHub garbage-collects, and
+   GitHub's guidance is to contact Support to drop cached views. Firing while
+   the repo is still public buys close to nothing.
+2. **Force-pushing needs branch protection lifted** (`allow_force_pushes:
+   false`, `enforce_admins: true`), which is a window worth keeping short and
+   supervised.
+3. **Three PRs are open** (#175, #177, #178). Merging them first means one
+   rewrite instead of a rewrite plus three rebases.
+
+Fires on the owner's "private is done" signal, ideally after the stacked PRs
+merge on runner return.
+
+## 6b. Error-swallowing audit (B-06.4)
+
+The rule is now in `CLAUDE.md` beside D-48. The audit for other places a pipe
+could hide a failure found **no second instance of the D-56 pattern**, and two
+things worth stating rather than silently clearing:
+
+- 20 occurrences of `.catch(() => {})` in `src/`. These are **not** the same
+  bug: every one sits inside a `catch` block on a best-effort recovery write
+  (`putSourceState`, `recordSourceError`, `markUnhealthy`), where the original
+  error is already captured in the message being written. A failed health-write
+  must not mask the failure it is reporting. Deliberate, left alone.
+- `.github/workflows/ingest-relay.yml:232` ends the Senate uuid extraction with
+  `|| true`, so a drifted `grep` pattern yields an empty `uuids.txt` and the
+  job continues to build an empty bundle. That is the D-48 soft-failure class
+  and it is on the live data path. **Not changed here**: B-04.2 exempts the
+  courier while it is the data path, and D-48 requires a live dispatch run to
+  verify any courier edit, which runners cannot currently provide. Queued
+  behind D-55.
+
+## 7. Not done, awaiting the owner's explicit line (B-05.6)
 
 Secret scanning with push protection, Dependabot, the private ops repo, the
 adversarial-source review pass, and `docs/PUBLIC.md` are all **untouched**.
