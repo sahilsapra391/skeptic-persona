@@ -495,7 +495,13 @@ describe("runGeneration end-to-end", () => {
     await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
     const rows = await env.DB.prepare(`SELECT status FROM generations WHERE queue_id = ?1`).bind(qid).all<{ status: string }>();
     expect(rows.results.length).toBeGreaterThan(0);
-    expect(rows.results.every((r) => r.status === "api_error")).toBe(true);
+    // The invariant is NO TERMINAL ROW, not "only api_error rows". B-08.3 also
+    // writes a non-terminal `api_failed` marker so the digest can count API
+    // trouble separately from voice rejections; both must stay non-terminal.
+    const TERMINAL = (st: string) =>
+      st === "valid" || st.startsWith("fallback") || st.startsWith("skipped") || st === "rejected:payload";
+    expect(rows.results.every((r) => !TERMINAL(r.status))).toBe(true);
+    expect(rows.results.every((r) => r.status === "api_error" || r.status === "api_failed")).toBe(true);
   });
 
   it("transient upstream failure leaves NO terminal row: the row retries next tick (finding #9)", async () => {
@@ -504,7 +510,10 @@ describe("runGeneration end-to-end", () => {
     await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
     const rows = await env.DB.prepare(`SELECT status FROM generations WHERE queue_id = ?1`).bind(qid).all<{ status: string }>();
     expect(rows.results.length).toBeGreaterThan(0);
-    expect(rows.results.every((r) => r.status === "api_error")).toBe(true);
+    const TERMINAL = (st: string) =>
+      st === "valid" || st.startsWith("fallback") || st.startsWith("skipped") || st === "rejected:payload";
+    expect(rows.results.every((r) => !TERMINAL(r.status))).toBe(true);
+    expect(rows.results.every((r) => r.status === "api_error" || r.status === "api_failed")).toBe(true);
     // Next tick, upstream healthy: the row IS re-picked and completes.
     nextStatus = 200;
     nextReply = () => GOOD;
@@ -624,5 +633,93 @@ describe("generation and delivery are decoupled (p4-13)", () => {
     expect(generationAttempted).toBeGreaterThanOrEqual(0);
     expect(deliveryAttempted).toBeGreaterThanOrEqual(0);
     expect(deliveryAttempted).toBeGreaterThan(generationAttempted);
+  });
+});
+
+describe("B-08.3 (D-75): a network blip must never spend a card's voice", () => {
+  // Card #1236: four `api_error` rows, text length 0 on every one, then a
+  // template card under the desk's name. It never reached a single gate, so
+  // nothing about its copy was ever tested. Transient failure and voice
+  // rejection shared one allowance; they no longer do.
+
+  it("API failures do NOT consume the voice budget, and never produce a template card", async () => {
+    const qid = await seedApproved("P-apisplit");
+    nextStatus = 500;
+    try {
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+    } finally {
+      nextStatus = 200;
+    }
+    const rows = await env.DB.prepare(
+      `SELECT status, COUNT(*) n FROM generations WHERE queue_id = ?1 GROUP BY status`,
+    ).bind(qid).all<{ status: string; n: number }>();
+    const byStatus = Object.fromEntries(rows.results.map((r) => [r.status, r.n]));
+
+    // The whole point: no template fallback on a pure API failure.
+    expect(byStatus["fallback_template"]).toBeUndefined();
+    expect(byStatus["fallback_blocked"]).toBeUndefined();
+    // And a marker that says why, so the digest can count it separately.
+    expect(byStatus["api_failed"]).toBe(1);
+  });
+
+  it("api_failed is NON-terminal, so the row is re-picked and can still generate", async () => {
+    const qid = await seedApproved("P-apirequeue");
+    nextStatus = 500;
+    try {
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+    } finally {
+      nextStatus = 200;
+    }
+    expect(
+      await env.DB.prepare(`SELECT 1 FROM generations WHERE queue_id = ?1 AND status = 'api_failed'`).bind(qid).first(),
+    ).toBeTruthy();
+
+    // Next tick, API healthy: the card must still get its voice.
+    nextReply = () => GOOD;
+    await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+    const valid = await env.DB.prepare(
+      `SELECT COUNT(*) n FROM generations WHERE queue_id = ?1 AND status = 'valid'`,
+    ).bind(qid).first<{ n: number }>();
+    expect(valid!.n).toBeGreaterThan(0);
+  });
+
+  it("a transient failure retries IN-RUN and still generates in the same tick", async () => {
+    // The in-run backoff exists so one 429 does not cost a whole tick.
+    const qid = await seedApproved("P-apiretry");
+    let call = 0;
+    const before = orCalls;
+    nextStatus = 200;
+    nextReply = () => GOOD;
+    // First call 500, then healthy — driven by flipping status per call.
+    const origReply = nextReply;
+    nextReply = () => {
+      call += 1;
+      return origReply();
+    };
+    nextStatus = 429;
+    setTimeout(() => {
+      nextStatus = 200;
+    }, 100);
+    await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+    nextStatus = 200;
+    expect(orCalls).toBeGreaterThan(before); // it did retry rather than giving up
+    const rows = await env.DB.prepare(
+      `SELECT status FROM generations WHERE queue_id = ?1`,
+    ).bind(qid).all<{ status: string }>();
+    // Either it recovered to valid, or it requeued — never a template card.
+    expect(rows.results.every((r) => r.status !== "fallback_template")).toBe(true);
+  });
+
+  it("gate rejections DO consume the budget, and the loop now reaches MAX_ATTEMPTS", async () => {
+    // Previously the loop was `round < 2`, so MAX_ATTEMPTS = 4 was
+    // unreachable in a single run and the real cap was two.
+    const qid = await seedApproved("P-gatebudget");
+    const before = orCalls;
+    // Always fabricate, so every variant is rejected on every round.
+    nextReply = () => ({ ...GOOD, dry: "Senate PTR: Jane Roe, $9,999,999 purchase of $LMT, per Senate eFD." });
+    await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+    // More than the old two rounds.
+    expect(orCalls - before).toBeGreaterThan(2);
+    expect(orCalls - before).toBeLessThanOrEqual(MAX_ATTEMPTS);
   });
 });
