@@ -259,6 +259,21 @@ export interface OwnerExemplar {
    * newlines too, so the heuristic matched 24 entries instead of 4.
    */
   readonly v2?: true;
+  /**
+   * PROVISIONAL (B-03.2 / B-08.4): written by a session against real stored
+   * payloads because the archetype had no exemplar at all and generation was
+   * therefore refused outright — four live cards sat at `skipped_no_exemplar`
+   * with nothing to teach from.
+   *
+   * These are placeholders with a job, not owner voice. They exist so the
+   * lane can generate; they are replaced ONE FOR ONE the moment an
+   * owner-authored or advisor-authored text arrives through the relay, and
+   * the digest carries the replacement queue until then.
+   *
+   * Marked in the data rather than in a comment so the digest can count them
+   * and the replacement queue cannot drift out of date.
+   */
+  readonly provisional?: true;
 }
 
 export const OWNER_EXEMPLARS: readonly OwnerExemplar[] = [
@@ -365,6 +380,65 @@ Everyone watched the rate. The projection was the only sentence that mattered, s
   { archetype: "RATE_DECISION", register: "wire", text: `ECB holds the deposit facility rate at 2.00%. Third consecutive hold.
 Nothing moved.
 A hold is a decision made by people who seriously considered moving. It just doesn't trend.` },
+  // ---------------------------------------------------------------------
+  // PROVISIONAL exemplars (B-08.4, written 2026-08-07 against real stored
+  // payloads). These four archetypes had ZERO exemplars, so generation was
+  // refused outright and four live cards sat at `skipped_no_exemplar` with a
+  // template draft and no voice: INSIDER_NOTICE #1231/#1232, DELISTING #947,
+  // OWNERSHIP_STAKE #321 (open five weeks), PRODUCT_RECALL #1076.
+  //
+  // Every figure below comes from the payload of the card named in its
+  // comment. Nothing here is invented, and each one is validated against that
+  // payload by test/provisionalExemplars.test.ts. They are placeholders with
+  // a job: replaced one-for-one when owner or advisor text arrives.
+  // ---------------------------------------------------------------------
+
+  // INSIDER_NOTICE, from #1231 (ELI LILLY, Hakim Anat, Form 144).
+  // The editorial fact: a 144 is a NOTICE of intent, not a completed trade.
+  { archetype: "INSIDER_NOTICE", register: "wire", provisional: true, text: `Hakim Anat (Officer) filed notice of a proposed sale of 10,000 shares, $11.9M of ELI LILLY & Co on or after 08/07/2026, per SEC Form 144.
+Notice of intent, not a trade.
+Whether it happens shows up on a different form, later.` },
+  { archetype: "INSIDER_NOTICE", register: "wire", provisional: true, text: `A proposed sale of 10,000 shares of ELI LILLY & Co, $11.9M, on or after 08/07/2026, filed by Hakim Anat (Officer), per SEC Form 144.
+The shares came from an RSU award.
+Granted as pay, disposed of as stock. Both halves are the plan working.` },
+  { archetype: "INSIDER_NOTICE", register: "commentary", provisional: true, text: `Hakim Anat (Officer) filed notice of a proposed sale of 10,000 shares of ELI LILLY & Co, $11.9M, per SEC Form 144.
+The broker is named. The completed trade is not.
+A notice reports an intention, not an outcome. It still gets read as news it isn't.` },
+
+  // DELISTING, from #947 (NYSE removing a P&G note).
+  // The editorial fact: this is a NOTE, not equity, and 2026 is its maturity.
+  { archetype: "DELISTING", register: "wire", provisional: true, text: `NEW YORK STOCK EXCHANGE LLC filed to remove PROCTER & GAMBLE Co (3.250% Notes due 2026) from listing, per SEC.
+The exchange filed it, not the company.
+A bond reaching its own maturity gets the same paperwork as a company falling off the board.` },
+  { archetype: "DELISTING", register: "wire", provisional: true, text: `PROCTER & GAMBLE Co's 3.250% Notes due 2026 are being removed from listing by NEW YORK STOCK EXCHANGE LLC, filed 2026-08-03, per SEC.
+Filed under 17 CFR 240.12d2-2(a)(2). Exchange-initiated.` },
+  { archetype: "DELISTING", register: "commentary", provisional: true, text: `NEW YORK STOCK EXCHANGE LLC filed to remove PROCTER & GAMBLE Co (3.250% Notes due 2026) from listing, per SEC.
+Exchange-initiated, filed 2026-08-03.
+Delisting reads as a death notice. Most are a bond reaching maturity. The form does not distinguish.` },
+
+  // OWNERSHIP_STAKE, from #321 (About Investment Pte. Ltd. / PicoCELA).
+  // The editorial fact: 13D is the ACTIVIST form, and 67.5% is control.
+  { archetype: "OWNERSHIP_STAKE", register: "wire", provisional: true, text: `Schedule 13D: About Investment Pte. Ltd. reports 20,000,000 shares, 67.5% of PicoCELA Inc., event dated 07/16/2026, per SEC.
+67.5% of the class, in one filer's hands.
+The rest of the register is along for the ride.` },
+  { archetype: "OWNERSHIP_STAKE", register: "wire", provisional: true, text: `About Investment Pte. Ltd. reports 67.5% of PicoCELA Inc. on a Schedule 13D, event dated 07/16/2026, per SEC.
+13D, not 13G.
+The passive form was available. They filed the other one.` },
+  { archetype: "OWNERSHIP_STAKE", register: "commentary", provisional: true, text: `About Investment Pte. Ltd. reports 20,000,000 shares, 67.5% of PicoCELA Inc., event dated 07/16/2026, per SEC.
+A Schedule 13D, not a Schedule 13G.
+13D is the form filed with intent. The passive form was available and they did not take it.` },
+
+  // PRODUCT_RECALL, from #1076 (Major Pharmaceuticals, subpotent levothyroxine).
+  // The editorial fact: 16 days between firm-initiated recall and FDA report.
+  { archetype: "PRODUCT_RECALL", register: "wire", provisional: true, text: `FDA Class II drug recall: Major Pharmaceuticals, Levothyroxine Sodium Tablets, 12 products, reason Subpotent Drug, per FDA.
+Initiated 2026-07-13, reported 2026-07-29.
+Sixteen days between the firm deciding and the public finding out.` },
+  { archetype: "PRODUCT_RECALL", register: "wire", provisional: true, text: `Major Pharmaceuticals recalled 12 Levothyroxine Sodium Tablets products, Class II, reason Subpotent Drug, distributed nationwide in the USA, per FDA.
+Voluntary: firm initiated.
+Voluntary means they found it. It does not mean they found it early.` },
+  { archetype: "PRODUCT_RECALL", register: "commentary", provisional: true, text: `FDA Class II recall: Major Pharmaceuticals, 12 Levothyroxine Sodium Tablets products, reason Subpotent Drug, per FDA.
+Initiated 2026-07-13, reported 2026-07-29.
+Subpotent thyroid medication is a dose nobody notices missing. Sixteen days of it were nobody's news.` },
 ];
 
 /**

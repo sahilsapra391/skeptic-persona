@@ -165,7 +165,22 @@ const isKnownConflict = (archetype: string, rule: string, detail: string): boole
   KNOWN_FLOOR_CONFLICTS.some((k) => k.archetype === archetype && k.detail === `${rule}: ${detail}`);
 
 describe("owner exemplars vs the fabrication floor", () => {
-  const covered = OWNER_EXEMPLARS.filter((e) => COVERED_ARCHETYPES.has(e.archetype));
+  // PROVISIONALS ARE EXCLUDED, and they are held to a STRICTER standard, not a
+  // looser one (B-08.4).
+  //
+  // This sweep necessarily approximates: `payloadLicensingFactsOf` derives a
+  // payload from the exemplar's own text and deliberately withholds NAMES, so
+  // that entityCheck cannot pass trivially. That is the right trade for owner
+  // exemplars, whose real payloads are not in the repo — but it means a real
+  // issuer name trips as a fixture artifact, which is exactly what the B-01.4
+  // entries in KNOWN_FLOOR_CONFLICTS record.
+  //
+  // The provisionals do not need the approximation. Each was written from a
+  // specific live card, so its ACTUAL payload is committed as a fixture and
+  // test/provisionalExemplars.test.ts runs the same FLOOR_GATES against the
+  // genuine article, names and dates included. Listing ~20 fixture artifacts
+  // here instead would blunt the ratchet this file exists to hold.
+  const covered = OWNER_EXEMPLARS.filter((e) => COVERED_ARCHETYPES.has(e.archetype) && !e.provisional);
 
   it("enumerates the gates from the PIPELINE's list, not a copy of it", () => {
     // The whole point. If someone adds a gate to the floor, this test starts
@@ -181,7 +196,13 @@ describe("owner exemplars vs the fabrication floor", () => {
     // `covered.length > 0` was the old guard and it could not detect a
     // narrowed archetype set — which is exactly how two live failures stayed
     // hidden. Pin both totals instead.
-    expect(covered.length).toBe(OWNER_EXEMPLARS.length);
+    const provisionals = OWNER_EXEMPLARS.filter((e) => e.provisional);
+    // Every non-provisional exemplar is swept here; every provisional is swept
+    // against its REAL payload in test/provisionalExemplars.test.ts. The two
+    // sets must partition the bank exactly, so neither file can quietly stop
+    // covering something.
+    expect(covered.length + provisionals.length).toBe(OWNER_EXEMPLARS.length);
+    expect(covered.length).toBe(OWNER_EXEMPLARS.length - provisionals.length);
     expect(COVERED_ARCHETYPES.size).toBeGreaterThanOrEqual(8);
   });
 
@@ -189,7 +210,10 @@ describe("owner exemplars vs the fabrication floor", () => {
     // The list is an admission, not a suppression. If a new exemplar trips the
     // floor, it must show up as a failure rather than be quietly added here.
     const tripped = new Set<string>();
-    for (const ex of OWNER_EXEMPLARS) {
+    // Provisionals excluded for the same reason as the sweep above: their real
+    // payloads exist, so approximating one here would manufacture ~20 fixture
+    // artifacts and blunt this ratchet rather than sharpen it.
+    for (const ex of OWNER_EXEMPLARS.filter((e) => !e.provisional)) {
       const payload = payloadLicensingFactsOf(ex.text);
       const facts = payloadFacts(payload);
       for (const issue of FLOOR_GATES.flatMap((g) => g.run(ex.text, payload, facts))) {
