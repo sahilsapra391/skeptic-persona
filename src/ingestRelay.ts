@@ -1,7 +1,14 @@
 import type { Env } from "./env";
 import { safeEqual } from "./telegram/webhook";
 import { newTickBudget } from "./lib/budget";
-import { insertItem, SCORE_LOG_ONLY, SCORE_POSTABLE } from "./lib/db";
+import {
+  getSourceState,
+  insertItem,
+  putSourceState,
+  recordSourceError,
+  SCORE_LOG_ONLY,
+  SCORE_POSTABLE,
+} from "./lib/db";
 import { parseAuctions, scoreAuction, draftAuction, SOURCE as TREASURY_SOURCE, TREASURY_PAGE } from "./ingesters/treasury";
 import { parsePressFeed, PRESS_SOURCES, isNewsworthy, draftPress } from "./ingesters/regulatoryPress";
 import { ingestEfdRow, parseEfdRows, SOURCE as SENATE_SOURCE, type EfdRow } from "./ingesters/senatePtr";
@@ -456,6 +463,23 @@ export async function handleIngestRelay(request: Request, env: Env, now: Date = 
               ? await ingest13fBackfill(env, payload.body, now)
             : await ingestPress(env, payload.source, payload.body, now);
     const queued = await drain(env, payload.source, now);
+
+    // RECORD THE HEALTH OF A RELAYED SOURCE (D-71). Until now this handler
+    // inserted rows and drained without ever touching `source_state`, so a
+    // source that is fed by the courier had no health record at all — its row
+    // held whatever the last DIRECT poll left behind, forever.
+    //
+    // That is not cosmetic. On 2026-08-07 the senate row still read
+    // `consecutive_failures=5, last_error="efd home 403", last_ok=08-02` while
+    // 18 filings were landing through this exact code path, and that stale row
+    // is what the previous diagnosis was built on. A health table that reports
+    // a five-day-old error during a successful ingest is worse than no table.
+    const state = await getSourceState(env.DB, payload.source);
+    state.consecutiveFailures = 0;
+    state.lastOkAt = iso(now);
+    state.lastPolledAt = iso(now);
+    await putSourceState(env.DB, state).catch(() => {});
+
     log("info", "ingest relay accepted", {
       source: payload.source,
       bytes: payload.body.length,
@@ -466,7 +490,20 @@ export async function handleIngestRelay(request: Request, env: Env, now: Date = 
     return Response.json({ ok: true, inserted, queued });
   } catch (e) {
     // A parse failure is the courier's problem to see, so it gets a 422 with
-    // the reason rather than a silent 200.
+    // the reason rather than a silent 200. It is also the source's problem:
+    // recorded here so a courier-fed source can go unhealthy in the table
+    // rather than only in the workflow log.
+    //
+    // The increment is done here rather than inside recordSourceError because
+    // that helper only writes last_error/last_error_at; every existing caller
+    // bumps the counter itself first (see pollPrWire). Matching the convention
+    // instead of changing a helper five ingesters already depend on.
+    await (async () => {
+      const state = await getSourceState(env.DB, payload.source);
+      state.consecutiveFailures += 1;
+      await putSourceState(env.DB, state);
+    })().catch(() => {});
+    await recordSourceError(env.DB, payload.source, e, now).catch(() => {});
     log("error", "ingest relay parse failed", { source: payload.source, error: String(e) });
     return Response.json({ error: String(e) }, { status: 422 });
   }
