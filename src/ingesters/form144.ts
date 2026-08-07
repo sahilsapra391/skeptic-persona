@@ -6,6 +6,7 @@ import { decodeEntities, extractAllNs, extractAttr, extractFirst, extractFirstNs
 import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtNum, fmtUsd, isFreshAtIngest } from "./shared";
+import { deriveDisplayName } from "../lib/names";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -210,10 +211,30 @@ export function relationshipLabel(doc: Form144Doc): string | null {
   return doc.relationships.length > 0 ? doc.relationships.join(", ") : null;
 }
 
+/**
+ * p6-01 (A1). Form 144's `nameOfPersonForWhoseAccountTheSecuritiesAreToBeSold`
+ * carries the same `LAST FIRST MIDDLE` convention as Form 4's `rptOwnerName`
+ * (live-verified 2026-08-07: "Hermance David F.", "Hakim Anat").
+ *
+ * The relationship strings are the natural-person signal the reorder needs. A
+ * notice filed by an entity is usually marked "10% Owner" alone, so only an
+ * officer or director releases a flip on a bare two-token name.
+ */
+export function sellerDisplayName(doc: Form144Doc): string {
+  const rels = doc.relationships.map((r) => r.toLowerCase());
+  return deriveDisplayName(doc.sellerName, {
+    isOfficer: rels.some((r) => r.includes("officer")),
+    isDirector: rels.some((r) => r.includes("director")),
+  }).display;
+}
+
 /** Tier A fact line: parsed fields and arithmetic over them, nothing more. */
 export function draftForm144(doc: Form144Doc): string {
   const rel = relationshipLabel(doc);
-  const who = rel ? `${doc.sellerName} (${rel})` : doc.sellerName;
+  // p6-01 (A1): the DISPLAY form, because EDGAR files `LAST FIRST MIDDLE` and
+  // "Sheena Jonathan" shipped on card #1232. The filed string stays on the
+  // payload as `sellerNameFiled` for validation and audit.
+  const who = `${sellerDisplayName(doc)}${rel ? ` (${rel})` : ""}`;
   // NOT a ticker: Form 144 parses no trading symbol at all, only the issuer
   // name. Named honestly so nobody later 'fixes' this into $Company Inc.
   const issuer = doc.issuerName;
@@ -328,7 +349,12 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
             accession: stub.accession,
             issuerCik: doc.issuerCik,
             issuerName: doc.issuerName,
-            sellerName: doc.sellerName,
+            // p6-01: `sellerName` is what every template, beat and prompt
+            // prints, so it carries the DISPLAY form. The filed string keeps
+            // its own key so validation and audit still see the record.
+            sellerName: sellerDisplayName(doc),
+            sellerNameFiled: doc.sellerName,
+            sellerNameShape: deriveDisplayName(doc.sellerName).shape,
             relationships: doc.relationships,
             relationshipLabel: relationshipLabel(doc),
             securitiesClass: doc.securitiesClass,

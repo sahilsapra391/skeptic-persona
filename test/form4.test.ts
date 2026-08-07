@@ -142,7 +142,7 @@ describe("totals + scoring", () => {
       issuerCik: "0001516513",
       issuerName: "Doximity, Inc.",
       ticker: "DOCS",
-      owners: [{ cik: "1", name: "Jane Doe", isDirector: false, isOfficer: true, isTenPercent: false, officerTitle: "CEO" }],
+      owners: [{ cik: "1", name: "Doe Jane", isDirector: false, isOfficer: true, isTenPercent: false, officerTitle: "CEO" }],
       nonDerivative: [txn({ code: "P", shares: 50_000, price: 12.34, sharesAfter: 1_250_000, pctChange: 4.2 })],
       derivativeCount: 0,
     };
@@ -156,7 +156,7 @@ describe("totals + scoring", () => {
       issuerCik: "9",
       issuerName: "Mix Corp",
       ticker: "MIX",
-      owners: [{ cik: "1", name: "Jane Doe", isDirector: true, isOfficer: false, isTenPercent: false, officerTitle: null }],
+      owners: [{ cik: "1", name: "Doe Jane", isDirector: true, isOfficer: false, isTenPercent: false, officerTitle: null }],
       nonDerivative: [
         txn({ code: "P", shares: 10_000, price: 20, sharesAfter: 110_000, pctChange: 10, date: "2026-07-24" }),
         // Footnote-only price: excluded from totals; its date and its huge
@@ -351,7 +351,7 @@ describe("pollForm4 end-to-end", () => {
     // $200k P-buy -> postable -> notified.
     expect(SEND.calls.length).toBe(s0 + 1);
     const sentText = String(SEND.calls.at(-1)?.text);
-    expect(sentText).toContain("BUYER PERSON (Chief Financial Officer)");
+    expect(sentText).toContain("Person Buyer (Chief Financial Officer)");
     expect(sentText).toContain("25,000 $ISCO");
     expect(sentText).toContain("per SEC Form 4");
 
@@ -461,7 +461,7 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
   it("a real ticker is prefixed", () => {
     const doc = {
       documentType: "4", issuerCik: "0001516513", issuerName: "Doximity, Inc.", ticker: "DOCS",
-      owners: [{ cik: "1", name: "Jane Doe", isDirector: false, isOfficer: true, isTenPercent: false, officerTitle: "CEO" }],
+      owners: [{ cik: "1", name: "Doe Jane", isDirector: false, isOfficer: true, isTenPercent: false, officerTitle: "CEO" }],
       nonDerivative: [txn({ code: "P", shares: 50_000, price: 12.34 })],
       derivativeCount: 0,
     };
@@ -475,7 +475,7 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
     // fabrication class, reached by a formatting change.
     const doc = {
       documentType: "4", issuerCik: "0001516513", issuerName: "Doximity, Inc.", ticker: null,
-      owners: [{ cik: "1", name: "Jane Doe", isDirector: false, isOfficer: true, isTenPercent: false, officerTitle: "CEO" }],
+      owners: [{ cik: "1", name: "Doe Jane", isDirector: false, isOfficer: true, isTenPercent: false, officerTitle: "CEO" }],
       nonDerivative: [txn({ code: "P", shares: 50_000, price: 12.34 })],
       derivativeCount: 0,
     };
@@ -487,7 +487,7 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
   it("the $ never lands on a dollar figure or anything else already in the line", () => {
     const doc = {
       documentType: "4", issuerCik: "1", issuerName: "Acme Corp", ticker: "ACME",
-      owners: [{ cik: "1", name: "Jane Doe", isDirector: true, isOfficer: false, isTenPercent: false, officerTitle: null }],
+      owners: [{ cik: "1", name: "Doe Jane", isDirector: true, isOfficer: false, isTenPercent: false, officerTitle: null }],
       nonDerivative: [txn({ code: "P", shares: 1_000, price: 10 })],
       derivativeCount: 0,
     };
