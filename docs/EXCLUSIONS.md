@@ -67,3 +67,57 @@ nothing, and the licence does not fit the budget.
 Either one is an owner ruling, not an engineering judgement.
 
 **Memo:** [2026-08-06 NSE/BSE data licence](memos/2026-08-06-nse-bse-data-licence.md)
+
+## UN News as a geopolitics source
+
+**What.** The UN News global feed
+(`news.un.org/feed/subscribe/en/news/all/rss.xml`) as an ingested source under
+p5-22.
+
+**Why.** It is live and parseable: 200, 30 items, verified 2026-08-07. The
+problem is fit, not reachability. Sampled the same minute, the feed carried
+childhood Ebola deaths in DR Congo, the deadliest attack on Kyiv this year,
+gang violence in Haiti, 300 children killed in Gaza, and a story about a
+peacock. One item in twelve was market-adjacent.
+
+A market-intelligence desk republishing casualty counts and outbreak deaths as
+signal is not noisy, it is wrong. The desk has no standing to frame those as
+market events and no archetype that could carry them honestly.
+
+**What would reopen it.** A UN feed scoped to economic or trade output
+specifically (UNCTAD statistics, a sanctions-committee decisions feed), where
+every item is a document rather than a dispatch. The global news feed itself
+does not reopen.
+
+## China official-English lane (p5-23)
+
+**What.** PBoC, NBS, CSRC, MOFCOM and China Customs English pages as ingested
+sources.
+
+**Why.** No machine-readable endpoint exists. Eight paths probed across two
+rounds on 2026-08-07: PBoC, NBS, CSRC and Customs each return a 200 HTML page
+with no feed, MOFCOM and the `.rss` variants 404. Reachability was never the
+issue; there is simply nothing structured to parse.
+
+Building it means HTML content-diff against foreign government pages with no
+declared feed, no stated UA policy, and no change notification. That is a
+fragile parser aimed at a source that has not agreed to be parsed, and it
+would break silently.
+
+**What would reopen it.** Any of these bodies publishing an English RSS/Atom
+feed or a documented API. Re-probe costs ten minutes; the paths are recorded in
+`verification/2026-08-07-geopolitics-china-usda-endpoints.md`.
+
+## USDA WASDE lane (p5-24) — pending one owner action
+
+**What.** The WASDE report and USDA/NASS releases as an ingested source.
+
+**Why.** Ten paths probed across two rounds on 2026-08-07. Every RSS path is
+404 or 403, both Cornell Mann library routes 404, and the WASDE page itself is
+a 164 KB HTML page with no feed. The one live structured route is the **NASS
+QuickStats API, which returns 401 without a key**.
+
+**What would reopen it.** A free NASS QuickStats API key, which is an owner
+action rather than a decision. With the key this lane is buildable
+immediately; without it, content-diffing a monthly 164 KB HTML page is the
+only route and is not worth the fragility.

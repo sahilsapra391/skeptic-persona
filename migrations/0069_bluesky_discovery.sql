@@ -1,0 +1,24 @@
+-- p5-25 (B-03.6): the Bluesky discovery lane, SHIPPED OFF.
+--
+-- The lane is complete and tested, and does nothing until BLUESKY_ENABLED is
+-- "true" AND BLUESKY_IDENTIFIER is set. Registering the job row now is safe
+-- precisely because the handler no-ops behind the flag: the dispatcher claims
+-- the slot, the handler returns 0, nothing is polled and no credential is
+-- read.
+--
+-- These items can never become a post. The p4 mesh rule is that social is
+-- DISCOVERY, never citation: a Bluesky post is a signal that a primary
+-- document may exist, recorded at log-only score, and the desk publishes the
+-- filing it pointed at, cited to its own source.
+--
+-- ORDERING (D-43): this migration goes in AFTER the deploy carrying
+-- src/ingesters/bluesky.ts. A job row whose handler is not yet deployed gets
+-- claimed by the dispatcher, finds nothing, and burns the slot.
+--
+-- every_30m, not faster: search is a corroboration signal, not a latency race,
+-- and the lanes that actually card poll well ahead of any social mention.
+-- Columns read from 0001_init.sql, not guessed: (name, due_at,
+-- cadence_profile, enabled, priority). due_at must be the fixed-width
+-- Date.toISOString() form, because the dispatcher compares it LEXICALLY.
+INSERT INTO jobs (name, due_at, cadence_profile, enabled, priority)
+VALUES ('bluesky_discovery', '2026-01-01T00:00:00.000Z', 'every_30m', 1, 70);

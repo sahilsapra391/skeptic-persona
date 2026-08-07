@@ -42,6 +42,19 @@ export interface Env {
   /** BLS watcher tight-poll tuning (defaults 2500 / 90000; tests shrink them). */
   BLS_POLL_INTERVAL_MS?: string;
   BLS_POLL_DEADLINE_MS?: string;
+  // Bluesky discovery lane (p5-25, B-03.6). SHIPPED BEHIND THE FLAG: the lane
+  // is complete and tested, and does nothing until BLUESKY_ENABLED is "true".
+  //
+  // Both the identifier and the app password are required and neither has a
+  // default. `searchPosts` is 403 to anonymous callers (verified 2026-08-07),
+  // so the credential is not optional decoration — without it the lane cannot
+  // ask its only question.
+  /** "true" turns the lane on. Anything else, including absent, is off. */
+  BLUESKY_ENABLED?: string;
+  /** The handle or email the app password belongs to. Config, not a secret. */
+  BLUESKY_IDENTIFIER?: string;
+  /** App password, scoped and independently revocable. SECRET, env-only. */
+  BLUESKY_APP_PASSWORD?: string;
   // Threads poster (P2) — PARKED 2026-07-28, account banned (poster.ts
   // THREADS_PARKED). The secrets are still set in Cloudflare and the types
   // stay so the parked client keeps typechecking for the appeal; nothing
