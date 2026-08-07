@@ -3,7 +3,7 @@ import PAYLOADS from "./fixtures/provisional-exemplar-payloads.json";
 import { OWNER_EXEMPLARS, EXEMPLAR_MAX_WEIGHTED } from "../src/rag/stylepack";
 import { checkRegister } from "../src/templates/validate";
 import { weightedLength } from "../src/templates/length";
-import { FLOOR_GATES, numberCheck } from "../src/rag/validate";
+import { FLOOR_GATES, numberCheck, payloadFacts } from "../src/rag/validate";
 import type { ArchetypeId } from "../src/templates/types";
 
 /**
@@ -60,7 +60,7 @@ describe("B-08.4: provisional exemplars are grounded, not invented", () => {
     for (const a of COVERED) {
       const payload = FIX[a]!.payload;
       for (const e of provisionals.filter((x) => x.archetype === a)) {
-        const issues = FLOOR_GATES.flatMap((g) => g.run(e.text, payload as never));
+        const issues = FLOOR_GATES.flatMap((g) => g.run(e.text, payload as never, payloadFacts(payload as never)));
         const detail = issues.map((i) => `${i.rule}: ${i.detail}`).join("; ");
         expect(issues, `${a} #${FIX[a]!.queueId}: ${detail}\n${e.text}`).toEqual([]);
       }
