@@ -60,6 +60,21 @@ import { checkGroundingProvenance, type GroundingProvenance, corpusHasData, vali
 export const MAX_GENERATIONS_PER_RUN = 3;
 /** Total LLM attempts per queue row across all runs before falling back. */
 export const MAX_ATTEMPTS = 4;
+
+/**
+ * API retries get their OWN budget (B-08.3), separate from MAX_ATTEMPTS.
+ *
+ * Card #1236 is why. Four `api_error` rows, `text` length 0 on every one, then
+ * a template card. It never reached a single gate, so nothing about its voice
+ * was ever tested — a network blip spent the card. Transient failure and voice
+ * rejection are different events and no longer share an allowance.
+ */
+export const MAX_API_RETRIES_PER_RUN = 3;
+
+/** Exponential, and short: this runs inside a tick, not across one. */
+export const API_BACKOFF_MS: readonly number[] = [250, 750, 2000];
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 /** Stop starting new rows after this much wall time (cadence is 300s). */
 export const RUN_TIME_CAP_MS = 120_000;
 /**
@@ -383,17 +398,25 @@ export async function runGeneration(
     // probes applies to the hot path here.
     const counters = await env.DB.prepare(
       `SELECT COALESCE(MAX(attempt), 0) AS highest,
-              COUNT(DISTINCT CASE WHEN cycle = ?2 THEN attempt END) AS spent
+              COUNT(DISTINCT CASE WHEN cycle = ?2 AND status NOT IN ('api_error','api_failed') THEN attempt END) AS spent,
+              COUNT(DISTINCT CASE WHEN cycle = ?2 AND status IN ('api_error','api_failed') THEN attempt END) AS api_spent
        FROM generations WHERE queue_id = ?1`,
     )
       .bind(row.queue_id, row.regen_cycle)
-      .first<{ highest: number; spent: number }>();
+      .first<{ highest: number; spent: number; api_spent: number }>();
     let attempt = (counters?.highest ?? 0) + 1;
     // The BUDGET, unlike the numbering, is per cycle: Regenerate restores a
     // full allowance, which is the whole point of tapping it. Counting
     // distinct attempt values rather than rows, because one attempt writes
     // one row per variant.
+    //
+    // TWO BUDGETS, NOT ONE (B-08.3, D-75). `spent` now EXCLUDES api_error and
+    // api_failed. A transient network failure and a voice rejection are not
+    // the same event and must not share an allowance: card #1236 burned all
+    // four attempts on `api_error` with `text` length 0, never once reached a
+    // gate, and still got a template card. A blip spent that card's voice.
     const spentBeforeRun = counters?.spent ?? 0;
+    const apiSpentBeforeRun = counters?.api_spent ?? 0;
     const attemptsLeft = Math.max(0, MAX_ATTEMPTS - spentBeforeRun);
 
     let payload: Payload;
@@ -526,7 +549,14 @@ export async function runGeneration(
     const feedback: string[] = [];
     let sawApiError = false;
 
-    for (let round = 0; round < 2 && attemptsLeft > round && valid.size < VARIANTS.length; round++) {
+    // ROUNDS NOW MATCH THE BUDGET (B-08.3). This was `round < 2`, so
+    // MAX_ATTEMPTS = 4 was never reachable in a single run and the real cap
+    // was two. Gate rejections are the only thing that should consume rounds,
+    // and a card whose first round is rejected on a discoverable formatting
+    // rule deserves the allowance the constant already promised.
+    let apiRetriesThisRun = 0;
+    let gateRoundsThisRun = 0;
+    for (let round = 0; round < MAX_ATTEMPTS && attemptsLeft > round && valid.size < VARIANTS.length; round++) {
       if (!budget.take(1, { reserved: true })) break;
       let content: string;
       try {
@@ -545,16 +575,33 @@ export async function runGeneration(
           }
           return;
         }
-        // Transient failure (429/5xx/timeout): record a NON-terminal marker
-        // and let the next 5-minute tick retry — natural backoff, no
-        // permanent template downgrade (finding #9).
+        // Transient failure (429/5xx/timeout/empty body): record a NON-terminal
+        // marker and retry. Two layers of backoff, and neither spends a
+        // variant round (B-08.3):
+        //   in-run   short exponential sleep, so a single 429 does not have to
+        //            wait a whole tick for a retry that would likely succeed
+        //   cross-tick  the existing 5-minute cadence, for anything longer
         sawApiError = true;
         log("error", "openrouter call failed", { queueId: row.queue_id, attempt, error: String(e) });
         await insertGeneration(env.DB, { queueId: row.queue_id, cycle: row.regen_cycle, variant: "none", text: "", status: "api_error", attempt }, now);
         attempt += 1;
-        continue;
+        apiRetriesThisRun += 1;
+        // `round--` is the whole point: an API failure must not consume a
+        // voice attempt. Guarded by its own budget so a hard outage cannot
+        // spin this loop.
+        if (apiRetriesThisRun < MAX_API_RETRIES_PER_RUN) {
+          await sleep(API_BACKOFF_MS[Math.min(apiRetriesThisRun - 1, API_BACKOFF_MS.length - 1)]!);
+          round--;
+          continue;
+        }
+        break;
       }
 
+      // This round reached the model and will reach the gates, so it is a
+      // VOICE attempt. Counted separately from API failures so the tail can
+      // tell "the voice was tested and failed" from "the voice was never
+      // tested" (B-08.3).
+      gateRoundsThisRun += 1;
       const variants = parseVariants(content);
       for (const v of VARIANTS) {
         if (valid.has(v)) continue;
@@ -621,9 +668,37 @@ export async function runGeneration(
     // instead of retrying. That is finding #9's permanent-downgrade
     // regression, reintroduced for every regenerated row and silent when it
     // happens.
-    if (sawApiError && spentBeforeRun + 2 < MAX_ATTEMPTS) {
-      // Pure transient failure with retries left: leave NO terminal row so
-      // the next tick picks this row up again.
+    // A NETWORK BLIP MUST NEVER SPEND A CARD'S VOICE (B-08.3, D-75).
+    //
+    // The old guard was `sawApiError && spentBeforeRun + 2 < MAX_ATTEMPTS`,
+    // which mixed the two budgets: once api_error rows had pushed `spent` to
+    // 2, the condition went false and the NEXT transient failure wrote a
+    // template card. Card #1236 died exactly there — four api_error rows,
+    // zero gate contact, one template card under the desk's name.
+    //
+    // The question that actually matters is whether the VOICE was ever
+    // tested. If no round reached the gates this cycle, there is nothing to
+    // conclude about the copy and falling back is not a judgement, it is a
+    // guess dressed as one.
+    const voiceEverTested = spentBeforeRun > 0 || gateRoundsThisRun > 0;
+    if (sawApiError && !voiceEverTested) {
+      // Non-terminal by design: selection re-picks rows that have no terminal
+      // row, so this requeues on the next tick with its voice budget intact.
+      await insertGeneration(
+        env.DB,
+        { queueId: row.queue_id, cycle: row.regen_cycle, variant: "none", text: "", status: "api_failed", attempt },
+        now,
+      );
+      log("warn", "generation requeued: API never reached the gates", {
+        queueId: row.queue_id,
+        apiSpentBeforeRun,
+        apiRetriesThisRun,
+      });
+      continue;
+    }
+    if (sawApiError && attemptsLeft > gateRoundsThisRun) {
+      // Voice was tested but the run also hit the API and still has voice
+      // budget left. Retry next tick rather than settling for the template.
       continue;
     }
 
