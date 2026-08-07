@@ -333,6 +333,23 @@ async function handleCardCopy(env: ConfiguredEnv, cb: TgCallbackQuery, variant: 
   const token = env.TELEGRAM_BOT_TOKEN;
   const card = await cardForTap(env, cb, queueId, cycle);
   if (!card) return;
+  // TEMPLATE TEXT IS NOT COPYABLE (B-07.3 / B-08.6). buildCard no longer draws
+  // a Copy button on a fallback card, but cards already sitting in the chat
+  // still carry theirs, and a button that exists gets tapped. Refusing here is
+  // what actually enforces the rule; removing the button only stops NEW ones.
+  //
+  // Copying machine text that never passed the voice gates, under the desk's
+  // name, is the failure the whole voice system exists to prevent. Regenerate
+  // and Edit remain, because both are routes to having a voice.
+  if (variant === "template") {
+    await answerCallbackQuery(
+      token,
+      cb.id,
+      "That is the template fallback, not a generated draft. Tap Regenerate, or Edit to write it yourself.",
+      true,
+    );
+    return;
+  }
   const text = await resolveVariantText(env.DB, queueId, variant);
   if (text === null) {
     await answerCallbackQuery(token, cb.id, `No ${variant} text exists for #${queueId}.`);

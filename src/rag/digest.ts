@@ -319,6 +319,81 @@ export function renderLaneRates(lanes: readonly LaneRate[]): string[] {
   return out;
 }
 
+/**
+ * Generation health per archetype (B-08.6): how often a lane ends up with a
+ * template card instead of a voice, and what refused it.
+ *
+ * api_error/api_failed are counted SEPARATELY from rejections and never folded
+ * into the fallback rate. They are different failures with different fixes:
+ * a rejection means the copy was judged and refused, an API failure means it
+ * was never judged at all. Card #1236 fell back after four API failures with
+ * zero gate contact (D-75), and a combined number would have read as a voice
+ * problem and sent the next reader to the wrong place entirely.
+ */
+export interface GenHealth {
+  archetype: string;
+  cards: number;
+  fell_back: number;
+  api_cards: number;
+  top_reason: string | null;
+  top_reason_n: number;
+}
+
+export async function genHealth(db: D1Database, sinceIso: string, untilIso: string): Promise<GenHealth[]> {
+  const rows = await db
+    .prepare(
+      `SELECT q.archetype AS archetype,
+              COUNT(DISTINCT g.queue_id) AS cards,
+              COUNT(DISTINCT CASE WHEN g.status IN ('fallback_template','fallback_blocked','skipped_no_exemplar')
+                                  THEN g.queue_id END) AS fell_back,
+              COUNT(DISTINCT CASE WHEN g.status IN ('api_error','api_failed') THEN g.queue_id END) AS api_cards
+         FROM generations g JOIN queue q ON q.id = g.queue_id
+        WHERE g.created_at >= ?1 AND g.created_at < ?2
+        GROUP BY q.archetype
+        ORDER BY fell_back DESC, cards DESC`,
+    )
+    .bind(sinceIso, untilIso)
+    .all<{ archetype: string; cards: number; fell_back: number; api_cards: number }>();
+
+  const reasons = await db
+    .prepare(
+      `SELECT q.archetype AS archetype, g.status AS status, COUNT(*) AS n
+         FROM generations g JOIN queue q ON q.id = g.queue_id
+        WHERE g.created_at >= ?1 AND g.created_at < ?2 AND g.status LIKE 'rejected:%'
+        GROUP BY q.archetype, g.status
+        ORDER BY n DESC`,
+    )
+    .bind(sinceIso, untilIso)
+    .all<{ archetype: string; status: string; n: number }>();
+
+  const top = new Map<string, { status: string; n: number }>();
+  for (const r of reasons.results) if (!top.has(r.archetype)) top.set(r.archetype, { status: r.status, n: r.n });
+
+  return rows.results.map((r) => ({
+    ...r,
+    top_reason: top.get(r.archetype)?.status.replace("rejected:", "") ?? null,
+    top_reason_n: top.get(r.archetype)?.n ?? 0,
+  }));
+}
+
+export function renderGenHealth(rows: readonly GenHealth[]): string[] {
+  if (rows.length === 0) return [];
+  const cards = rows.reduce((a, r) => a + r.cards, 0);
+  const fell = rows.reduce((a, r) => a + r.fell_back, 0);
+  if (cards === 0) return [];
+  const pct = Math.round((fell / cards) * 100);
+  // B-08.7's acceptance number, tracked from now on rather than measured once.
+  const out = ["", `Generation: ${pct}% fallback (${fell} of ${cards} cards). Target under 10%. Baseline 36%.`];
+  for (const r of rows) {
+    if (r.fell_back === 0 && r.api_cards === 0) continue;
+    const why = r.top_reason ? `, top reason ${r.top_reason} x${r.top_reason_n}` : "";
+    // API trouble is named apart, because it is not a voice problem.
+    const api = r.api_cards > 0 ? `, ${r.api_cards} hit the API` : "";
+    out.push(`  ${r.archetype}: ${r.fell_back}/${r.cards} fell back${why}${api}`);
+  }
+  return out;
+}
+
 export function renderDigest(
   stats: ZeroEditStats,
   pairs: readonly EditPair[],
@@ -406,6 +481,10 @@ export async function runVoiceDigest(env: Env, now: Date, _budget: TickBudget = 
     [
       ...renderNorthStar(current, prior, DIGEST_WINDOW_DAYS),
       ...renderLaneRates(await laneRates(env.DB, since.toISOString(), now.toISOString())),
+      // Generation health rides in the same block for the same reason (B-08.6):
+      // a lane that cards without generating publishes nothing, and that is
+      // most worth saying in exactly the weeks the headline numbers are zero.
+      ...renderGenHealth(await genHealth(env.DB, since.toISOString(), now.toISOString())),
     ],
     renderEfdLatency(efd, DIGEST_WINDOW_DAYS),
   );

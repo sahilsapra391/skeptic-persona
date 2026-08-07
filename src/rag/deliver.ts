@@ -178,20 +178,68 @@ export async function buildCard(
   }
 
   if (copyRow.length === 0) {
+    // FALLBACK CARDS LOSE COPY (B-07.3 / B-08.6).
+    //
+    // A fallback is machine text that never passed the voice gates. Putting a
+    // Copy button on it invites publishing it under the desk's name, which is
+    // the exact failure the whole voice system exists to prevent. Regenerate
+    // and Edit stay, because both are ways to GET a voice; Copy is the only
+    // one that skips having one.
+    //
+    // The reason rides in the card so the refusal is legible at the point of
+    // decision rather than in a query the owner has to know to run.
     const text = await resolveVariantText(db, queueId, "template");
     const label =
       terminalStatus === "skipped_no_exemplar"
-        ? `template draft (no exemplar for ${archetype} yet — write one to enable generation)`
-        : "template draft (generation fell back)";
+        ? `template draft — NOT copy-ready. No exemplar for ${archetype} yet, so generation was refused outright.`
+        : "template draft — NOT copy-ready. Every generated variant was rejected.";
+    const why = await topRejectionReason(db, queueId);
     sections.push(`— ${label} —\n${text ?? ""}`);
-    copyRow.push({ text: "Copy draft", callback_data: `c:t:${queueId}:${renderId}` });
+    if (why) sections.push(`Why: ${why}\nRegenerate to try again, or Edit to write it yourself.`);
+    else sections.push(`Regenerate to try again, or Edit to write it yourself.`);
   }
 
   return {
     text: `#${queueId} ${archetype} — pick a variant, paste to X, then answer Posted?\n\n${sections.join("\n\n")}`,
-    buttons: [copyRow, actionRow],
+    // An empty copyRow would render as a stray empty keyboard row.
+    buttons: copyRow.length > 0 ? [copyRow, actionRow] : [actionRow],
     held: false,
   };
+}
+
+/**
+ * The most common rejection reason for this row's live cycle (B-08.6).
+ *
+ * Shown on a fallback card so the refusal is legible where the decision is
+ * made. Counted rather than "most recent" because the useful answer is which
+ * rule keeps refusing, not which one happened to fire last; three variants
+ * rejected on `number` and one on `cadence` is a number problem.
+ *
+ * `api_failed` is deliberately absent from the tally: a card that never
+ * reached the gates has no rejection reason, and inventing one would say the
+ * voice was judged when it was not.
+ */
+export async function topRejectionReason(db: D1Database, queueId: number): Promise<string | null> {
+  const cycle = await liveCycle(db, queueId);
+  const row = await db
+    .prepare(
+      `SELECT status, COUNT(*) AS n FROM generations
+        WHERE queue_id = ?1 AND cycle = ?2 AND status LIKE 'rejected:%'
+        GROUP BY status ORDER BY n DESC, status ASC LIMIT 1`,
+    )
+    .bind(queueId, cycle)
+    .first<{ status: string; n: number }>();
+  if (!row) {
+    const api = await db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM generations
+          WHERE queue_id = ?1 AND cycle = ?2 AND status IN ('api_error','api_failed')`,
+      )
+      .bind(queueId, cycle)
+      .first<{ n: number }>();
+    return (api?.n ?? 0) > 0 ? `the model could not be reached (${api!.n} attempts)` : null;
+  }
+  return `${row.status.replace("rejected:", "")} (${row.n} variant${row.n === 1 ? "" : "s"})`;
 }
 
 /** The Posted? keyboard carries the VARIANT whose text was copied, so the

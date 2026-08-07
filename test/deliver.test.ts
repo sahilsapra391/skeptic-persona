@@ -1,3 +1,4 @@
+import { renderGenHealth } from "../src/rag/digest";
 import { env, fetchMock, SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildCard, deliverCards, resolveVariantText } from "../src/rag/deliver";
@@ -129,7 +130,16 @@ describe("buildCard", () => {
     expect(card.text).toContain("the RE-RENDERED text, per Senate eFD");
     expect(card.text).not.toContain("Draft text, per Senate eFD");
     expect(await resolveVariantText(env.DB, qid, "template")).toBe("the RE-RENDERED text, per Senate eFD");
-    expect(card.buttons[0]!.map((b) => b.callback_data)).toEqual([`c:t:${qid}:${cy}`]);
+    // B-07.3 / B-08.6: a fallback card carries NO Copy button. Its text never
+    // passed the voice gates, and copying it publishes machine text under the
+    // desk's name. Only the two routes to HAVING a voice remain.
+    const cbs = card.buttons.flat().map((b) => b.callback_data);
+    expect(cbs).not.toContain(`c:t:${qid}:${cy}`);
+    expect(cbs.some((c) => String(c).startsWith("c:"))).toBe(false);
+    expect(cbs).toEqual([`ce:${qid}:${cy}`, `g:${qid}:${cy}`]);
+    // And it says so, in the card, where the decision is made.
+    expect(card.text).toContain("NOT copy-ready");
+    expect(card.text).toMatch(/Regenerate to try again, or Edit to write it yourself\./);
   });
 
   it("fallback_blocked: HELD, no copy buttons at all", async () => {
@@ -170,7 +180,11 @@ describe("deliverCards", () => {
   it("the no-exemplar label NAMES the archetype", async () => {
     const qid = await seedTerminal("D-label", [{ variant: "none", text: "", status: "skipped_no_exemplar" }]);
     const card = await buildCard(env.DB, qid, "CONGRESS_PTR", "skipped_no_exemplar", await cycleOf(qid));
-    expect(card.text).toContain("no exemplar for CONGRESS_PTR");
+    expect(card.text).toContain("No exemplar for CONGRESS_PTR");
+    // Same rule: nothing copy-ready, and no Copy button to suggest otherwise.
+    const cbs = card.buttons.flat().map((b) => b.callback_data);
+    expect(cbs.some((c) => String(c).startsWith("c:"))).toBe(false);
+    expect(card.text).toContain("NOT copy-ready");
   });
 
   it("a tap on a CLOSED card (no cards row) says closed, not 'use the newest card'", async () => {
@@ -219,6 +233,23 @@ describe("card flows through the real webhook", () => {
     expect(JSON.stringify(mono.entities)).toContain('"pre"');
     const posted = SEND.calls[before.s + 1]!;
     expect(JSON.stringify(posted.reply_markup)).toContain(`p:y:${qid}:${cy}:c`);
+  });
+
+  it("B-08.6: a TEMPLATE Copy tap is refused, and sends no text at all", async () => {
+    // buildCard no longer draws this button, but cards already sitting in the
+    // chat still carry theirs, and a button that exists gets tapped. Removing
+    // the button only protects NEW cards; refusing the tap is what enforces
+    // the rule. Copying machine text that never passed the voice gates, under
+    // the desk's name, is the failure the voice system exists to prevent.
+    const { qid, cy } = await delivered("W-tmpl-copy");
+    const before = snap();
+    await tap(`c:t:${qid}:${cy}`);
+    // Nothing is sent: no mono block, no Posted? keyboard, no copy button.
+    expect(SEND.calls.length).toBe(before.s);
+    // And the refusal is a modal, not a toast a tap can miss.
+    const ans = ACK.calls[ACK.calls.length - 1]!;
+    expect(String(ans.text)).toContain("Regenerate");
+    expect(ans.show_alert).toBe(true);
   });
 
   it("STALE-CYCLE tap does nothing (the review's fabricated-post CRITICAL)", async () => {
@@ -494,5 +525,28 @@ describe("the Copy button actually copies (Bot API 7.11 CopyTextButton)", () => 
     expect(markup).toContain(`p:y:${qid}:${cy}:c`);
     expect(markup).toContain(`p:m:${qid}:${cy}:c`);
     expect(markup).toContain(`p:k:${qid}:${cy}:c`);
+  });
+});
+
+describe("B-08.6: generation health in the digest", () => {
+  it("counts api failures SEPARATELY from rejections", async () => {
+    const rows = [
+      { archetype: "A", cards: 10, fell_back: 1, api_cards: 0, top_reason: "number", top_reason_n: 3 },
+      { archetype: "B", cards: 2, fell_back: 2, api_cards: 2, top_reason: null, top_reason_n: 0 },
+    ];
+    const out = renderGenHealth(rows).join("\n");
+    // 3 of 12 = 25%.
+    expect(out).toContain("25% fallback (3 of 12 cards)");
+    expect(out).toContain("Target under 10%. Baseline 36%.");
+    expect(out).toContain("A: 1/10 fell back, top reason number x3");
+    // B never reached a gate, so it gets no invented reason.
+    expect(out).toContain("B: 2/2 fell back, 2 hit the API");
+    expect(out).not.toContain("B: 2/2 fell back, top reason");
+  });
+
+  it("says nothing when there is nothing to say", () => {
+    expect(renderGenHealth([])).toEqual([]);
+    expect(renderGenHealth([{ archetype: "A", cards: 5, fell_back: 0, api_cards: 0, top_reason: null, top_reason_n: 0 }]).join("\n"))
+      .toContain("0% fallback");
   });
 });

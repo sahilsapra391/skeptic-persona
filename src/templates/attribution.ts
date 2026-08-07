@@ -77,7 +77,15 @@ const ENTRIES: readonly AttributionEntry[] = [
   E("per Federal Register"),
   E("per CFTC", { actors: ["CFTC", "Commodity Futures Trading Commission"] }),
   E("per FTC", { actors: ["FTC", "Federal Trade Commission"] }),
-  E("per the Justice Department", { actors: ["Justice Department", "DOJ"] }),
+  // "per DOJ" is an ALIAS, not just an actor (D-77, B-08.5). The payload's own
+  // `authority` field is the literal string "DOJ" and its factLine opens
+  // "DOJ:", so a draft citing "per DOJ" is naming the correct source the way
+  // the record names it — and `sourcingCheck` was refusing it as "not one of
+  // our records" while `entityCheck` simultaneously treated DOJ as furniture.
+  // Same shape as the "per ECB" fix on 2026-08-02: declare the abbreviation
+  // the source itself uses. This narrows nothing: a foreign agency is still
+  // killed by checkRegister.
+  E("per the Justice Department", { aliases: ["per DOJ"], actors: ["Justice Department", "DOJ"] }),
   E("per the CFPB", { actors: ["CFPB", "Consumer Financial Protection Bureau"] }),
   E("per GAO", { actors: ["GAO", "Government Accountability Office"] }),
   E("per the BEA", { actors: ["BEA", "Bureau of Economic Analysis"] }),
