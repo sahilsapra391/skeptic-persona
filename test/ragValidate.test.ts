@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { checkRegister } from "../src/templates/validate";
 import { describe, expect, it } from "vitest";
 import {
   beatShapeCheck,
@@ -888,5 +889,72 @@ describe("cashtags pass the validator, invented ones still do not", () => {
     // $DOCS has no digits, so numberCheck must not treat it as an unlicensed
     // dollar amount. Pinned because the two rules share the $ character.
     expect(numberCheck("Jane Doe bought 50000 $DOCS", PAYLOAD)).toEqual([]);
+  });
+});
+
+describe("B-08.1 (D-73): a pinned attribution's digits are furniture, not claims", () => {
+  // numberCheck read the `4` in "per SEC Form 4 filings" as a factual claim.
+  // No payload holds a bare 4, so EVERY variant of an archetype with a
+  // digit-bearing attribution was rejected: 6 of 6 on card #1227, on the one
+  // string the template is required to emit.
+  //
+  // The real payload from that card. Note there is NO formType field, which is
+  // the whole reason it failed while FILING_FORM4 passed by coincidence.
+  const CLUSTER = {
+    factLine:
+      "Insider cluster: 3 insiders bought $TLRY in the past week. Merton Carl A (Chief Financial Officer) $46.2K, FALTISCHEK DENISE M (Chief Strategy Officer) $11.95K, Gendel Mitchell (Global General Counsel) $11.07K. Combined $69.22K.",
+    issuer: { cik: "0001731348", name: "Tilray Brands, Inc.", ticker: "TLRY" },
+    memberCount: 3,
+    symbol: "$TLRY",
+    allCodeP: true,
+  };
+
+  it("passes 'per SEC Form 4' with NO formType anywhere in the payload", () => {
+    expect(JSON.stringify(CLUSTER)).not.toContain('"4"');
+    expect(numberCheck("3 insiders bought $TLRY, per SEC Form 4 filings", CLUSTER as never)).toEqual([]);
+    expect(numberCheck("Sheena Jonathan sold, per SEC Form 144", CLUSTER as never)).toEqual([]);
+  });
+
+  it("re-passes the exact six variants that card #1227 rejected", () => {
+    const variants = [
+      "3 insiders bought $TLRY, $69.22K combined, per SEC Form 4 filings\nBuys only. Code P across every filer.",
+      "Merton Carl A, FALTISCHEK DENISE M and Gendel Mitchell bought $69.22K of $TLRY, per SEC Form 4 filings\n3 signatures, not one.",
+      "3 $TLRY insiders bought $69.22K: Merton Carl A, FALTISCHEK DENISE M, Gendel Mitchell, per SEC Form 4 filings\n\nBuys only.",
+    ];
+    for (const v of variants) expect(numberCheck(v, CLUSTER as never)).toEqual([]);
+  });
+
+  it("STILL rejects an unlicensed figure appended to the furniture", () => {
+    // The exemption must consume the pinned string, not everything near it.
+    const issues = numberCheck("3 insiders bought $TLRY, per SEC Form 4 filings. Total $88.4K.", CLUSTER as never);
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues.map((i) => i.detail).join(" ")).toContain("88.4");
+  });
+
+  it("STILL rejects a model-authored digit outside the furniture", () => {
+    // A BARE digit is a quantity and stays a claim. Note "Form 4" itself is
+    // exempt everywhere after B-08.2 — an instrument identifier is a name
+    // wherever it appears — so the cases that matter are bare numbers, which
+    // is the only shape that can actually smuggle a figure.
+    expect(numberCheck("The insider filed 4 separate forms.", CLUSTER as never).length).toBeGreaterThan(0);
+    expect(numberCheck("Insiders bought 12 times this month.", CLUSTER as never).length).toBeGreaterThan(0);
+    // A bare digit sitting immediately beside a legitimate attribution.
+    expect(numberCheck("4 more are expected, per SEC Form 4 filings", CLUSTER as never).length).toBeGreaterThan(0);
+    // And an unlicensed money figure beside an exempt instrument name.
+    expect(numberCheck("Its 10-Q showed $88.4K, per SEC Form 4 filings", CLUSTER as never).length).toBeGreaterThan(0);
+  });
+
+  it("STILL kills a cross-source citation (the CFTC/SEC case)", () => {
+    // The exemption consumes EVERY known pinned form, so the guarantee that a
+    // foreign agency cannot ride along has to come from checkRegister. This
+    // asserts that layering rather than assuming it.
+    const payload = { authority: "CFTC" };
+    // The original D-case: a foreign agency cited on a CFTC fact.
+    expect(checkRegister("CFTC orders a $35,000 payment, per SEC.", "REGULATORY_NEWS", payload).length).toBeGreaterThan(0);
+    // And the new shape this exemption could have opened: a foreign agency
+    // cited via a DIGIT-BEARING form, which numberCheck now consumes.
+    expect(
+      checkRegister("CFTC orders a $35,000 payment, per SEC Form 4 filings.", "REGULATORY_NEWS", payload).length,
+    ).toBeGreaterThan(0);
   });
 });
