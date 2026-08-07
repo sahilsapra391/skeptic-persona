@@ -105,21 +105,25 @@ describe("D-65: RELEASE_MONTH_RE does not backtrack exponentially", () => {
   it("stays flat on the adversarial shape that killed the old pattern", () => {
     // Caps then spaces then no dash: every split point was a distinct path.
     const worst = (n: number) => "A".repeat(n) + " ".repeat(n) + " ";
-    const timeAt = (n: number) => {
-      const s = worst(n);
-      const t0 = performance.now();
-      RELEASE_MONTH_RE.test(s);
-      return performance.now() - t0;
-    };
-    // n=4000 is 2x what hung the old pattern for over three minutes.
-    const big = timeAt(4000);
-    expect(big).toBeLessThan(50);
+    const t0 = performance.now();
+    RELEASE_MONTH_RE.test(worst(4000));
+    const ms = performance.now() - t0;
 
-    // Bound the SHAPE, not just one point: doubling input must not blow up.
-    // Generous factor because a 0.0x ms baseline makes ratios noisy; an
-    // exponential pattern misses this by orders of magnitude, not percent.
-    const growth = timeAt(2000) > 0.05 ? timeAt(4000) / timeAt(2000) : 1;
-    expect(growth).toBeLessThan(8);
+    // ONE absolute bound, deliberately, and no ratio between two timings.
+    // The first version of this test divided timeAt(4000) by timeAt(2000) to
+    // assert on growth. Both land under the timer's resolution for a healthy
+    // pattern, so the denominator hit 0 and the ratio came back Infinity: it
+    // failed 3 runs in 6. A guard on a SEPARATE call to timeAt() did not
+    // protect the division, which is the whole bug in miniature. That is the
+    // D-53 instrument fault again, written into the test that fixes a timing
+    // bug, so it is recorded here rather than quietly rewritten.
+    //
+    // The absolute bound needs no such care. Measured: 1.1ms for this
+    // pattern, against 17,594ms for the old one at n=300 (a 13x SMALLER
+    // input). Any reintroduction of the ambiguity misses this by orders of
+    // magnitude, so 250ms is both far above the noise floor and far below
+    // anything a backtracking pattern could achieve.
+    expect(ms).toBeLessThan(250);
   });
 
   it("has no two adjacent quantifiers accepting the same character", () => {
