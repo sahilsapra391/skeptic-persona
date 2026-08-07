@@ -90,6 +90,64 @@ describe("ingest relay ingestion", () => {
   });
 });
 
+describe("D-71: a relayed source records its own health", () => {
+  // Before this, the handler inserted rows and drained without ever writing
+  // source_state, so a courier-fed source kept whatever the last DIRECT poll
+  // left behind. On 2026-08-07 the senate row read
+  // `consecutive_failures=5, last_error="efd home 403", last_ok=08-02` while
+  // 18 filings were landing through this exact path, and that stale row is
+  // what the previous diagnosis was built on.
+
+  it("clears failures and stamps last_ok after a successful relay", async () => {
+    // Seed the row in the exact broken state production was found in.
+    await env.DB.prepare(
+      `INSERT INTO source_state (source, consecutive_failures, last_error, last_ok_at)
+       VALUES ('senate_ptr', 5, 'Error: efd home 403', '2026-08-02T13:30:01.000Z')
+       ON CONFLICT(source) DO UPDATE SET
+         consecutive_failures = 5,
+         last_error = 'Error: efd home 403',
+         last_ok_at = '2026-08-02T13:30:01.000Z'`,
+    ).run();
+
+    const SEARCH = (await import("./fixtures/senate-ptr-data.json?raw")).default;
+    const DETAIL = (await import("./fixtures/senate-ptr-page.fixture?raw")).default;
+    const search = JSON.parse(SEARCH) as { data: string[][] };
+    const details: Record<string, string> = {};
+    for (const row of search.data) {
+      const m = /\/search\/view\/ptr\/([0-9a-f-]{36})\//.exec(row[3] ?? "");
+      if (m) details[m[1]!] = DETAIL;
+    }
+
+    expect((await post({ source: "senate_ptr", body: JSON.stringify({ search, details }) })).status).toBe(200);
+
+    const after = await env.DB.prepare(
+      "SELECT consecutive_failures, last_ok_at FROM source_state WHERE source = 'senate_ptr'",
+    ).first<{ consecutive_failures: number; last_ok_at: string }>();
+    expect(after!.consecutive_failures).toBe(0);
+    // The specific stale value must be gone, not merely "some value present".
+    expect(after!.last_ok_at).not.toBe("2026-08-02T13:30:01.000Z");
+    expect(Date.parse(after!.last_ok_at)).toBeGreaterThan(Date.parse("2026-08-02T13:30:01.000Z"));
+  });
+
+  it("records the failure when a relayed body will not parse", async () => {
+    await env.DB.prepare(
+      `INSERT INTO source_state (source, consecutive_failures, last_error, last_ok_at)
+       VALUES ('senate_ptr', 0, NULL, '2026-08-07T00:00:00.000Z')
+       ON CONFLICT(source) DO UPDATE SET consecutive_failures = 0, last_error = NULL`,
+    ).run();
+
+    // A well-formed envelope carrying a bundle that parses to zero rows.
+    const res = await post({ source: "senate_ptr", body: JSON.stringify({ search: { result: "ok", data: [] }, details: {} }) });
+    expect(res.status).toBe(422);
+
+    const after = await env.DB.prepare(
+      "SELECT consecutive_failures, last_error FROM source_state WHERE source = 'senate_ptr'",
+    ).first<{ consecutive_failures: number; last_error: string | null }>();
+    expect(after!.consecutive_failures).toBeGreaterThan(0);
+    expect(String(after!.last_error)).toContain("zero rows");
+  });
+});
+
 describe("senate eFD bundle", () => {
   it("ingests a courier bundle through the SAME parsers as the direct poller", async () => {
     const SEARCH = (await import("./fixtures/senate-ptr-data.json?raw")).default;

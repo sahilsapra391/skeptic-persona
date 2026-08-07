@@ -109,38 +109,63 @@ jobs:
   # three and delivers a bundle; the Worker parses it with the same code the
   # direct poller uses.
   senate:
-    # UNPARKED 2026-08-06 after measuring all three egress classes in one
-    # 15-minute window (docs/verification/2026-08-06-senate-egress-three-ways.md):
+    # THE 503 WAS NEVER MAINTENANCE AND WAS NEVER AN IP BLOCK. It was this
+    # workflow sending `submitted_start_date=` EMPTY (D-71, measured
+    # 2026-08-07, docs/verification/2026-08-07-senate-efd-empty-date.md).
     #
-    #   GET /search/home/       Worker 403 | runner 200 | residential 200
-    #   POST /search/report/data/  runner 503 | residential 503 (4/4)
+    # Measured back to back on ONE residential session, same cookies, same UA,
+    # alternating, 4 trials each:
     #
-    # Two DIFFERENT failures, and the 2026-08-01 note conflated them. The
-    # Worker is genuinely blocked at the home page, which is why senate_ptr
-    # cannot work from the Worker at all. The 503 is NOT bot mitigation: the
-    # body is the Senate's own "WEBSITE TEMPORARILY UNAVAILABLE DUE TO
-    # MAINTENANCE" page with no Ray ID and no vendor markers, and it hits a
-    # residential client identically. It is also INTERMITTENT — the same
-    # residential client got 200 with 12 real rows, 27/27, at 05:15Z the same
-    # morning.
+    #   submitted_start_date=                     -> 503, maintenance page, 4/4
+    #   submitted_start_date=01/01/2026 00:00:00  -> 200, 108 records,      4/4
     #
-    # So runners DO reach eFD, and this lane is the honest network path. It
-    # now runs on a schedule; a maintenance window is a SOFT SKIP, not a red
-    # run, because a workflow that reds three times a day on someone else's
-    # planned downtime is a workflow everyone learns to ignore.
+    # Deterministic, and not about result size: a start date of 01/01/2012
+    # returns 200 with 2,406 records. eFD simply refuses the unbounded form
+    # and dresses the refusal as its own maintenance page.
+    #
+    # Every earlier reading of this lane was wrong because every one of them
+    # tested the WRONG REQUEST and then reasoned about the network:
+    #   - "residential 503 too, so not the Azure IP class"  -> true, and the
+    #     reason is that residential sent the same broken query
+    #   - "Worker 403 at the home page, so senate cannot work from the Worker"
+    #     -> the Worker now reaches /search/home/ at 200 in 78 ms
+    #   - "intermittent, the same client got 200 with 12 rows"  -> that run
+    #     used a bounded date; the variable was never time
+    # The Worker-side poller in src/ingesters/senatePtr.ts always sent a
+    # 7-day bounded date and was never the broken half.
+    #
+    # A maintenance window is still a soft skip, because a workflow that reds
+    # three times a day on someone else's downtime is one everyone learns to
+    # ignore. But a skip that repeats is now LOUD (see the skip step): quiet
+    # forever is what let this hide for five days, not quiet once.
     if: >-
       (github.event_name == 'schedule' && github.event.schedule == '0 5,11,17 * * 1-5') ||
       (github.event_name == 'workflow_dispatch' && contains(fromJSON('["all","senate"]'), inputs.lane))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # Carries the maintenance-skip streak between runs. A unique key per run
+      # means this always saves; `restore-keys` reads the most recent previous
+      # one. The file holds the epoch seconds of the FIRST skip in the current
+      # streak, or is empty when there is no streak.
+      - name: Restore maintenance-skip streak
+        uses: actions/cache@v4
+        with:
+          path: .senate-skip-state
+          key: senate-skip-state-${{ github.run_id }}
+          restore-keys: |
+            senate-skip-state-
+
       - name: Handshake, search, and fetch detail pages
         id: fetch
+        env:
+          SKIP_STATE: .senate-skip-state
         run: |
           set -euo pipefail
           UA="Skeptic Wire admin@spechawk.ai"
           BASE="https://efdsearch.senate.gov"
           JAR=$(mktemp)
+          touch "$SKIP_STATE"
 
           # Step 1: home page sets csrftoken + LB cookies and carries a HIDDEN
           # csrfmiddlewaretoken whose value DIFFERS from the cookie.
@@ -179,12 +204,26 @@ jobs:
           CSRF=$(awk '$6=="csrftoken"{print $7}' "$JAR" | tail -1)
 
           # Step 3: the search endpoint returns {result:"ok", data:[[...]]}.
+          #
+          # submitted_start_date IS MANDATORY (D-71). Sending it empty returns
+          # a 503 carrying eFD's maintenance page, deterministically, from
+          # every egress point. That one empty field is the whole reason this
+          # lane logged five days of green runs and ingested nothing.
+          #
+          # 30 days rather than the poller's 7: this lane runs 3x on weekdays,
+          # and a wider window costs nothing (dedup_key absorbs the overlap)
+          # while recovering a backlog whenever the lane has been down, which
+          # is exactly the situation it is shipping into. ~15 filings/month at
+          # the current rate, well inside one length=25 page.
+          SINCE=$(date -u -d '30 days ago' '+%m/%d/%Y')
+          echo "senate: querying submitted_start_date=$SINCE" >> "$GITHUB_STEP_SUMMARY"
           SEARCH_CODE=$(curl -sS --max-time 60 -A "$UA" -b "$JAR" \
             -X POST "$BASE/search/report/data/" \
             -H "Referer: $BASE/search/" \
             -H "X-CSRFToken: ${CSRF}" \
             -H "X-Requested-With: XMLHttpRequest" \
-            --data "start=0&length=25&report_types=[11]&filer_types=[]&submitted_start_date=&submitted_end_date=&candidate_state=&senator_state=&office_id=&first_name=&last_name=" \
+            --data-urlencode "submitted_start_date=${SINCE} 00:00:00" \
+            --data "start=0&length=25&report_types=[11]&filer_types=[]&submitted_end_date=&candidate_state=&senator_state=&office_id=&first_name=&last_name=" \
             -o search.json -w "%{http_code}")
 
           # Diagnostics BEFORE parsing. RE-TESTED 2026-08-02 from a
@@ -195,23 +234,38 @@ jobs:
           # The 411 above is a curl artifact -- following the 302 as a POST
           # with no body. Without -L the agreement returns 302 with a valid
           # sessionid, and GET /search/ then answers 200. Only the XHR data
-          # endpoint 503s, and its body is the Senate's OWN maintenance
-          # notice, not a bot-mitigation page: no Ray ID, no vendor markers.
-          #
-          # So the lane is parked on UNVERIFIED, not on IP-blocked. The test
-          # is a weekday retry of this same dispatch.
-          # See docs/verification/2026-08-02-senate-efd-retest.md.
+          # The 411 above is a curl artifact: following the 302 as a POST with
+          # no body. Without -L the agreement returns 302 with a valid
+          # sessionid, and GET /search/ then answers 200.
           echo "senate: home=$HOME_CODE agree=$AGREE_CODE search=$SEARCH_CODE bytes=$(wc -c < search.json)" >> "$GITHUB_STEP_SUMMARY"
 
-          # SOFT SKIP on the Senate's own maintenance page. Distinguished by
-          # its body, not by the status code alone: a 503 that is NOT the
-          # maintenance notice is something we have never seen and must stay
-          # loud. Matching on the Senate's own words is the narrowest test
-          # available, and it is checked against the body we captured on
-          # 2026-08-06 rather than guessed.
+          # SOFT SKIP on eFD's maintenance page, now BOUNDED BY DURATION.
+          #
+          # The body test was never the weak part — it correctly matched a page
+          # that really did say TEMPORARILY UNAVAILABLE. The weak part was that
+          # a skip could repeat forever and still read as a healthy lane. It
+          # ran green three times a day for five days while ingesting nothing,
+          # because the page was a lie told in response to OUR malformed query
+          # (D-71), and nothing in this workflow could tell "down for an hour"
+          # from "broken since Tuesday".
+          #
+          # So: quiet once, loud if it persists. `$SKIP_STATE` is restored from
+          # the Actions cache and holds the epoch seconds of the FIRST skip in
+          # the current streak; any success deletes it. Past the grace window
+          # the skip becomes a hard failure, because at that point it is not
+          # somebody's planned downtime, it is our outage.
+          MAINT_GRACE_HOURS=24
           if [ "$SEARCH_CODE" = "503" ] && grep -qi "UNDER MAINTENANCE\|TEMPORARILY UNAVAILABLE" search.json; then
-            echo "senate: eFD in scheduled maintenance; skipping this run" >> "$GITHUB_STEP_SUMMARY"
-            echo "::notice::senate eFD returned its maintenance page (503). Not a failure; the next slot retries."
+            NOW=$(date -u +%s)
+            FIRST=$(cat "$SKIP_STATE" 2>/dev/null || echo "")
+            case "$FIRST" in ''|*[!0-9]*) FIRST="$NOW"; printf '%s' "$NOW" > "$SKIP_STATE" ;; esac
+            HOURS=$(( (NOW - FIRST) / 3600 ))
+            echo "senate: eFD maintenance page; skipping. streak=${HOURS}h grace=${MAINT_GRACE_HOURS}h" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$HOURS" -ge "$MAINT_GRACE_HOURS" ]; then
+              echo "::error::senate eFD has returned its maintenance page continuously for ${HOURS}h (grace ${MAINT_GRACE_HOURS}h). That is no longer a maintenance window. Check the QUERY before the network: an empty submitted_start_date reproduces this page exactly (D-71)."
+              exit 1
+            fi
+            echo "::notice::senate eFD returned its maintenance page (503), ${HOURS}h into this streak. Soft-skipping; fails hard at ${MAINT_GRACE_HOURS}h."
             # The skip has to be visible to the NEXT step, not just to this
             # shell. `exit 0` ends the step successfully and the relay then ran
             # anyway and died on a missing bundle.json — caught by dispatching
@@ -219,6 +273,11 @@ jobs:
             echo "skipped=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Any non-skip outcome ends the streak. TRUNCATE rather than delete:
+          # the cache step needs the file to still exist to save it, and a
+          # missing file would leave the previous (stale) cache as the newest
+          # restore-key match, which would resurrect a dead streak.
+          : > "$SKIP_STATE"
           if ! jq -e '.result' search.json >/dev/null 2>&1; then
             echo "::error::senate search returned non-JSON (home=$HOME_CODE agree=$AGREE_CODE search=$SEARCH_CODE); first bytes: $(head -c 300 search.json | tr -cd '[:print:]')"
             exit 1
