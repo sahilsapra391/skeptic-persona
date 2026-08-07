@@ -860,8 +860,87 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Pinned attribution strings that CONTAIN A DIGIT, longest first.
+ *
+ * Longest-first matters: "per SEC Form 4" is a prefix of "per SEC Form 4
+ * filings", and consuming the short one first would leave a dangling tail.
+ * Same longest-match discipline `citedForms` already uses.
+ */
+const DIGIT_BEARING_ATTRIBUTIONS: readonly string[] = [...ALL_ATTRIBUTION_FORMS]
+  .filter((f) => /[0-9]/.test(f))
+  .sort((a, b) => b.length - a.length);
+
+/**
+ * Remove pinned attribution furniture before numbers are extracted (B-08.1).
+ *
+ * THE BUG THIS FIXES (D-73). `numberCheck` read the `4` in "per SEC Form 4
+ * filings" as a factual numeric claim. No payload contains a bare `4`, so
+ * EVERY variant of an archetype with a digit-bearing attribution was rejected
+ * — 6 of 6 on card #1227, 100%, on the one string the template is required to
+ * emit. Measured against the live payload:
+ *
+ *   PASS  "3 insiders bought $TLRY."
+ *   PASS  "Combined $69.22K."
+ *   FAIL  "per SEC Form 4 filings"  -> "4" does not appear in the payload
+ *
+ * The attribution is RENDERER FURNITURE. It is a fixed string this repo pins,
+ * not something a model chose, so its digits are not claims about the world
+ * and there is nothing there to fabricate.
+ *
+ * SCOPE IS DELIBERATELY NARROW. Only the exact pinned strings are consumed,
+ * matched whole. A bare `4` anywhere else in the draft is still a claim and
+ * still dies. Writing "Form 4" outside the pinned phrase does not qualify.
+ *
+ * This does NOT weaken the cross-source floor: `checkRegister` independently
+ * kills a foreign citation, so consuming every known form here cannot let the
+ * wrong agency ride along. That layering is asserted by kill-test.
+ */
+/**
+ * Statutory instrument IDENTIFIERS (B-08.2). A form, rule, schedule or item
+ * number is a NAME, not a quantity: "Rule 10b5-1" no more claims the number 10
+ * than "Form 4" claims four of anything.
+ *
+ * The audit in test/furnitureAudit.test.ts found four of these latent behind
+ * the three attributions D-73 surfaced — "Rule 10b5-1 trading plan" died on
+ * `10`, "8-K Item 4.02" on `8`, "Schedule 13D vs 13G" on `13`, "Form 4
+ * transaction code P" on `4`. Every one is a registry term the copy is
+ * explicitly licensed to say, so every one was a 100%-rejection waiting for a
+ * payload without the lucky field. Fixing the class, not the instances.
+ *
+ * TIGHT BY CONSTRUCTION. Each alternative needs its anchoring keyword or its
+ * letter suffix, so a bare number can never qualify:
+ *   - "Rule 10b5-1", "Form 144", "Schedule 13D", "Item 4.02", "Regulation SHO"
+ *     all require the leading word.
+ *   - "8-K", "10-Q", "13F" carry a letter and a hyphen-or-suffix shape that a
+ *     quantity does not have.
+ * "revenue rose 13" and "$4.02" match nothing here and still die.
+ */
+const INSTRUMENT_ID_RE =
+  /\b(?:(?:Form|Rule|Schedule|Item|Regulation|Section)\s+[0-9]+[A-Za-z0-9.()‑-]*|[0-9]{1,2}-[A-Z]{1,2}\b|1[0-9][A-Z]\b)/g;
+
+/**
+ * Remove renderer- and registry-owned furniture before numbers are extracted.
+ *
+ * Two families, both fixed strings this repo owns rather than anything a model
+ * chose: pinned attributions (B-08.1) and statutory instrument identifiers
+ * (B-08.2). Neither is a claim about the world, so neither is checkable
+ * against a payload, and treating them as claims rejected 100% of variants for
+ * any archetype whose payload lacked a coincidental matching field.
+ */
+function withoutAttributionFurniture(text: string): string {
+  let out = text;
+  for (const form of DIGIT_BEARING_ATTRIBUTIONS) {
+    if (out.includes(form)) out = out.split(form).join(" ");
+  }
+  return out.replace(INSTRUMENT_ID_RE, " ");
+}
+
 export function numberCheck(text: string, payload: Payload, precomputed?: PayloadFacts): ValidationIssue[] {
   const facts = precomputed ?? payloadFacts(payload);
+  // Furniture first: a pinned attribution's digits are not claims (B-08.1).
+  // Done before dateCheck so the consumed span cannot be re-read downstream.
+  text = withoutAttributionFurniture(text);
   // Dates first, structurally, consuming their tokens.
   const { issues, remainder: afterDates } = dateCheck(text, facts);
   // Times next ("19:50"): ISO timestamps no longer leak 19 and 50 as free
