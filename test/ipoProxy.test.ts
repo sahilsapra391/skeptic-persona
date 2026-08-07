@@ -3,7 +3,14 @@ import { beforeAll, describe, expect, it } from "vitest";
 import S1_FIX from "./fixtures/edgar-s1.atom.fixture?raw";
 import DFAN_FIX from "./fixtures/edgar-dfan14a.atom.fixture?raw";
 import { formFeedUrl, parseEdgarFormFeed } from "../src/ingesters/edgarForms";
-import { S1_FORMS, SOURCE as S1_SOURCE, amendmentHistory, factLineFor as s1FactLine, stageOf } from "../src/ingesters/s1Ipo";
+import {
+  S1_FORMS,
+  SOURCE as S1_SOURCE,
+  amendmentHistory,
+  amendmentHistoryFor,
+  factLineFor as s1FactLine,
+  stageOf,
+} from "../src/ingesters/s1Ipo";
 import {
   CONTEST_FORMS,
   SOURCE as PROXY_SOURCE,
@@ -105,6 +112,48 @@ describe("p5-30: the IPO / S-1 lane", () => {
     expect((await amendmentHistory(env.DB, "0000000001")).amendments).toBe(2);
     expect((await amendmentHistory(env.DB, "0000000002")).amendments).toBe(1);
     expect((await amendmentHistory(env.DB, "0000009999")).amendments).toBe(0);
+  });
+
+  it("D-82: the batched lookup answers for EVERY cik in one query", async () => {
+    // The per-entry version timed out on the lane's first live poll: 31
+    // entries meant 31 sequential D1 round trips inside one budget, and
+    // `sec_s1` recorded TimeoutError after inserting a partial batch.
+    //
+    // Seeds its OWN rows. vitest-pool-workers gives each `it` an isolated
+    // storage snapshot, so reading rows another test inserted returns nothing
+    // — which is exactly how this test failed first, and it looked like a SQL
+    // bug rather than a test one.
+    const mk = (cik: string, ext: string) =>
+      insertItem(
+        env.DB,
+        {
+          source: S1_SOURCE,
+          externalId: ext,
+          category: "ipo_registration",
+          eventAt: "2026-08-01T00:00:00.000Z",
+          sourceUrl: `https://www.sec.gov/Archives/${ext}`,
+          payload: { cik, stage: "amendment", company: "X" },
+          score: SCORE_LOG_ONLY,
+          status: "logged",
+        },
+        NOW,
+      );
+    await mk("0000000001", "batch-1");
+    await mk("0000000001", "batch-2");
+    await mk("0000000002", "batch-3");
+
+    const m = await amendmentHistoryFor(env.DB, ["0000000001", "0000000002", "0000009999", "0000000001"]);
+    expect(m.get("0000000001")!.amendments).toBe(2);
+    expect(m.get("0000000002")!.amendments).toBe(1);
+    // An issuer with no amendments is ABSENT from the GROUP BY, not zero. It
+    // must still get an entry, or the caller reads undefined as a count.
+    expect(m.get("0000009999")).toEqual({ amendments: 0, firstSeenIso: null });
+    // Deduped: four inputs, three distinct issuers.
+    expect(m.size).toBe(3);
+  });
+
+  it("the batched lookup is safe on an empty list", async () => {
+    expect((await amendmentHistoryFor(env.DB, [])).size).toBe(0);
   });
 });
 

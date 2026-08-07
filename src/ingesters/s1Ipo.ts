@@ -52,29 +52,61 @@ export function stageOf(formType: string): DealStage {
 }
 
 /**
- * How many S-1 amendments this issuer has already filed, from OUR OWN LAKE.
+ * How many S-1 amendments each issuer has already filed, from OUR OWN LAKE.
+ *
+ * BATCHED, and that is not a micro-optimisation (D-82). The first version ran
+ * one query per entry inside the insert loop, so a 31-entry S-1 feed meant 31
+ * sequential D1 round trips on top of three feed fetches — and the live run
+ * proved it: `sec_s1` recorded `TimeoutError: The operation was aborted` on
+ * its very first production poll, after inserting the S-1 batch but before
+ * finishing the remaining forms. The lane half-worked, which is worse than
+ * failing, because the source row still showed rows arriving.
  *
  * Counted rather than asserted: the number is only as good as what we have
- * actually seen, so a lane that has been running two days must not imply it
- * knows a deal's full history. Callers get the count AND the earliest filing
- * we hold, so copy can say "at least N since <date>" instead of a bare figure
- * that reads as complete.
+ * actually seen, so callers get the count AND the earliest filing we hold, and
+ * copy says "at least N" instead of a bare figure that reads as complete.
  */
+export async function amendmentHistoryFor(
+  db: D1Database,
+  ciks: readonly string[],
+): Promise<Map<string, { amendments: number; firstSeenIso: string | null }>> {
+  const out = new Map<string, { amendments: number; firstSeenIso: string | null }>();
+  const unique = [...new Set(ciks)].filter(Boolean);
+  if (unique.length === 0) return out;
+  // One statement, one round trip. The IN list is built from placeholders
+  // rather than interpolation, so a CIK can never reach SQL as text.
+  //
+  // POSITIONAL `?`, not numbered `?1`/`?2`. The numbered form returned zero
+  // rows for a multi-value IN list under D1 while working for a single value,
+  // which is the worst way for it to fail: the single-CIK path kept passing
+  // and only the batch was silently empty.
+  const placeholders = unique.map(() => "?").join(",");
+  const rows = await db
+    .prepare(
+      `SELECT json_extract(payload, '$.cik') AS cik,
+              COUNT(*) AS n,
+              MIN(event_at) AS first_seen
+         FROM items
+        WHERE source = ?
+          AND json_extract(payload, '$.stage') = 'amendment'
+          AND json_extract(payload, '$.cik') IN (${placeholders})
+        GROUP BY json_extract(payload, '$.cik')`,
+    )
+    .bind(SOURCE, ...unique)
+    .all<{ cik: string; n: number; first_seen: string | null }>();
+  for (const r of rows.results) out.set(r.cik, { amendments: r.n, firstSeenIso: r.first_seen });
+  // An issuer with no amendments yet is ABSENT from the GROUP BY, not zero, so
+  // fill it in rather than letting the caller read `undefined` as a count.
+  for (const cik of unique) if (!out.has(cik)) out.set(cik, { amendments: 0, firstSeenIso: null });
+  return out;
+}
+
+/** Single-CIK convenience, on top of the batched query. */
 export async function amendmentHistory(
   db: D1Database,
   cik: string,
 ): Promise<{ amendments: number; firstSeenIso: string | null }> {
-  const row = await db
-    .prepare(
-      `SELECT COUNT(*) AS n, MIN(event_at) AS first_seen
-         FROM items
-        WHERE source = ?1
-          AND json_extract(payload, '$.cik') = ?2
-          AND json_extract(payload, '$.stage') = 'amendment'`,
-    )
-    .bind(SOURCE, cik)
-    .first<{ n: number; first_seen: string | null }>();
-  return { amendments: row?.n ?? 0, firstSeenIso: row?.first_seen ?? null };
+  return (await amendmentHistoryFor(db, [cik])).get(cik) ?? { amendments: 0, firstSeenIso: null };
 }
 
 export function factLineFor(e: EdgarFormEntry, stage: DealStage, amendments: number): string {
@@ -108,9 +140,12 @@ export async function pollS1(env: Env, now: Date, budget: TickBudget = newTickBu
         // day: EDGAR always has recent filings of these types.
         throw new Error(`${SOURCE} ${form}: 200 but zero parseable entries`);
       }
-      for (const e of entries.slice(0, MAX_S1_PER_RUN)) {
+      const batch = entries.slice(0, MAX_S1_PER_RUN);
+      // ONE query for the whole batch, before the insert loop (D-82).
+      const history = await amendmentHistoryFor(env.DB, batch.map((e) => e.cik));
+      for (const e of batch) {
         const stage = stageOf(e.formType);
-        const { amendments, firstSeenIso } = await amendmentHistory(env.DB, e.cik);
+        const { amendments, firstSeenIso } = history.get(e.cik) ?? { amendments: 0, firstSeenIso: null };
         const result = await insertItem(
           env.DB,
           {
