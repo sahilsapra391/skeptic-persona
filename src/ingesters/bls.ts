@@ -25,6 +25,38 @@ export function releaseUrl(slug: string): string {
   return `https://www.bls.gov/news.release/${slug}.nr0.htm`;
 }
 
+/**
+ * "CONSUMER PRICE INDEX - JUNE 2026" out of a release page headline.
+ *
+ * ReDoS fix (D-65), found by the B-05.6 adversarial pass. The previous form
+ * was
+ *
+ *     /[A-Z]{2,}[A-Z ]*\s*[-–—]+\s*([A-Z]+ \d{4})/
+ *
+ * and it ran `.exec()` against the WHOLE release page. Three adjacent
+ * quantifiers accepted overlapping input: `[A-Z]{2,}` and `[A-Z ]*` both take
+ * capitals, `[A-Z ]*` and `\s*` both take spaces. Every way of splitting a run
+ * of capitals-then-spaces is a distinct path the engine must try, so a FAILING
+ * match backtracks exponentially. Measured on `"A"*n + " "*n`:
+ *
+ *     n=40   7.37ms
+ *     n=80  10.78ms
+ *     n=160 234.97ms      <- 21.8x for 2x the input
+ *     n=2000 did not finish in 180 seconds
+ *
+ * Nothing here is attacker-supplied today, since bls.gov is the source. It is
+ * still a live availability bug rather than a theoretical one: the trigger is
+ * a CONTENT SHAPE (a long run of caps and spaces with no dash after it), not
+ * an attack, and exhausting the Worker's CPU limit kills the whole tick, not
+ * just this parse.
+ *
+ * The fix keeps ONE unambiguous run. No two adjacent quantifiers accept the
+ * same character, and the run is bounded at 120. Verified to return the
+ * identical answer ("JUNE 2026") on the real 90,279-byte cpi-nr0 fixture, and
+ * flat at 0.04ms across n.
+ */
+export const RELEASE_MONTH_RE = /[A-Z][A-Z ]{1,120}[-–—]+ {0,4}([A-Z]+ \d{4})/;
+
 // ---------------------------------------------------------------------------
 // Calendar sync (daily): bls.ics -> release_calendar rows.
 
@@ -313,7 +345,7 @@ export async function watchBls(env: Env, now: Date, budget: TickBudget = newTick
             partialParse: headline ? headline.momPct === null || headline.yoyPct === null : true,
           };
         } else {
-          const month = /[A-Z]{2,}[A-Z ]*\s*[-–—]+\s*([A-Z]+ \d{4})/.exec(page.body)?.[1];
+          const month = RELEASE_MONTH_RE.exec(page.body)?.[1];
           draft = `BLS: ${meta.label}${month ? `, ${month.charAt(0) + month.slice(1).toLowerCase()}` : ""} released (USDL-${usdl})`;
         }
         macroPayload = { ...macroPayload, factLine: draft };

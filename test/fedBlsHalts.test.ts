@@ -16,7 +16,16 @@ import {
   pollNyseHalts,
   HALT_CODES,
 } from "../src/ingesters/halts";
-import { draftCpi, parseBlsIcs, parseCpiRelease, RELEASES, releaseUrl, syncBlsCalendar, watchBls } from "../src/ingesters/bls";
+import {
+  draftCpi,
+  parseBlsIcs,
+  parseCpiRelease,
+  RELEASE_MONTH_RE,
+  RELEASES,
+  releaseUrl,
+  syncBlsCalendar,
+  watchBls,
+} from "../src/ingesters/bls";
 import { getSourceState } from "../src/lib/db";
 import { zonedTimeToUtc, ET } from "../src/lib/time";
 
@@ -78,6 +87,53 @@ describe("halts (live fixtures)", () => {
   it("draft: symbol, exchange-stated reason, ET time — all parsed", () => {
     const stkh = parseNasdaqHalts(NASDAQ_FIXTURE).find((e) => e.symbol === "STKH")!;
     expect(draftHalt(stkh)).toBe("HALT: $STKH (Steakholder Foods Ltd. ADS). News Pending, 19:50 ET");
+  });
+});
+
+describe("D-65: RELEASE_MONTH_RE does not backtrack exponentially", () => {
+  // The old pattern was /[A-Z]{2,}[A-Z ]*\s*[-–—]+\s*([A-Z]+ \d{4})/ and it ran
+  // against the whole release page. Adjacent quantifiers accepted overlapping
+  // input, so a FAILING match was exponential: 235ms at n=160, and n=2000 did
+  // not finish in 180 seconds. A blown CPU limit kills the entire tick.
+
+  it("still finds the month on the real 90KB release page", () => {
+    // The behaviour this guards. If the fix ever narrows the match, this fails
+    // before the timing test does, which is the ordering we want.
+    expect(RELEASE_MONTH_RE.exec(CPI_FIXTURE)?.[1]).toBe("JUNE 2026");
+  });
+
+  it("stays flat on the adversarial shape that killed the old pattern", () => {
+    // Caps then spaces then no dash: every split point was a distinct path.
+    const worst = (n: number) => "A".repeat(n) + " ".repeat(n) + " ";
+    const t0 = performance.now();
+    RELEASE_MONTH_RE.test(worst(4000));
+    const ms = performance.now() - t0;
+
+    // ONE absolute bound, deliberately, and no ratio between two timings.
+    // The first version of this test divided timeAt(4000) by timeAt(2000) to
+    // assert on growth. Both land under the timer's resolution for a healthy
+    // pattern, so the denominator hit 0 and the ratio came back Infinity: it
+    // failed 3 runs in 6. A guard on a SEPARATE call to timeAt() did not
+    // protect the division, which is the whole bug in miniature. That is the
+    // D-53 instrument fault again, written into the test that fixes a timing
+    // bug, so it is recorded here rather than quietly rewritten.
+    //
+    // The absolute bound needs no such care. Measured: 1.1ms for this
+    // pattern, against 17,594ms for the old one at n=300 (a 13x SMALLER
+    // input). Any reintroduction of the ambiguity misses this by orders of
+    // magnitude, so 250ms is both far above the noise floor and far below
+    // anything a backtracking pattern could achieve.
+    expect(ms).toBeLessThan(250);
+  });
+
+  it("has no two adjacent quantifiers accepting the same character", () => {
+    // The structural property that makes the above true, asserted directly so
+    // a future edit that reintroduces the ambiguity is caught by reading.
+    const src = RELEASE_MONTH_RE.source;
+    expect(src).not.toContain("[A-Z]{2,}[A-Z ]*");
+    expect(src).not.toContain("[A-Z ]*\\s*");
+    // The bounded run is the load-bearing part of the fix.
+    expect(src).toContain("[A-Z ]{1,120}");
   });
 });
 
