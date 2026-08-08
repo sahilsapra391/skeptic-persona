@@ -358,22 +358,62 @@ async function checkNass(env: Env): Promise<CredResult> {
   }
 }
 
-function checkGithub(env: Env): CredResult {
+/**
+ * What the Actions-minutes digest line will actually read.
+ *
+ * NOT the billing endpoint. `/users/{u}/settings/billing/actions` is GONE —
+ * it answered **410** to a valid token on 2026-08-08 (and 404 to a token
+ * without the `user` scope, which is a different failure wearing similar
+ * clothes). GitHub retired the per-user Actions billing route.
+ *
+ * The runs endpoint is live, needs only repo scope, and is a BETTER source for
+ * the thing the digest is for: forecasting exhaustion. Minutes are derived
+ * from real run durations rather than read from a number that lags. The
+ * baseline this repo already measured (1.57 min/run over 20 runs, D-83) came
+ * from exactly this data.
+ */
+export const GH_RUNS_URL =
+  "https://api.github.com/repos/sahilsapra391/skeptic-persona/actions/runs?per_page=1";
+
+async function checkGithub(env: Env): Promise<CredResult> {
   const name = "GH_BILLING_TOKEN";
-  const t = (env as unknown as { GH_BILLING_TOKEN?: string }).GH_BILLING_TOKEN;
-  if (!t) {
+  const t = env.GH_BILLING_TOKEN;
+  if (!t) return { name, present: false, status: null, authAccepted: null, note: "not bound to the Worker" };
+  try {
+    // EXERCISES THE CAPABILITY, not just authentication (B-16.2). A token that
+    // authenticates but lacks the `user` scope returns 403 here while being a
+    // perfectly valid token — that is the p5-25 shape, where a working
+    // credential and a dead capability looked identical from the outside.
+    const res = await politeFetch(GH_RUNS_URL, {
+      userAgent: buildUserAgent(env.CONTACT_EMAIL),
+      timeoutMs: 20_000,
+      headers: { authorization: `Bearer ${t}`, accept: "application/vnd.github+json" },
+    });
+    if (!res.ok) {
+      return {
+        name,
+        present: true,
+        status: res.status,
+        authAccepted: false,
+        note:
+          res.status === 401 || res.status === 403
+            ? "token rejected by the runs endpoint"
+            : `runs endpoint returned ${res.status}`,
+      };
+    }
+    const b = JSON.parse(res.body) as { total_count?: number };
+    // The COUNT is the capability: if runs are readable, durations are
+    // readable, and the digest line can be rendered. A count is not secret.
     return {
       name,
-      present: false,
-      status: null,
-      authAccepted: null,
-      // Stated rather than worked around, per B-14.1. The token exists as a
-      // GITHUB ACTIONS secret; the digest that would use it is rendered by the
-      // Worker, and a Worker cannot read an Actions secret.
-      note: "not bound to the Worker (it is set as a GitHub Actions secret; the digest renders Worker-side)",
+      present: true,
+      status: res.status,
+      authAccepted: typeof b.total_count === "number",
+      note: `runs readable: ${b.total_count ?? "?"} total (minutes derive from run durations)`,
     };
+  } catch (e) {
+    return { name, present: true, status: null, authAccepted: null, note: `call failed: ${String(e).slice(0, 80)}` };
   }
-  return { name, present: true, status: null, authAccepted: null, note: "bound; call check not implemented yet" };
 }
 
 export async function handleCredCheck(request: Request, env: Env): Promise<Response> {
@@ -382,6 +422,6 @@ export async function handleCredCheck(request: Request, env: Env): Promise<Respo
   if (!key || !safeEqual(key, env.ADMIN_PROBE_TOKEN)) {
     return new Response("unauthorized", { status: 401 });
   }
-  const results: CredResult[] = [await checkBluesky(env), await checkNass(env), checkGithub(env)];
+  const results: CredResult[] = [await checkBluesky(env), await checkNass(env), await checkGithub(env)];
   return Response.json({ checkedAt: new Date().toISOString(), results });
 }

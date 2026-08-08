@@ -72,3 +72,26 @@ them and are recorded in CLAUDE.md and `docs/SOURCE_REGISTRY.md`.
 
 Vendor data is excluded outright by non-negotiable #3 and is not a licensing
 question at all.
+
+## Outstanding: the pre-rewrite blobs (B-16.4)
+
+**Our attributed-redistribution commitment is not met until these are gone.**
+
+`test/tmp-payloads.ts` carried congressional periodic-transaction data for 39
+named members as a raw payload dump with no attribution. It was removed from
+branch history by `git filter-repo` on 2026-08-06, but a history rewrite cannot
+evict objects GitHub has already stored, and the blob remained fetchable by
+direct SHA afterwards.
+
+A GitHub Support purge ticket was filed 2026-08-08 with the exact SHAs
+(`docs/verification/2026-08-08-github-purge-ticket.md`).
+
+| | |
+|---|---|
+| Status | **OPEN — awaiting GitHub Support** |
+| Blob | `8bcea4dfc1d3f357d6e487091a04bd0a8f343587` (249,656 B) |
+| Also filed | two unprojected OpenFIGI fixtures |
+| Closes when | Support confirms, AND a direct-SHA fetch returns 404 |
+
+Record the closure here when both conditions hold. Until then this policy has a
+known, dated gap rather than an implied clean bill.
