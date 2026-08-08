@@ -7,6 +7,7 @@ import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG
 import { recordFacts } from "../lookback";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtNum, isFreshAtIngest } from "./shared";
+import { resolveSymbol } from "../lib/symbol";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -160,14 +161,14 @@ export function score13(doc: Schedule13Doc, formType: string): number {
   return SCORE_LOG_ONLY;
 }
 
-export function draft13(doc: Schedule13Doc, formType: string): string {
+export function draft13(doc: Schedule13Doc, formType: string, issuerLabel?: string): string {
   const kind = /13D/i.test(formType) ? "13D" : "13G";
   const amended = formType.endsWith("/A") ? " amendment" : "";
   const size =
     doc.persons.find((p) => p.name === doc.topPersonName)?.aggregateAmountOwned ?? null;
   const shares = size !== null ? `${fmtNum(size)} shares, ` : "";
   const when = doc.dateOfEvent ? `, event dated ${doc.dateOfEvent}` : "";
-  return `Schedule ${kind}${amended}: ${doc.topPersonName} reports ${shares}${doc.topPercent}% of ${doc.issuerName}${when}`;
+  return `Schedule ${kind}${amended}: ${doc.topPersonName} reports ${shares}${doc.topPercent}% of ${issuerLabel && issuerLabel.trim() !== "" ? issuerLabel : doc.issuerName}${when}`;
 }
 
 export async function pollSchedule13(
@@ -249,6 +250,8 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
       // ISSUER GATE. Same reference the 8-K lane uses, same fail-open rules.
       // The filing still lands in the lake; it just stops interrupting.
       const gate = await issuerGate(env, doc.issuerCik, ctx);
+      // A2/B-21.1: OWNERSHIP_STAKE carried no cashtag at all.
+      const symbol = await resolveSymbol(env, { cik: doc.issuerCik, issuerName: doc.issuerName });
       if (!gate.keep) {
         score = Math.min(score, SCORE_LOG_ONLY);
         log("debug", "schedule13 suppressed by issuer gate", { cik: doc.issuerCik, reason: gate.reason });
@@ -266,7 +269,10 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
             // form-type string re-read at render time.
             isSchedule13D: /13D/i.test(stub.formType),
             ...doc,
-            factLine: draft13(doc, stub.formType),
+            factLine: draft13(doc, stub.formType, symbol.label),
+            issuerLabel: symbol.label,
+            ticker: symbol.ticker,
+            tickerSource: symbol.source,
           }),
           score,
           score >= SCORE_POSTABLE && fresh ? "new" : "logged",

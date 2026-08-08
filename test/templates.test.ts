@@ -928,3 +928,46 @@ describe("p5-04: the polish bundle", () => {
     expect(huge.reason).toBe("over_budget");
   });
 });
+
+// B-21.5. These two assertions came from `draftFor` in the 8-K ingester, which
+// was test-only and is now deleted. The rules are real and production
+// implements them HERE, in the FILING_8K skeletons, where nothing tested them.
+describe("FILING_8K exhibit noise and form type (ported from the deleted draftFor)", () => {
+  const render8k = (payload: Record<string, unknown>) => {
+    const built = ARCHETYPES.FILING_8K.skeletons
+      .map((sk) => sk.build(payload as never))
+      .filter((r): r is { lines: string[] } => r !== null);
+    expect(built.length).toBeGreaterThan(0);
+    return built[0]!.lines.join("\n");
+  };
+
+  it("the head uses the PARSED form type, never a hardcoded label", () => {
+    const text = render8k({
+      company: "ACME CORP",
+      formType: "8-K/A",
+      items: [{ code: "5.02", title: "Departure of Directors or Certain Officers" }],
+    });
+    expect(text).toContain("8-K/A");
+    expect(text).toContain("ACME CORP");
+  });
+
+  it("drops 9.01 exhibit noise, but keeps it when it is the ONLY item", () => {
+    const mixed = render8k({
+      company: "ACME CORP",
+      formType: "8-K",
+      items: [
+        { code: "5.02", title: "Departure of Directors or Certain Officers" },
+        { code: "9.01", title: "Financial Statements and Exhibits" },
+      ],
+    });
+    expect(mixed).toContain("5.02");
+    expect(mixed).not.toContain("9.01");
+
+    const only = render8k({
+      company: "ACME CORP",
+      formType: "8-K",
+      items: [{ code: "9.01", title: "Financial Statements and Exhibits" }],
+    });
+    expect(only).toContain("9.01");
+  });
+});
