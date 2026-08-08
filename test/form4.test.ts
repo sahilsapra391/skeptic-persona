@@ -101,6 +101,7 @@ describe("parseForm4Xml (live fixtures)", () => {
 const txn = (over: Partial<Form4Txn>): Form4Txn => ({
   securityTitle: "Common Stock",
   date: "2026-07-24",
+  timeliness: null,
   code: "P",
   acquiredDisposed: "A",
   shares: 10_000,
@@ -145,6 +146,8 @@ describe("totals + scoring", () => {
       owners: [{ cik: "1", name: "Doe Jane", isDirector: false, isOfficer: true, isTenPercent: false, officerTitle: "CEO" }],
       nonDerivative: [txn({ code: "P", shares: 50_000, price: 12.34, sharesAfter: 1_250_000, pctChange: 4.2 })],
       derivativeCount: 0,
+      derivatives: [],
+      planFlag: false,
     };
     // `now` is EXPLICIT: whether the year prints depends on what year it is,
     // so a defaulted clock would make this test pass until January.
@@ -166,6 +169,8 @@ describe("totals + scoring", () => {
         txn({ code: "P", shares: 99_999, price: null, sharesAfter: 209_999, pctChange: 90.9, date: "2026-07-20" }),
       ],
       derivativeCount: 0,
+      derivatives: [],
+      planFlag: false,
     };
     // `now` is EXPLICIT: whether the year prints depends on what year it is,
     // so a defaulted clock would make this test pass until January.
@@ -470,6 +475,8 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
       owners: [{ cik: "1", name: "Doe Jane", isDirector: false, isOfficer: true, isTenPercent: false, officerTitle: "CEO" }],
       nonDerivative: [txn({ code: "P", shares: 50_000, price: 12.34 })],
       derivativeCount: 0,
+      derivatives: [],
+      planFlag: false,
     };
     expect(draftForm4(doc, totalsFor(doc.nonDerivative))).toContain("$DOCS");
   });
@@ -484,6 +491,8 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
       owners: [{ cik: "1", name: "Doe Jane", isDirector: false, isOfficer: true, isTenPercent: false, officerTitle: "CEO" }],
       nonDerivative: [txn({ code: "P", shares: 50_000, price: 12.34 })],
       derivativeCount: 0,
+      derivatives: [],
+      planFlag: false,
     };
     // `now` is EXPLICIT: whether the year prints depends on what year it is,
     // so a defaulted clock would make this test pass until January.
@@ -498,6 +507,8 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
       owners: [{ cik: "1", name: "Doe Jane", isDirector: true, isOfficer: false, isTenPercent: false, officerTitle: null }],
       nonDerivative: [txn({ code: "P", shares: 1_000, price: 10 })],
       derivativeCount: 0,
+      derivatives: [],
+      planFlag: false,
     };
     // `now` is EXPLICIT: whether the year prints depends on what year it is,
     // so a defaulted clock would make this test pass until January.

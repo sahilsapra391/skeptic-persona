@@ -20,6 +20,7 @@ import { roleGloss } from "../templates/glosses";
 import { isWellFormedSymbol } from "../lib/symbol";
 import { isNonCommonSymbol } from "./issuers";
 import { deriveDisplayName } from "../lib/names";
+import { insiderFactsOf, planLanguage } from "../pipeline/insiderFacts";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -107,6 +108,18 @@ export interface Form4Txn {
   sharesAfter: number | null;
   direct: boolean;
   pctChange: number | null; // computed from parsed fields; null when not derivable
+  /** `L` when the filing declares itself late. 15 of 60 live filings carry it. */
+  timeliness: string | null;
+}
+
+/** A derivative leg, for the exercise-and-sell spread (B-10.3). */
+export interface Form4Derivative {
+  code: string;
+  date: string;
+  shares: number | null;
+  exercisePrice: number | null;
+  underlyingTitle: string | null;
+  underlyingShares: number | null;
 }
 
 export interface Form4Doc {
@@ -117,6 +130,25 @@ export interface Form4Doc {
   owners: Form4Owner[];
   nonDerivative: Form4Txn[];
   derivativeCount: number;
+  derivatives: Form4Derivative[];
+  /**
+   * `aff10b5One`, VERIFIED LIVE on 2026-08-08 across 60 current Form 4s:
+   * present in 60 of 60, a TOP-LEVEL element (sibling of `<issuer>`), and NOT
+   * wrapped in `<value>` -- so `nestedValue` returns null for it and
+   * `extractFirst` is required. Values are mixed: '1' x19, '0' x30, 'false'
+   * x11, which `boolVal` already handles.
+   *
+   * FALSE-NEGATIVE TEST: 15 filings mention "Rule 10b5-1" in a footnote and
+   * 19 carry the flag; ZERO have the flag false while a footnote claims a
+   * plan. The flag is the authority, not the footnote text.
+   *
+   * THE DOCTRINE (B-10.1, locked): TRUE licenses "under a pre-adopted trading
+   * plan". FALSE licenses NOTHING -- not "discretionary", not "not under a
+   * plan", not an implication either way. An unchecked box is the filer not
+   * asserting a plan, which is not the same as asserting there was none.
+   * Absence is not evidence.
+   */
+  planFlag: boolean;
 }
 
 /** One well-formed symbol, or null. See isWellFormedSymbol for why. */
@@ -183,8 +215,19 @@ export function parseForm4Xml(xml: string): Form4Doc | null {
       sharesAfter,
       direct: (nestedValue(block, "directOrIndirectOwnership") ?? "D") === "D",
       pctChange,
+      timeliness:
+        extractFirst(extractFirst(block, "transactionCoding") ?? "", "transactionTimeliness")?.trim() || null,
     };
   });
+
+  const derivatives: Form4Derivative[] = extractAll(clean, "derivativeTransaction").map((block) => ({
+    code: extractFirst(extractFirst(block, "transactionCoding") ?? "", "transactionCode")?.trim() ?? "",
+    date: nestedValue(block, "transactionDate") ?? "",
+    shares: nestedNumber(block, "transactionShares"),
+    exercisePrice: nestedNumber(block, "conversionOrExercisePrice"),
+    underlyingTitle: nestedValue(extractFirst(block, "underlyingSecurity") ?? "", "underlyingSecurityTitle"),
+    underlyingShares: nestedNumber(extractFirst(block, "underlyingSecurity") ?? "", "underlyingSecurityShares"),
+  }));
 
   return {
     documentType: extractFirst(clean, "documentType")?.trim() ?? "",
@@ -199,7 +242,11 @@ export function parseForm4Xml(xml: string): Form4Doc | null {
     ticker: cleanFiledSymbol(extractFirst(issuerBlock, "issuerTradingSymbol")),
     owners,
     nonDerivative,
-    derivativeCount: extractAll(clean, "derivativeTransaction").length,
+    derivativeCount: derivatives.length,
+    derivatives,
+    // Top-level and unwrapped. `nestedValue` returns null here; that is the
+    // whole reason this is a separate read.
+    planFlag: boolVal(extractFirst(clean, "aff10b5One")?.trim() ?? null),
   };
 }
 
@@ -527,6 +574,21 @@ async function processDetail(
               return buys.length === allBuys.length && !!last && last.sharesAfter !== null;
             })(),
             isAmendment: stub.formType.endsWith("/A"),
+            // p6-03 (B2): the derived fields. Every one omitted rather than
+            // approximated when its inputs are absent.
+            ...insiderFactsOf(doc.nonDerivative, doc.derivatives, doc.planFlag),
+            // The licensed PHRASE, or absent. B-10.1: a false flag licenses
+            // nothing, so there is no negative form of this key.
+            ...(planLanguage(doc.planFlag) ? { planLanguage: planLanguage(doc.planFlag) } : {}),
+            // Every row, not just the aggregate. This is what made card
+            // #1243's take possible and every thin payload's take thin.
+            transactionRows: doc.nonDerivative.map((t) => ({
+              code: t.code,
+              date: t.date,
+              shares: t.shares,
+              price: t.price,
+              sharesAfter: t.sharesAfter,
+            })),
           }),
           score,
           score >= SCORE_POSTABLE && fresh ? "new" : "logged",

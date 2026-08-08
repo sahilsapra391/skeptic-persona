@@ -118,6 +118,13 @@ export interface Form144Acquisition {
   amount: number | null;
 }
 
+/** One prior sale the filer discloses on their own notice (B-10.2). */
+export interface Form144PriorSale {
+  saleDate: string | null;
+  shares: number | null;
+  grossProceeds: number | null;
+}
+
 export interface Form144Doc {
   issuerCik: string;
   issuerName: string;
@@ -134,6 +141,30 @@ export interface Form144Doc {
   acquisitions: Form144Acquisition[];
   /** Share of shares outstanding, computed from two parsed fields only. */
   pctOfOutstanding: number | null;
+  /**
+   * THE FILER'S OWN PRIOR-3-MONTHS SALES TABLE (B-10.2), present in 13 of 25
+   * live Form 144s sampled 2026-08-07. Elements verified live:
+   * `securitiesSoldInPast3Months` wrapping `sellerDetails`, `saleDate`,
+   * `amountOfSecuritiesSold` and `grossProceeds`.
+   *
+   * WHY THIS IS THE 144 LANE'S UNLOCK: it is comparative material that needs
+   * NO backfill. Counts and totals over it are the FILER's own disclosure of
+   * their own recent selling, not a count over our lake.
+   *
+   * THEREFORE IT IS NOT SUBJECT TO OUR COVERAGE GUARD, and that distinction
+   * matters enough to state twice. The coverage guard exists because a count
+   * over OUR data is only as long as OUR observation window -- "third sale
+   * this year" is a lie if we have ten days of history. Here the window is the
+   * filer's statutory three months and the count is theirs. Quoting it is
+   * quoting the document. A future session must not "fix" this by routing it
+   * through `coverageFor()`; that would suppress a primary-source fact on the
+   * strength of a rule about our own lake.
+   */
+  priorSales: Form144PriorSale[];
+  /** `planAdoptionDate`, 4 of 25 live filings. The 10b5-1 signal on Form 144.
+   *  Same doctrine as Form 4's flag (B-10.1): present licenses a claim,
+   *  absent licenses NOTHING. */
+  planAdoptionDate: string | null;
 }
 
 function num(v: string | null): number | null {
@@ -199,9 +230,18 @@ export function parseForm144Xml(xml: string): Form144Doc | null {
     pctOfOutstanding = Math.round((unitsSold / unitsOutstanding) * 10000) / 100;
   }
 
+  const priorSales: Form144PriorSale[] = extractAllNs(clean, "securitiesSoldInPast3Months").map((b) => ({
+    saleDate: (extractFirstNs(b, "saleDate") ?? "").trim() || null,
+    shares: num(extractFirstNs(b, "amountOfSecuritiesSold")),
+    grossProceeds: num(extractFirstNs(b, "grossProceeds")),
+  }));
+
   return {
     issuerCik,
     issuerName,
+    priorSales,
+    planAdoptionDate:
+      (extractFirstNs(extractFirstNs(clean, "planAdoptionDates") ?? "", "planAdoptionDate") ?? "").trim() || null,
     sellerName,
     relationships,
     securitiesClass: decodeEntities((extractFirstNs(secInfo, "securitiesClassTitle") ?? "").trim()) || null,
@@ -427,6 +467,26 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
             sellerName: sellerDisplayName(doc, stub.conformedSeller),
             sellerNameFiled: doc.sellerName,
             sellerNameConformed: stub.conformedSeller ?? null,
+            // B-10.2: the filer's OWN prior-3-months sales, and the derived
+            // counts over them. NOT coverage-guarded -- the window is the
+            // filer's statutory three months and the count is theirs, so
+            // quoting it is quoting the document. See Form144Doc.priorSales.
+            priorSales: doc.priorSales,
+            priorSaleCount: doc.priorSales.length,
+            ...(doc.priorSales.length > 0
+              ? {
+                  priorSaleShares: doc.priorSales.every((x) => typeof x.shares === "number")
+                    ? doc.priorSales.reduce((n, x) => n + (x.shares ?? 0), 0)
+                    : null,
+                  // Only summed when EVERY row parsed a figure. A partial sum
+                  // presented as the whole is the fabrication class.
+                  priorSaleProceeds: doc.priorSales.every((x) => typeof x.grossProceeds === "number")
+                    ? doc.priorSales.reduce((n, x) => n + (x.grossProceeds ?? 0), 0)
+                    : null,
+                }
+              : {}),
+            // Present licenses a claim; absent licenses NOTHING (B-10.1).
+            ...(doc.planAdoptionDate ? { planAdoptionDate: doc.planAdoptionDate } : {}),
             relationships: doc.relationships,
             relationshipLabel: relationshipLabel(doc),
             securitiesClass: doc.securitiesClass,

@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?><edgarSubmission xmlns="http://www.sec.gov/edgar/ownership" xmlns:com="http://www.sec.gov/edgar/common">
+  <headerData>
+    <submissionType>144</submissionType>
+    <filerInfo>
+      <filer>
+        <filerCredentials>
+          <cik>0001181469</cik>
+          <ccc>XXXXXXXX</ccc>
+        </filerCredentials>
+      </filer>
+      <liveTestFlag>LIVE</liveTestFlag>
+
+
+
+    </filerInfo>
+  </headerData>
+  <formData>
+    <issuerInfo>
+      <issuerCik>0001642896</issuerCik>
+      <issuerName>Samsara Inc.</issuerName>
+      <secFileNumber>001-41140</secFileNumber>
+      <issuerAddress>
+        <com:street1>1 DE HARO STREET</com:street1>
+        <com:city>SAN FRANCISCO</com:city>
+        <com:stateOrCountry>CA</com:stateOrCountry>
+        <com:zipCode>94107</com:zipCode>
+      </issuerAddress>
+      <issuerContactPhone>(415) 985-2400</issuerContactPhone>
+      <nameOfPersonForWhoseAccountTheSecuritiesAreToBeSold>BOSTROM SUSAN L</nameOfPersonForWhoseAccountTheSecuritiesAreToBeSold>
+      <relationshipsToIssuer>
+        <relationshipToIssuer>Former Affiliate</relationshipToIssuer>
+      </relationshipsToIssuer>
+    </issuerInfo>
+    <securitiesInformation>
+      <securitiesClassTitle>Common</securitiesClassTitle>
+      <brokerOrMarketmakerDetails>
+        <name>Charles Schwab &amp; Co., Inc.</name>
+        <address>
+          <com:street1>3000 Schwab Way</com:street1>
+          <com:city>Westlake</com:city>
+          <com:stateOrCountry>TX</com:stateOrCountry>
+          <com:zipCode>76262</com:zipCode>
+        </address>
+      </brokerOrMarketmakerDetails>
+      <noOfUnitsSold>75000</noOfUnitsSold>
+      <aggregateMarketValue>3031838.00</aggregateMarketValue>
+      <noOfUnitsOutstanding>372784485</noOfUnitsOutstanding>
+      <approxSaleDate>08/07/2026</approxSaleDate>
+      <securitiesExchangeName>NYSE</securitiesExchangeName>
+    </securitiesInformation>
+    <securitiesToBeSold>
+      <securitiesClassTitle>Common</securitiesClassTitle>
+      <acquiredDate>12/15/2023</acquiredDate>
+      <natureOfAcquisitionTransaction>Restricted Stock Lapse - See Remarks</natureOfAcquisitionTransaction>
+      <nameOfPersonfromWhomAcquired>SAMSARA INC.</nameOfPersonfromWhomAcquired>
+      <isGiftTransaction>N</isGiftTransaction>
+      <amountOfSecuritiesAcquired>75000</amountOfSecuritiesAcquired>
+      <paymentDate>12/15/2023</paymentDate>
+      <natureOfPayment>Equity Compensation</natureOfPayment>
+    </securitiesToBeSold>
+    <nothingToReportFlagOnSecuritiesSoldInPast3Months>N</nothingToReportFlagOnSecuritiesSoldInPast3Months>
+    <securitiesSoldInPast3Months>
+      <sellerDetails>
+        <name>SUSAN L BOSTROM</name>
+        <address>
+          <com:street1>1 DE HARO STREET</com:street1>
+          <com:city>SAN FRANCISCO</com:city>
+          <com:stateOrCountry>CA</com:stateOrCountry>
+          <com:zipCode>94107</com:zipCode>
+        </address>
+      </sellerDetails>
+      <securitiesClassTitle>Samsara Inc.</securitiesClassTitle>
+      <saleDate>07/28/2026</saleDate>
+      <amountOfSecuritiesSold>37403</amountOfSecuritiesSold>
+      <grossProceeds>1397474.00</grossProceeds>
+    </securitiesSoldInPast3Months>
+    <securitiesSoldInPast3Months>
+      <sellerDetails>
+        <name>SUSAN L BOSTROM</name>
+        <address>
+          <com:street1>1 DE HARO STREET</com:street1>
+          <com:city>SAN FRANCISCO</com:city>
+          <com:stateOrCountry>CA</com:stateOrCountry>
+          <com:zipCode>94107</com:zipCode>
+        </address>
+      </sellerDetails>
+      <securitiesClassTitle>Samsara Inc.</securitiesClassTitle>
+      <saleDate>07/29/2026</saleDate>
+      <amountOfSecuritiesSold>50000</amountOfSecuritiesSold>
+      <grossProceeds>1930058.00</grossProceeds>
+    </securitiesSoldInPast3Months>
+    <securitiesSoldInPast3Months>
+      <sellerDetails>
+        <name>SUSAN L BOSTROM</name>
+        <address>
+          <com:street1>1 DE HARO STREET</com:street1>
+          <com:city>SAN FRANCISCO</com:city>
+          <com:stateOrCountry>CA</com:stateOrCountry>
+          <com:zipCode>94107</com:zipCode>
+        </address>
+      </sellerDetails>
+      <securitiesClassTitle>Samsara Inc.</securitiesClassTitle>
+      <saleDate>08/04/2026</saleDate>
+      <amountOfSecuritiesSold>30000</amountOfSecuritiesSold>
+      <grossProceeds>1147501.00</grossProceeds>
+    </securitiesSoldInPast3Months>
+    <remarks>The shares sold in this filing were acquired and paid for between 12/15/2023 and 03/15/2025.</remarks>
+    <noticeSignature>
+      <noticeDate>08/07/2026</noticeDate>
+      <signature>SUSAN L BOSTROM</signature>
+    </noticeSignature>
+  </formData>
+</edgarSubmission>
