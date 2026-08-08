@@ -107,8 +107,21 @@ export interface Form4Txn {
   price: number | null;
   sharesAfter: number | null;
   direct: boolean;
+  /**
+   * `natureOfOwnership`, e.g. "By Oak Trust". Free text, printed nowhere.
+   *
+   * Parsed ONLY to key ownership lines apart, because
+   * `sharesOwnedFollowingTransaction` is a running balance PER LINE and a
+   * filer can report five of them in one filing. See pctDisposedOf (D-129).
+   */
+  natureOfOwnership: string | null;
   pctChange: number | null; // computed from parsed fields; null when not derivable
-  /** `L` when the filing declares itself late. 15 of 60 live filings carry it. */
+  /**
+   * `L` when a row declares itself late.
+   *
+   * MEASURED 2026-08-08: 15 of 60 live filings contain the element and ALL 34
+   * occurrences are EMPTY. Presence is not a value -- see lateFilingOf.
+   */
   timeliness: string | null;
 }
 
@@ -214,6 +227,7 @@ export function parseForm4Xml(xml: string): Form4Doc | null {
       price: nestedNumber(block, "transactionPricePerShare"),
       sharesAfter,
       direct: (nestedValue(block, "directOrIndirectOwnership") ?? "D") === "D",
+      natureOfOwnership: nestedValue(block, "natureOfOwnership")?.trim() || null,
       pctChange,
       timeliness:
         extractFirst(extractFirst(block, "transactionCoding") ?? "", "transactionTimeliness")?.trim() || null,

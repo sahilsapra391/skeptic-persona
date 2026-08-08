@@ -25,8 +25,14 @@ export interface InsiderFacts {
   /** Sale price minus exercise price, when both parsed on the same filing. */
   exerciseSpread: number | null;
   exercisePrice: number | null;
-  /** The filing declared itself late. */
-  lateFiling: boolean;
+  /**
+   * TRUE when a row declared itself late, NULL when no row declared anything.
+   *
+   * Nullable for the same reason planLanguage returns null: `false` would
+   * assert the filing was TIMELY, and an empty element asserts nothing. See
+   * lateFilingOf for why this is not a hypothetical.
+   */
+  lateFiling: boolean | null;
   /** Distinct transaction codes present, so a beat can gate on shape. */
   codes: string[];
   rowCount: number;
@@ -57,27 +63,75 @@ export function planLanguage(planFlag: boolean): string | null {
 const num = (v: number | null | undefined): v is number => typeof v === "number" && Number.isFinite(v);
 
 /**
- * Percentage of the stake disposed, from two parsed fields.
+ * Percentage of the stake disposed. THE HEADLINE NUMBER OF THE PRIMARY LANE,
+ * and the one that has to be right or not printed at all.
  *
- * shares / (shares + sharesOwnedFollowingTransaction), which reconstructs the
- * prior balance rather than assuming one. Only DISPOSALS: the same arithmetic
- * on an acquisition answers a different question and would read as a sale.
+ * disposed / (disposed + remaining), reconstructing the prior balance rather
+ * than assuming one. Only DISPOSALS: the same arithmetic on an acquisition
+ * answers a different question and would read as a sale.
  *
- * Uses the LATEST-dated priced disposal, because `sharesOwnedFollowingTransaction`
- * is a running balance and only the last row's is the post-filing stake.
+ * D-129, MEASURED ON 60 LIVE FILINGS, 4 OF 44 WRONG AND WRONG BOTH WAYS.
+ * `sharesOwnedFollowingTransaction` is a running balance PER OWNERSHIP LINE,
+ * not per filing. Jeremy Allaire's 2026-08-05 Circle filing carries 25 rows
+ * across FIVE lines -- direct plus four named trusts -- and taking "the last
+ * row's balance" as the stake reported 50.2% disposed where the truth summed
+ * across lines is 8.8%. The inputs all parsed correctly; the derivation over
+ * them was wrong. Nothing in a green suite could see it.
+ *
+ * So: group by line, take each line's FINAL balance (whether or not that row
+ * is a disposal), and sum. A line whose final balance did not parse voids the
+ * whole number -- a stake missing one of five lines is not a stake.
  */
 export function pctDisposedOf(txns: readonly Form4Txn[]): { pct: number; sharesAfter: number } | null {
-  const sells = txns
-    .filter((t) => t.acquiredDisposed === "D" && num(t.shares) && num(t.sharesAfter) && t.date)
-    .slice()
-    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-  const last = sells.at(-1);
-  if (!last || !num(last.shares) || !num(last.sharesAfter)) return null;
-  // Total disposed across the filing, against the balance left at the end.
-  const disposed = sells.reduce((n, t) => n + (t.shares ?? 0), 0);
-  const prior = last.sharesAfter + disposed;
+  const disposed = txns
+    .filter((t) => t.acquiredDisposed === "D" && num(t.shares))
+    .reduce((n, t) => n + (t.shares ?? 0), 0);
+  if (disposed <= 0) return null;
+
+  // Ownership line = direct/indirect plus the nature text, because a filer can
+  // report four separate trusts that are all "I".
+  const lines = new Map<string, Form4Txn[]>();
+  for (const t of txns) {
+    const key = `${t.direct ? "D" : "I"}|${t.natureOfOwnership ?? ""}`;
+    lines.set(key, [...(lines.get(key) ?? []), t]);
+  }
+
+  let remaining = 0;
+  for (const rows of lines.values()) {
+    if (!isCoherentBalance(rows)) return null;
+    // Document order, NOT date order: rows within a line are already sequenced
+    // by the filer, and same-date rows have no date to sort by.
+    const last = rows.at(-1);
+    if (!last || !num(last.sharesAfter)) return null;
+    remaining += last.sharesAfter;
+  }
+
+  const prior = remaining + disposed;
   if (prior <= 0) return null;
-  return { pct: Math.round((disposed / prior) * 1000) / 10, sharesAfter: last.sharesAfter };
+  return { pct: Math.round((disposed / prior) * 1000) / 10, sharesAfter: remaining };
+}
+
+/**
+ * Does this ownership line behave like a running balance at all?
+ *
+ * Two live filings (Bullish, 2026-08-06) report nine consecutive sales each
+ * with `sharesOwnedFollowingTransaction` of 0, then a disposal whose balance
+ * RISES to 17,806,342. Read as a running balance that is nonsense, and the
+ * arithmetic over it produced 3.5% one way and 81.0% the other -- two wrong
+ * answers, no right one available.
+ *
+ * A disposal cannot increase a balance. When one does, the column is not a
+ * running balance in this filing and NOTHING derived from it may be printed.
+ * The correct output for these filings is no percentage, not a better guess.
+ */
+function isCoherentBalance(rows: readonly Form4Txn[]): boolean {
+  let prev: number | null = null;
+  for (const t of rows) {
+    const after = num(t.sharesAfter) ? t.sharesAfter : null;
+    if (after !== null && prev !== null && t.acquiredDisposed === "D" && after > prev) return false;
+    if (after !== null) prev = after;
+  }
+  return true;
 }
 
 /**
@@ -109,6 +163,33 @@ export function exerciseAndSellOf(
   };
 }
 
+/**
+ * Late-filing marker, and A WORKED EXAMPLE OF PRESENCE-IS-NOT-A-VALUE (D-128).
+ *
+ * `L` is the SEC's own late marker. Returns true only when a row carries it,
+ * and NULL when no row carries any timeliness value at all -- because `false`
+ * would assert the filing was timely, which an empty element does not say.
+ * Same doctrine as planLanguage: absence licenses nothing in either direction.
+ *
+ * MEASURED, and this is why the field is nullable rather than boolean. Across
+ * 60 live Form 4s: 15 filings contain `<transactionTimeliness>`, all 34
+ * occurrences are EMPTY (`<transactionTimeliness></transactionTimeliness>`),
+ * and 0 carry any content. I originally shipped this as a plain boolean with a
+ * comment reading "15 of 60 live filings carry it" -- I had counted the
+ * element's PRESENCE and written it down as its MEANING. The parse was correct
+ * the whole time; the claim about it was not.
+ *
+ * SO NO BEAT MAY GATE ON THIS YET. On today's data it is true 0 times out of
+ * 60 and a beat reading it would be dead code that looks live. It stays parsed
+ * because it costs nothing and the marker does appear in the wild; it does not
+ * become copy until a filing actually carries an `L`.
+ */
+export function lateFilingOf(txns: readonly Form4Txn[]): boolean | null {
+  const stated = txns.map((t) => (t.timeliness ?? "").trim()).filter((v) => v !== "");
+  if (stated.length === 0) return null;
+  return stated.some((v) => v.toUpperCase() === "L");
+}
+
 export function insiderFactsOf(
   txns: readonly Form4Txn[],
   derivatives: readonly Form4Derivative[],
@@ -123,9 +204,7 @@ export function insiderFactsOf(
     exerciseAndSell: es !== null,
     exerciseSpread: es?.spread ?? null,
     exercisePrice: es?.exercisePrice ?? null,
-    // `L` is the SEC's own late marker; anything else present is not a claim
-    // we make. 15 of 60 live filings carry a timeliness value.
-    lateFiling: txns.some((t) => (t.timeliness ?? "").toUpperCase() === "L"),
+    lateFiling: lateFilingOf(txns),
     codes: [...new Set(txns.map((t) => t.code).filter((c) => c !== ""))].sort(),
     rowCount: txns.length,
   };

@@ -102,6 +102,7 @@ const txn = (over: Partial<Form4Txn>): Form4Txn => ({
   securityTitle: "Common Stock",
   date: "2026-07-24",
   timeliness: null,
+  natureOfOwnership: null,
   code: "P",
   acquiredDisposed: "A",
   shares: 10_000,
