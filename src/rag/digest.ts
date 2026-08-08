@@ -436,7 +436,11 @@ export async function genHealth(db: D1Database, sinceIso: string, untilIso: stri
       // worth counting.
       `SELECT q.archetype AS archetype,
               COUNT(DISTINCT q.id) AS cards,
-              COUNT(DISTINCT CASE WHEN g.status IN ('fallback_template','fallback_blocked','skipped_no_exemplar')
+              -- error_quarantined belongs here or the metric added in this
+              -- same chunk to make lost cards visible reports one as a clean
+              -- run (D-124 turned on itself).
+              COUNT(DISTINCT CASE WHEN g.status IN ('fallback_template','fallback_blocked',
+                                                    'skipped_no_exemplar','error_quarantined')
                                   THEN q.id END) AS fell_back,
               COUNT(DISTINCT CASE WHEN g.status IN ('api_error','api_failed') THEN q.id END) AS api_cards,
               COUNT(DISTINCT CASE WHEN g.id IS NULL THEN q.id END) AS no_generation

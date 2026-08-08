@@ -480,7 +480,17 @@ export async function runGeneration(
     // probes applies to the hot path here.
     const counters = await env.DB.prepare(
       `SELECT COALESCE(MAX(attempt), 0) AS highest,
-              COUNT(DISTINCT CASE WHEN cycle = ?2 AND status NOT IN ('api_error','api_failed') THEN attempt END) AS spent,
+              -- THE EXCLUSION LIST IS THE VOICE BUDGET. Anything here means
+              -- "the model was never asked", so it must not consume an
+              -- attempt. p6-08 added three statuses and did not add them here,
+              -- and the omission defeated the very fix that introduced them:
+              -- one budget_deferred marker made spentBeforeRun 1, which flips
+              -- voiceEverTested true, so the SECOND exhausted tick wrote a
+              -- terminal fallback_template having still never called the LLM.
+              -- D-121 survived exactly one tick.
+              COUNT(DISTINCT CASE WHEN cycle = ?2
+                    AND status NOT IN ('api_error','api_failed','budget_deferred','error_retry','error_quarantined')
+                    THEN attempt END) AS spent,
               COUNT(DISTINCT CASE WHEN cycle = ?2 AND status IN ('api_error','api_failed') THEN attempt END) AS api_spent
        FROM generations WHERE queue_id = ?1`,
     )

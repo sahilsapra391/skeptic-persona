@@ -550,3 +550,21 @@ describe("B-08.6: generation health in the digest", () => {
       .toContain("0% fallback");
   });
 });
+
+describe("p6-08: a quarantined row still reaches the owner", () => {
+  it("error_quarantined is delivered as a HELD card with a Regenerate handle", async () => {
+    // generate.ts's TERMINAL_PREDICATE gained this status and deliver.ts's
+    // independent copy did not, so the row stopped being re-picked for
+    // generation AND was never delivered: permanently dead, no Edit, no
+    // Regenerate, against the precedent rejected:payload sets.
+    const { buildCard } = await import("../src/rag/deliver");
+    const card = await buildCard(env.DB, 1, "CONGRESS_PTR" as never, "error_quarantined", 1);
+    expect(card.held).toBe(true);
+    expect(card.text).toContain("HELD");
+    expect(card.text).toContain("quarantined");
+    // NOT the generic rejected-variants copy, which would be false: nothing
+    // was ever generated for this row.
+    expect(card.text).not.toContain("Every generated variant was rejected");
+    expect(JSON.stringify(card.buttons)).toContain("Regenerate");
+  });
+});

@@ -765,7 +765,24 @@ describe("p6-08: the three stall paths", () => {
     expect(statuses).not.toContain("fallback_template");
     expect(statuses).toContain("budget_deferred");
 
-    // and it is NON-terminal, so the next tick picks it up with its voice intact
+    // TWO CONSECUTIVE EXHAUSTED TICKS, because one is the only shape that
+    // cannot expose the real bug. The first version of this test ran one
+    // exhausted tick then a healthy one and passed while `budget_deferred`
+    // counted as a spent voice attempt -- so the SECOND exhausted tick wrote a
+    // terminal fallback_template with the model still never called, and D-121
+    // survived exactly one tick. D-99's blind spot, inside the test written
+    // for D-121.
+    const spent2 = newTickBudget();
+    while (spent2.take(1, { reserved: true })) {
+      /* drain it again */
+    }
+    await runGeneration(genEnv(), NOW, spent2, { exemplars: [EXEMPLAR] });
+    const afterTwo = await env.DB.prepare(`SELECT status FROM generations WHERE queue_id = ?1`)
+      .bind(qid).all<{ status: string }>();
+    expect(afterTwo.results.map((r) => r.status)).not.toContain("fallback_template");
+    expect(orCalls).toBe(before); // still never called
+
+    // and it is NON-terminal, so a funded tick picks it up with its voice intact
     nextReply = () => GOOD;
     await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
     const after = await env.DB.prepare(

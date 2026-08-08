@@ -142,6 +142,15 @@ export async function buildCard(
       held: true,
     };
   }
+  if (terminalStatus === "error_quarantined") {
+    // A HELD card, not a rejected one. No variant was ever generated, so the
+    // generic "every variant was rejected" copy would be false.
+    return {
+      text: `🛑 #${queueId} ${archetype}\n\nHELD: generation threw repeatedly and was quarantined to stop it blocking the lane. Nothing was generated, so nothing here is copy-ready. Regenerate once the underlying fault is fixed.`,
+      buttons: [[{ text: "🔁 Regenerate", callback_data: `g:${queueId}:${renderId}` }]],
+      held: true,
+    };
+  }
   if (terminalStatus === "rejected:payload") {
     // Stranded-row fix (findings #12/#17/#20): unparseable payload is
     // terminal for generation, but the owner still gets a handle.
@@ -276,7 +285,13 @@ export async function deliverCards(env: Env, now: Date, budget: TickBudget = new
      FROM queue q
      JOIN generations g ON g.queue_id = q.id
        AND g.cycle = q.regen_cycle
-       AND (g.status = 'valid' OR g.status LIKE 'fallback%' OR g.status LIKE 'skipped%' OR g.status = 'rejected:payload')
+       -- SECOND COPY OF TERMINAL_PREDICATE, and it drifted (D-117's shape).
+       -- generate.ts gained 'error_quarantined' and this did not, so a
+       -- quarantined row stopped being re-picked for generation AND was never
+       -- delivered: permanently dead, with no Edit or Regenerate handle,
+       -- against the precedent rejected:payload sets three lines below.
+       AND (g.status = 'valid' OR g.status LIKE 'fallback%' OR g.status LIKE 'skipped%'
+            OR g.status = 'rejected:payload' OR g.status = 'error_quarantined')
      LEFT JOIN cards c ON c.queue_id = q.id
      WHERE q.state IN ('approved', 'edited')
        AND (c.posted_state IS NULL OR c.posted_state = 'skipped')
