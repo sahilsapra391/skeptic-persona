@@ -58,6 +58,107 @@ export interface IssuerRow {
   name: string;
   ticker: string;
   exchange: string;
+  /** How `ticker` was chosen. Auditable per row; see `selectIssuerTicker`. */
+  tickerSource?: TickerSource;
+  /** Other share-class symbols for this CIK; empty unless sec_share_class. */
+  tickerAlts?: string;
+}
+
+export type TickerSource =
+  | "sec_primary" // unsuffixed symbol on a major exchange
+  | "sec_primary_otc" // unsuffixed, OTC only
+  | "sec_share_class" // no unsuffixed symbol exists; dual-class common (BRK-A/BRK-B)
+  | "unresolved"; // only preferred series, warrants, units or rights exist
+
+/**
+ * ONE CIK, MANY SYMBOLS — and the file is one-to-many by design.
+ *
+ * `company_tickers_exchange.json` carries 10,398 rows over 7,999 CIKs, so
+ * 1,452 CIKs list more than one symbol. The upsert here is keyed on `cik`, and
+ * it used to take whatever row came LAST in SEC's file order. That is a coin
+ * flip, not a lookup, and it lost: 269 rows in production held a preferred
+ * series, including BANK OF AMERICA at `MER-PK` (a Merrill Lynch preferred),
+ * WELLS FARGO at `WFC-PZ`, MORGAN STANLEY at `MS-PQ`, GOLDMAN SACHS at
+ * `GS-PD`, AT&T at `T-PC`, BOEING at `BA-PA` and CITIGROUP at `C-PR`.
+ *
+ * The suffix convention is measured, not assumed (2026-08-08, over the whole
+ * live file): of 548 suffixed symbols, 383 are preferred (`-P` + a letter), 29
+ * are single-letter share classes (`-A`, `-B`), and 136 are warrants (`-WT`),
+ * units (`-UN`) or rights (`-RI`). Only preferred and share classes are even
+ * arguable; warrants, units and rights are not common shares at all.
+ *
+ * Selection is explicit and total, in this order:
+ *   1. an unsuffixed symbol on a major exchange   -> sec_primary
+ *   2. an unsuffixed symbol anywhere              -> sec_primary_otc
+ *   3. no unsuffixed symbol exists, but a single-letter share class does:
+ *      take the alphabetically first, deterministically  -> sec_share_class
+ *      (only 20 CIKs; BRK-A/BRK-B, BF-A/BF-B, CRD-A/CRD-B and the like)
+ *   4. otherwise NO TICKER -> unresolved, and the lane falls back to the
+ *      issuer name as filed. Never a preferred series, never a warrant.
+ */
+const SERIES_SUFFIX = /-(.+)$/;
+const PREFERRED_SUFFIX = /^P[A-Z]$/;
+const SHARE_CLASS_SUFFIX = /^[A-Z]$/;
+
+/**
+ * Does this symbol name something that is NOT a common share -- a preferred
+ * series (`WFC-PZ`), a warrant (`-WT`), a unit (`-UN`) or a right (`-RI`)?
+ *
+ * This is the predicate the standing check uses (B-15.4): no issuer row may
+ * ever hold one of these. A single-letter suffix is a genuine common share
+ * CLASS (`BRK-A`) and is allowed.
+ */
+export function isNonCommonSymbol(ticker: string): boolean {
+  const m = SERIES_SUFFIX.exec(ticker);
+  if (!m) return false;
+  return !SHARE_CLASS_SUFFIX.test(m[1]!);
+}
+
+/** The narrower case: a preferred series specifically. */
+export function isPreferredSeries(ticker: string): boolean {
+  const m = SERIES_SUFFIX.exec(ticker);
+  return m !== null && PREFERRED_SUFFIX.test(m[1]!);
+}
+
+export function selectIssuerTicker(
+  candidates: ReadonlyArray<{ ticker: string; exchange: string }>,
+): { ticker: string; exchange: string; tickerSource: TickerSource; alts: string[] } {
+  const clean = candidates.filter((c) => c.ticker !== "");
+  const unsuffixed = clean.filter((c) => !SERIES_SUFFIX.test(c.ticker));
+
+  const major = unsuffixed.filter((c) => MAJOR_EXCHANGES.has(c.exchange));
+  // SHORTEST first, then alphabetical. Both halves matter. Alphabetical alone
+  // would be settled by luck on AT&T, whose CIK also lists `TBB` -- an
+  // unsuffixed NYSE symbol that is a baby bond, not the common share. The
+  // common share carries the bare root, so the shorter symbol wins; the
+  // alphabetical tiebreak then makes the choice independent of row order.
+  const pick = <T extends { ticker: string }>(xs: T[]): T | undefined =>
+    xs
+      .slice()
+      .sort((a, b) => a.ticker.length - b.ticker.length || (a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0))[0];
+
+  const p1 = pick(major);
+  if (p1) return { ticker: p1.ticker, exchange: p1.exchange, tickerSource: "sec_primary", alts: [] };
+
+  const p2 = pick(unsuffixed);
+  if (p2) return { ticker: p2.ticker, exchange: p2.exchange, tickerSource: "sec_primary_otc", alts: [] };
+
+  const classes = clean.filter((c) => {
+    const m = SERIES_SUFFIX.exec(c.ticker);
+    return m !== null && SHARE_CLASS_SUFFIX.test(m[1]!) && MAJOR_EXCHANGES.has(c.exchange);
+  });
+  const p3 = pick(classes);
+  if (p3) {
+    // The rejected classes are kept, not discarded: a Form 144 that names
+    // "Class B Common" can then be answered with BRK-B instead of the
+    // alphabetical default (B-10.4 tier 2).
+    const alts = classes.map((c) => c.ticker).filter((t) => t !== p3.ticker).sort();
+    return { ticker: p3.ticker, exchange: p3.exchange, tickerSource: "sec_share_class", alts };
+  }
+
+  // Preferred / warrants / units / rights only. The issuer name is the honest
+  // label; a preferred-series cashtag on a common-share transaction is not.
+  return { ticker: "", exchange: candidates[0]?.exchange ?? "", tickerSource: "unresolved", alts: [] };
 }
 
 /** SEC serves {fields: [...], data: [[...]]}, positional, not keyed. */
@@ -74,7 +175,10 @@ export function parseTickerFile(body: string): IssuerRow[] {
   const iExch = fields.indexOf("exchange");
   if (iCik < 0 || iName < 0 || iTicker < 0 || iExch < 0) return [];
 
-  const out: IssuerRow[] = [];
+  // GROUPED, then SELECTED. Emitting every row and letting the upsert's
+  // ON CONFLICT settle it made the choice depend on SEC's row order, which is
+  // not a contract and which nothing in the pipeline could audit afterwards.
+  const byCik = new Map<number, { name: string; candidates: Array<{ ticker: string; exchange: string }> }>();
   for (const r of rows) {
     if (!Array.isArray(r)) continue;
     const cik = Number(r[iCik]);
@@ -82,7 +186,21 @@ export function parseTickerFile(body: string): IssuerRow[] {
     const ticker = String(r[iTicker] ?? "");
     const name = String(r[iName] ?? "");
     if (!Number.isFinite(cik) || cik <= 0 || !name) continue;
-    out.push({ cik, name, ticker, exchange });
+    const entry = byCik.get(cik);
+    if (entry) entry.candidates.push({ ticker, exchange });
+    else byCik.set(cik, { name, candidates: [{ ticker, exchange }] });
+  }
+
+  const out: IssuerRow[] = [];
+  for (const [cik, { name, candidates }] of byCik) {
+    const chosen = selectIssuerTicker(candidates);
+    out.push({
+      cik, name,
+      ticker: chosen.ticker,
+      exchange: chosen.exchange,
+      tickerSource: chosen.tickerSource,
+      tickerAlts: chosen.alts.join(","),
+    });
   }
   return out;
 }
@@ -112,13 +230,18 @@ export interface Issuer {
   ticker: string;
   exchange: string;
   publicFloat: number | null;
+  /** Comma-separated OTHER share-class symbols for this CIK, populated only
+   *  when no unsuffixed symbol exists (BRK-A/BRK-B). Lets the resolution chain
+   *  honour B-10.4 tier 2 and pick the class the filing itself names. */
+  tickerAlts?: string | null;
 }
 
 export async function lookupIssuer(env: Env, cik: string | number): Promise<Issuer | null> {
   const n = Number(cik);
   if (!Number.isFinite(n) || n <= 0) return null;
   const row = await env.DB.prepare(
-    `SELECT cik, name, ticker, exchange, public_float AS publicFloat FROM issuers WHERE cik = ?1`,
+    `SELECT cik, name, ticker, exchange, public_float AS publicFloat, ticker_alts AS tickerAlts
+       FROM issuers WHERE cik = ?1`,
   )
     .bind(n)
     .first<Issuer>();
@@ -319,17 +442,19 @@ export async function refreshIssuers(
       await env.DB.batch(
         chunk.map((r) =>
           env.DB.prepare(
-            `INSERT INTO issuers (cik, name, ticker, exchange, public_float, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            `INSERT INTO issuers (cik, name, ticker, exchange, public_float, updated_at, ticker_source, ticker_alts)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(cik) DO UPDATE SET
                name = excluded.name,
                ticker = excluded.ticker,
                exchange = excluded.exchange,
+               ticker_source = excluded.ticker_source,
+               ticker_alts = excluded.ticker_alts,
                -- A refresh that could not see a float must not ERASE one we
                -- already had; only a newer real value replaces it.
                public_float = COALESCE(excluded.public_float, issuers.public_float),
                updated_at = excluded.updated_at`,
-          ).bind(r.cik, r.name, r.ticker, r.exchange, floats.get(r.cik)?.val ?? null, iso(now)),
+          ).bind(r.cik, r.name, r.ticker, r.exchange, floats.get(r.cik)?.val ?? null, iso(now), r.tickerSource ?? "", r.tickerAlts ?? ""),
         ),
       );
     }
