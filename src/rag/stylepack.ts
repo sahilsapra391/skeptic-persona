@@ -274,6 +274,20 @@ export interface OwnerExemplar {
    * and the replacement queue cannot drift out of date.
    */
   readonly provisional?: true;
+  /**
+   * Where this entry came from, for ranking and for retrieval logs (B-24.1).
+   * Absent means an owner-authored committed exemplar.
+   *
+   *   "final"           an owner REWRITE promoted through the learning loop
+   *   "posted_verbatim" a card the owner posted with zero edits
+   *
+   * `posted_verbatim` is ENDORSEMENT, not instruction: it carries no text the
+   * model did not already produce. What it does carry is SELECTION — Edit and
+   * Regenerate were both available and neither was used. That is why it ranks
+   * below owner-authored text and above anything an advisor wrote, and why it
+   * can never open an archetype's exemplar gate.
+   */
+  readonly provenance?: "final" | "posted_verbatim";
 }
 
 export const OWNER_EXEMPLARS: readonly OwnerExemplar[] = [
