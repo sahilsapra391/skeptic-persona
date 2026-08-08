@@ -361,28 +361,95 @@ export function renderLaneRates(lanes: readonly LaneRate[]): string[] {
  */
 export interface GenHealth {
   archetype: string;
+  /** APPROVALS in the window, not generations. See the LEFT JOIN below. */
   cards: number;
   fell_back: number;
   api_cards: number;
+  /** Approved and produced NOTHING. The number the owner reported by eye. */
+  no_generation: number;
   top_reason: string | null;
   top_reason_n: number;
+}
+
+export interface CashtagCoverage {
+  cards: number;
+  withTag: number;
+  suppressedAmbiguous: number;
+  suppressedNonCommon: number;
+}
+
+/**
+ * B-28.4: cashtag coverage measured CONTINUOUSLY, not per chunk.
+ *
+ * The p6-02 chunk reported 39 of 61 on one window and flagged that window as
+ * lucky -- no ambiguous-multi issuer happened to appear in it. 78 of our 1,459
+ * lake issuers now suppress deliberately, so the live rate sits below the
+ * chunk number and only a continuous measure will show where.
+ *
+ * Suppression is reported SEPARATELY from absence, because they mean opposite
+ * things: a suppressed cashtag is the rules working (D-113), a missing one on
+ * an EDGAR issuer is a gap.
+ */
+export async function cashtagCoverage(db: D1Database, sinceIso: string, untilIso: string): Promise<CashtagCoverage> {
+  const r = await db
+    .prepare(
+      `SELECT COUNT(*) AS cards,
+              SUM(CASE WHEN q.draft_text LIKE '%$%' THEN 1 ELSE 0 END) AS with_tag,
+              SUM(CASE WHEN json_extract(i.payload,'$.tickerSource') = 'ambiguous_multi' THEN 1 ELSE 0 END) AS amb,
+              SUM(CASE WHEN json_extract(i.payload,'$.tickerSource') = 'unresolved' THEN 1 ELSE 0 END) AS noncommon
+         FROM queue q JOIN items i ON i.id = q.item_id
+        WHERE q.created_at >= ?1 AND q.created_at < ?2 AND json_valid(i.payload)`,
+    )
+    .bind(sinceIso, untilIso)
+    .first<{ cards: number; with_tag: number | null; amb: number | null; noncommon: number | null }>();
+  return {
+    cards: r?.cards ?? 0,
+    withTag: r?.with_tag ?? 0,
+    suppressedAmbiguous: r?.amb ?? 0,
+    suppressedNonCommon: r?.noncommon ?? 0,
+  };
+}
+
+export function renderCashtagCoverage(c: CashtagCoverage): string[] {
+  if (c.cards === 0) return [];
+  const pct = Math.round((c.withTag / c.cards) * 100);
+  const suppressed = c.suppressedAmbiguous + c.suppressedNonCommon;
+  return [
+    `Cashtags: ${pct}% (${c.withTag} of ${c.cards} card(s))` +
+      (suppressed > 0
+        ? `, ${suppressed} suppressed on purpose (${c.suppressedAmbiguous} ambiguous multi-symbol, ${c.suppressedNonCommon} non-common only)`
+        : ""),
+  ];
 }
 
 export async function genHealth(db: D1Database, sinceIso: string, untilIso: string): Promise<GenHealth[]> {
   const rows = await db
     .prepare(
+      // LEFT JOIN FROM THE QUEUE, NOT INNER FROM generations (B-10.6).
+      //
+      // The old shape was `FROM generations g JOIN queue q`, so an approved
+      // card with ZERO generations rows appeared in neither the numerator nor
+      // the DENOMINATOR. That is precisely the failure the owner reported --
+      // "approving several cards at once does not produce generations for all
+      // of them" -- and it was structurally invisible to the only metric that
+      // could have shown it. A card that generated nothing is the one most
+      // worth counting.
       `SELECT q.archetype AS archetype,
-              COUNT(DISTINCT g.queue_id) AS cards,
+              COUNT(DISTINCT q.id) AS cards,
               COUNT(DISTINCT CASE WHEN g.status IN ('fallback_template','fallback_blocked','skipped_no_exemplar')
-                                  THEN g.queue_id END) AS fell_back,
-              COUNT(DISTINCT CASE WHEN g.status IN ('api_error','api_failed') THEN g.queue_id END) AS api_cards
-         FROM generations g JOIN queue q ON q.id = g.queue_id
-        WHERE g.created_at >= ?1 AND g.created_at < ?2
+                                  THEN q.id END) AS fell_back,
+              COUNT(DISTINCT CASE WHEN g.status IN ('api_error','api_failed') THEN q.id END) AS api_cards,
+              COUNT(DISTINCT CASE WHEN g.id IS NULL THEN q.id END) AS no_generation
+         FROM queue q
+         LEFT JOIN generations g
+                ON g.queue_id = q.id AND g.cycle = q.regen_cycle
+               AND g.created_at >= ?1 AND g.created_at < ?2
+        WHERE q.state IN ('approved','edited') AND q.decided_at >= ?1 AND q.decided_at < ?2
         GROUP BY q.archetype
-        ORDER BY fell_back DESC, cards DESC`,
+        ORDER BY no_generation DESC, fell_back DESC, cards DESC`,
     )
     .bind(sinceIso, untilIso)
-    .all<{ archetype: string; cards: number; fell_back: number; api_cards: number }>();
+    .all<{ archetype: string; cards: number; fell_back: number; api_cards: number; no_generation: number }>();
 
   const reasons = await db
     .prepare(
@@ -400,6 +467,7 @@ export async function genHealth(db: D1Database, sinceIso: string, untilIso: stri
 
   return rows.results.map((r) => ({
     ...r,
+    no_generation: r.no_generation ?? 0,
     top_reason: top.get(r.archetype)?.status.replace("rejected:", "") ?? null,
     top_reason_n: top.get(r.archetype)?.n ?? 0,
   }));
@@ -412,8 +480,19 @@ export function renderGenHealth(rows: readonly GenHealth[]): string[] {
   if (cards === 0) return [];
   const pct = Math.round((fell / cards) * 100);
   // B-08.7's acceptance number, tracked from now on rather than measured once.
-  const out = ["", `Generation: ${pct}% fallback (${fell} of ${cards} cards). Target under 10%. Baseline 36%.`];
+  // B-10.6: APPROVALS vs GENERATIONS vs TERMINAL STATES, in one line, so a
+  // divergence is visible without the owner noticing it by eye. `cards` is now
+  // approvals in the window; `none` is approvals that produced nothing at all.
+  const none = rows.reduce((a, r) => a + r.no_generation, 0);
+  const out = [
+    "",
+    `Generation: ${cards} approval(s), ${cards - none} generated, ${none} produced nothing. ` +
+      `${pct}% fallback (${fell} of ${cards}). Target under 10%. Baseline 36%.`,
+  ];
   for (const r of rows) {
+    if (r.no_generation > 0) {
+      out.push(`  ${r.archetype}: ${r.no_generation}/${r.cards} approved and produced NOTHING`);
+    }
     if (r.fell_back === 0 && r.api_cards === 0) continue;
     const why = r.top_reason ? `, top reason ${r.top_reason} x${r.top_reason_n}` : "";
     // API trouble is named apart, because it is not a voice problem.
@@ -528,6 +607,8 @@ export async function runVoiceDigest(env: Env, now: Date, _budget: TickBudget = 
       // a lane that cards without generating publishes nothing, and that is
       // most worth saying in exactly the weeks the headline numbers are zero.
       ...renderGenHealth(await genHealth(env.DB, since.toISOString(), now.toISOString())),
+      // B-28.4: measured every week rather than once per chunk.
+      ...renderCashtagCoverage(await cashtagCoverage(env.DB, since.toISOString(), now.toISOString())),
     ],
     renderEfdLatency(efd, DIGEST_WINDOW_DAYS),
     byArchetype,
