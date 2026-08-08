@@ -30,17 +30,29 @@ import { log } from "../lib/log";
  * stricter, not looser: a wire item at least comes from an issuer's own PR
  * desk, while a Bluesky post is anyone with an account.
  *
- * ENDPOINTS LIVE-VERIFIED 2026-08-07 (docs/verification/):
- *   com.atproto.server.describeServer   200 application/json  (unauth)
- *   app.bsky.actor.getProfile           200 application/json  (unauth)
- *   app.bsky.feed.searchPosts           403                   (AUTH REQUIRED)
+ * ENDPOINTS LIVE-VERIFIED 2026-08-08 (docs/verification/):
+ *   api.bsky.app        app.bsky.feed.searchPosts   200, 25 posts   (unauth)
+ *   public.api.bsky.app app.bsky.feed.searchPosts   403 HTML page   (CDN block)
+ *   bsky.social         app.bsky.feed.searchPosts   401 AuthMissing (a PDS)
  *
- * That 403 is the whole reason this lane needs a credential at all. Search is
- * the only endpoint that answers the question the lane exists to ask, and it
- * refuses anonymous callers.
+ * The first reading of this lane concluded search "requires auth" because the
+ * only host tried was `public.api.bsky.app`. It does not. See D-87.
  */
 
-const PUBLIC_API = "https://public.api.bsky.app";
+/**
+ * THE APPVIEW HOST, and getting this wrong cost the lane its first live run
+ * (D-87). Measured 2026-08-08 on `app.bsky.feed.searchPosts`, unauthenticated:
+ *
+ *   public.api.bsky.app   403  <- an HTML "403 Forbidden" PAGE, not an API error
+ *   api.bsky.app          200  <- real results
+ *   bsky.social           401  AuthMissing (correct: a PDS wants a session)
+ *
+ * The 403 from `public.api.bsky.app` is a CDN block on this endpoint, and it
+ * looks exactly like an authorization requirement. It is not one: search
+ * answers anonymously on `api.bsky.app` and returns 25 posts per query on
+ * every watch term. The credential was never the constraint; the hostname was.
+ */
+const APPVIEW = "https://api.bsky.app";
 const PDS = "https://bsky.social";
 
 export const SOURCE = "bluesky_discovery";
@@ -168,18 +180,29 @@ export async function pollBluesky(env: Env, now: Date, budget: TickBudget = newT
   state.lastPolledAt = iso(now);
 
   try {
-    const s = await session(env);
+    // SESSION IS BEST EFFORT (D-87). Search answers anonymously on the AppView,
+    // so a credential problem must not take the lane down: the owner
+    // provisioned an app password, we use it when it works, and we still poll
+    // when it does not. Requiring it would trade a working lane for a
+    // theoretical rate-limit benefit that has never been measured.
+    let auth: Record<string, string> = {};
+    try {
+      const s = await session(env);
+      auth = { authorization: `Bearer ${s.accessJwt}` };
+    } catch (e) {
+      log("warn", "bluesky session unavailable; polling anonymously", { source: SOURCE, error: String(e) });
+    }
     let inserted = 0;
     for (const term of WATCH_TERMS) {
       if (!budget.take(1)) {
         log("warn", "tick budget exhausted mid-bluesky poll", { source: SOURCE, term });
         break;
       }
-      const url = `${PUBLIC_API}/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(term)}&limit=25`;
+      const url = `${APPVIEW}/xrpc/app.bsky.feed.searchPosts?q=${encodeURIComponent(term)}&limit=25`;
       const res = await politeFetch(url, {
         userAgent: buildUserAgent(env.CONTACT_EMAIL),
         timeoutMs: 20_000,
-        headers: { authorization: `Bearer ${s.accessJwt}` },
+        headers: auth,
       });
       if (!res.ok) {
         // A 401 means the cached session died early; drop it so the next tick
