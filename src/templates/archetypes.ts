@@ -3,6 +3,7 @@ import { POST_TEXT_LIMIT, weightedLength } from "./length";
 import { humanDate } from "./render";
 import { RATE_ATTRIBUTION } from "../ingesters/rateAttribution";
 import { PRESS_ATTRIBUTION } from "../ingesters/pressAttribution";
+import { itemGloss } from "./glosses";
 import type { Archetype, ArchetypeId, Payload, PendingBeat } from "./types";
 
 // Beat libraries transcribed from docs/persona.md §8 (owner-signed).
@@ -77,7 +78,18 @@ const filing8k: Archetype = {
         const first = itemsOf(p).filter((i) => i.code !== "9.01")[0] ?? itemsOf(p)[0];
         if (!company || !first) return null;
         const name = company.length > 55 ? `${company.slice(0, 52).trimEnd()}\u2026` : company;
-        return { lines: [`${name}: Item ${first.code}, ${firstClause(first.title)}`] };
+        // A4: card #1248 shipped "Item 3.01, Notice of Delisting or Failure to
+        // Satisfy a Continued Listing Rule or Standard…" -- a raw header cut
+        // mid-title. The gloss says what the FORM says the item is for; an
+        // unknown code falls back to SEC's own title, which is ugly and true.
+        const plain = itemGloss(first.code);
+        return {
+          lines: [
+            plain
+              ? `${name} ${plain} (Item ${first.code})`
+              : `${name}: Item ${first.code}, ${firstClause(first.title)}`,
+          ],
+        };
       },
     },
     {

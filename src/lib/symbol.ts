@@ -58,6 +58,13 @@ export interface ResolveInput {
   issuer?: Issuer | null;
 }
 
+/**
+ * One symbol: letters and digits, optionally one single-letter class suffix.
+ * Deliberately narrow — anything a comma, a space or a second dash can reach
+ * is not a cashtag.
+ */
+const WELL_FORMED_SYMBOL = /^[A-Z0-9]{1,6}(?:-[A-Z])?$/;
+
 /** `Class B Common Stock` -> `B`. Only a single letter counts; anything else
  *  is not a class designation we can match against a ticker suffix. */
 export function classLetter(title: string | null | undefined): string | null {
@@ -79,7 +86,14 @@ export async function resolveSymbol(env: Env, input: ResolveInput): Promise<Reso
   // 1. The document's own symbol. A filing that states its ticker is the
   //    primary source for it, and nothing we hold outranks that.
   const filed = (input.filingSymbol ?? "").trim().toUpperCase();
-  if (filed !== "" && !isNonCommonSymbol(filed)) {
+  // SHAPE FIRST, and this is not defensive programming. Greif files
+  // `issuerTradingSymbol` as "GEF, GEF-B" -- BOTH share classes in one field,
+  // in 7 stored payloads. It passes the non-common test (the suffix is a
+  // single letter) and would have rendered the cashtag "$GEF, GEF-B", a
+  // symbol no exchange lists. A filing-supplied symbol has to LOOK like one
+  // symbol before it is trusted as one; a multi-symbol field falls through to
+  // the CIK map, which resolves Greif to GEF on its own.
+  if (filed !== "" && WELL_FORMED_SYMBOL.test(filed) && !isNonCommonSymbol(filed)) {
     return { ticker: filed, label: `$${filed}`, source: "filing" };
   }
 

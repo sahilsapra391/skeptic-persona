@@ -16,6 +16,7 @@ import {
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtNum, fmtUsd, isFreshAtIngest, tickerTag } from "./shared";
 import { displayDate, displayDateRange } from "../lib/dates";
+import { roleGloss } from "../templates/glosses";
 import { deriveDisplayName } from "../lib/names";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
@@ -218,7 +219,9 @@ export function scoreForm4(totals: Form4Totals): number {
 }
 
 export function ownerLabel(owner: Form4Owner): string {
-  if (owner.officerTitle) return owner.officerTitle;
+  // A4: "Chief Executive Officer" becomes "CEO"; anything the registry does
+  // not know is printed exactly as the filing wrote it.
+  if (owner.officerTitle) return roleGloss(owner.officerTitle) ?? owner.officerTitle;
   if (owner.isDirector) return "Director";
   if (owner.isTenPercent) return "10% owner";
   return "Insider";

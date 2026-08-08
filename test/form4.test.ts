@@ -356,7 +356,8 @@ describe("pollForm4 end-to-end", () => {
     // $200k P-buy -> postable -> notified.
     expect(SEND.calls.length).toBe(s0 + 1);
     const sentText = String(SEND.calls.at(-1)?.text);
-    expect(sentText).toContain("Person Buyer (Chief Financial Officer)");
+    // A4: the registry shortens the exact long form.
+    expect(sentText).toContain("Person Buyer (CFO)");
     expect(sentText).toContain("25,000 $ISCO");
     expect(sentText).toContain("per SEC Form 4");
 

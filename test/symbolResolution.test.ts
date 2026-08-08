@@ -77,3 +77,25 @@ describe("resolveSymbol — the order in B-10.4", () => {
     expect(classLetter(null)).toBeNull();
   });
 });
+
+describe("a filing-supplied symbol must LOOK like one symbol", () => {
+  it("Greif files BOTH share classes in one field, and it is not a cashtag", async () => {
+    // `issuerTradingSymbol` = "GEF, GEF-B" in 7 stored payloads. It passes the
+    // non-common test (single-letter suffix) and would have rendered
+    // "$GEF, GEF-B" -- a symbol no exchange lists.
+    const r = await resolveSymbol(env, { filingSymbol: "GEF, GEF-B", issuerName: "GREIF, INC" });
+    expect(r.ticker).toBeNull();
+    expect(r.label).toBe("GREIF, INC");
+  });
+
+  it("but a clean filed symbol, with or without a class, still wins", async () => {
+    expect((await resolveSymbol(env, { filingSymbol: "GEF", issuerName: "GREIF, INC" })).ticker).toBe("GEF");
+    expect((await resolveSymbol(env, { filingSymbol: "BRK-A", issuerName: "BERKSHIRE" })).ticker).toBe("BRK-A");
+  });
+
+  it("rejects every malformed shape rather than guessing which part is the symbol", async () => {
+    for (const bad of ["GEF GEF-B", "GEF/GEF-B", "TOOLONGSYM", "GEF-PA", "GEF-WT", "$GEF", "GEF."]) {
+      expect((await resolveSymbol(env, { filingSymbol: bad, issuerName: "N" })).ticker, bad).toBeNull();
+    }
+  });
+});
