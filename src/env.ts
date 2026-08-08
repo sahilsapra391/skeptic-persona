@@ -55,6 +55,12 @@ export interface Env {
   BLUESKY_IDENTIFIER?: string;
   /** App password, scoped and independently revocable. SECRET, env-only. */
   BLUESKY_APP_PASSWORD?: string;
+  /** NASS QuickStats API key (p5-24 USDA). SECRET, env-only. */
+  NASS_API_KEY?: string;
+  /** GitHub token for the Actions-minutes digest line. SECRET, env-only.
+   *  NOTE: currently set as a GitHub ACTIONS secret, which the Worker cannot
+   *  read. The digest renders Worker-side, so it needs a Worker secret. */
+  GH_BILLING_TOKEN?: string;
   // Threads poster (P2) — PARKED 2026-07-28, account banned (poster.ts
   // THREADS_PARKED). The secrets are still set in Cloudflare and the types
   // stay so the parked client keeps typechecking for the appeal; nothing

@@ -261,3 +261,127 @@ export async function handleProbe(request: Request, env: Env): Promise<Response>
   }
   return Response.json({ egress: "cloudflare-worker", probedAt: iso(new Date()), userAgent, results });
 }
+
+/**
+ * B-14.1 / D-56 made permanent: does each credential actually WORK against the
+ * deployed target?
+ *
+ * D-56 is the reason this exists. `wrangler secret put` reported success while
+ * the Worker-side write had silently failed, and the only thing that caught it
+ * was a live call that could tell auth-passed from auth-failed. "The secret is
+ * set" and "the secret works" are different claims, and only one of them is
+ * checkable from outside.
+ *
+ * WHAT THIS RETURNS, AND WHAT IT NEVER RETURNS. Per credential: whether the
+ * binding is present, the HTTP status of one live authenticated call, and a
+ * boolean for whether that call was accepted. It never returns the secret, any
+ * part of it, or the response body — the same rule `handleProbe` follows, for
+ * the same reason: a diagnostic that relays content is an exfiltration tool
+ * wearing a diagnostic's clothes.
+ *
+ * ONE CALL PER CREDENTIAL, to a fixed endpoint chosen because it distinguishes
+ * a bad key from a reachable service. A 200 or a 400 both mean auth passed; a
+ * 401 or 403 means it did not.
+ */
+export interface CredResult {
+  readonly name: string;
+  readonly present: boolean;
+  readonly status: number | null;
+  readonly authAccepted: boolean | null;
+  readonly note: string;
+}
+
+async function checkBluesky(env: Env): Promise<CredResult> {
+  const name = "BLUESKY_APP_PASSWORD";
+  const id = env.BLUESKY_IDENTIFIER;
+  const pw = env.BLUESKY_APP_PASSWORD;
+  if (!pw) return { name, present: false, status: null, authAccepted: null, note: "not bound to the Worker" };
+  if (!id) return { name, present: true, status: null, authAccepted: null, note: "BLUESKY_IDENTIFIER is unset, so the password cannot be tested" };
+  try {
+    const res = await politeFetch("https://bsky.social/xrpc/com.atproto.server.createSession", {
+      userAgent: buildUserAgent(env.CONTACT_EMAIL),
+      method: "POST",
+      timeoutMs: 20_000,
+      headers: { "content-type": "application/json" },
+      postBody: JSON.stringify({ identifier: id, password: pw }),
+    });
+    if (!res.ok) {
+      return { name, present: true, status: res.status, authAccepted: false, note: "createSession refused the credential" };
+    }
+    // B-14.2's actual question is not "does the password work" but "does
+    // AUTHENTICATED searchPosts return results". A working session that then
+    // gets a 403 on the only endpoint the lane needs is a working credential
+    // and a dead lane, which is exactly what the first reading of p5-25
+    // concluded. So the check goes one call further.
+    const jwt = (JSON.parse(res.body) as { accessJwt?: string }).accessJwt;
+    if (!jwt) return { name, present: true, status: res.status, authAccepted: true, note: "session created but carried no token" };
+    const q = await politeFetch(
+      "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=" + encodeURIComponent("8-K filed") + "&limit=5",
+      { userAgent: buildUserAgent(env.CONTACT_EMAIL), timeoutMs: 20_000, headers: { authorization: `Bearer ${jwt}` } },
+    );
+    const n = q.ok ? ((JSON.parse(q.body) as { posts?: unknown[] }).posts ?? []).length : 0;
+    return {
+      name,
+      present: true,
+      status: q.status,
+      authAccepted: q.ok && n > 0,
+      note: q.ok
+        ? `session OK; AUTHENTICATED searchPosts returned ${n} posts`
+        : `session OK but authenticated searchPosts returned ${q.status}`,
+    };
+  } catch (e) {
+    return { name, present: true, status: null, authAccepted: null, note: `call failed: ${String(e).slice(0, 80)}` };
+  }
+}
+
+async function checkNass(env: Env): Promise<CredResult> {
+  const name = "NASS_API_KEY";
+  const key = env.NASS_API_KEY;
+  if (!key) return { name, present: false, status: null, authAccepted: null, note: "not bound to the Worker" };
+  try {
+    // get_counts is the cheapest authenticated call NASS offers: it returns a
+    // count, not a dataset, so a working key costs one small response.
+    const url = `https://quickstats.nass.usda.gov/api/get_counts/?key=${encodeURIComponent(key)}&commodity_desc=CORN&year=2026`;
+    const res = await politeFetch(url, { userAgent: buildUserAgent(env.CONTACT_EMAIL), timeoutMs: 20_000 });
+    // 401 is the documented bad-key answer. A 400 means the key passed and the
+    // QUERY was rejected, which still proves the credential.
+    const accepted = res.status !== 401 && res.status !== 403;
+    return {
+      name,
+      present: true,
+      status: res.status,
+      authAccepted: accepted,
+      note: accepted ? "key accepted" : "key refused",
+    };
+  } catch (e) {
+    return { name, present: true, status: null, authAccepted: null, note: `call failed: ${String(e).slice(0, 80)}` };
+  }
+}
+
+function checkGithub(env: Env): CredResult {
+  const name = "GH_BILLING_TOKEN";
+  const t = (env as unknown as { GH_BILLING_TOKEN?: string }).GH_BILLING_TOKEN;
+  if (!t) {
+    return {
+      name,
+      present: false,
+      status: null,
+      authAccepted: null,
+      // Stated rather than worked around, per B-14.1. The token exists as a
+      // GITHUB ACTIONS secret; the digest that would use it is rendered by the
+      // Worker, and a Worker cannot read an Actions secret.
+      note: "not bound to the Worker (it is set as a GitHub Actions secret; the digest renders Worker-side)",
+    };
+  }
+  return { name, present: true, status: null, authAccepted: null, note: "bound; call check not implemented yet" };
+}
+
+export async function handleCredCheck(request: Request, env: Env): Promise<Response> {
+  if (!env.ADMIN_PROBE_TOKEN) return new Response("not configured", { status: 503 });
+  const key = request.headers.get("X-Admin-Key");
+  if (!key || !safeEqual(key, env.ADMIN_PROBE_TOKEN)) {
+    return new Response("unauthorized", { status: 401 });
+  }
+  const results: CredResult[] = [await checkBluesky(env), await checkNass(env), checkGithub(env)];
+  return Response.json({ checkedAt: new Date().toISOString(), results });
+}
