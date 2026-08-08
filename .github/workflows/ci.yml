@@ -19,15 +19,100 @@ on:
   push:
     branches: [main]
 
+# B-04.2, THE BIGGEST SINGLE SAVING and the one this repo's workflow actually
+# generates. Every force-push to an open PR used to leave its predecessor
+# running to completion; measured mean is 1.57 min/run, and a chunk that gets
+# three pushes burned all three. Superseded runs are now cancelled.
+#
+# MAIN IS DELIBERATELY EXEMPT. `github.run_id` is unique per run, so pushes to
+# main never share a group and never cancel each other. Cancelling a main run
+# would leave the branch-protection story ambiguous about a commit that is
+# already merged, which is exactly the state p5-02 exists to prevent.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Every run under two minutes today; ten is a runaway backstop, not a
+    # budget. A hung job used to burn until the six-hour default.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+
+      # WHAT CHANGED, and therefore what this run needs to do.
+      #
+      # A docs-or-ledger-only change cannot break typecheck or the suite: no
+      # TypeScript, no fixture, no migration, no workflow is involved. Those
+      # PRs are a real share of this repo's traffic (the ledger is updated on
+      # nearly every chunk, and several PRs are ledger-only by design).
+      #
+      # THE JOB STILL RUNS AND STILL REPORTS `test`. That is the whole design
+      # constraint: `test` is the required status check under branch
+      # protection with enforce_admins, so a `paths-ignore` at the workflow
+      # level would mean the check NEVER REPORTS and the PR could never merge
+      # — a stricter gate by accident, and a confusing one. Short-circuiting
+      # the expensive steps keeps the contract intact and skips only the work.
+      - name: Classify the change
+        id: scope
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "reason=push to main always runs in full" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          # Fetch just enough history to diff the two endpoints.
+          git fetch --no-tags --depth=1 origin "$BASE" "$HEAD" 2>/dev/null || git fetch --no-tags origin
+          CHANGED=$(git diff --name-only "$BASE" "$HEAD" || echo "UNKNOWN")
+          echo "changed files:"; echo "$CHANGED" | sed 's/^/  /'
+          # FAIL SAFE TOWARD RUNNING. An empty or unreadable diff runs the full
+          # suite: the cost of an unnecessary run is 1.6 minutes, and the cost
+          # of a skipped one is an untested merge.
+          if [ -z "$CHANGED" ] || [ "$CHANGED" = "UNKNOWN" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "reason=could not read the diff; running in full" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # COUNTED, NOT `grep -qv`. The obvious form is "does any line NOT
+          # match the docs pattern", written `grep -qvE`. That form is not
+          # portable: on BSD grep (macOS, where this was first validated) it
+          # returned exit 1 for input containing a genuine non-docs line,
+          # while printing that same line without `-q`. GNU grep on the runner
+          # would have answered the other way.
+          #
+          # A classifier that decides whether to run the test suite must not
+          # depend on which grep it meets. So: count the docs-shaped lines and
+          # compare against the total. Equal means docs-only; anything else
+          # runs. Deliberately generous — fixtures, migrations, workflows and
+          # package files all count as code.
+          TOTAL=$(printf '%s\n' "$CHANGED" | grep -c . || true)
+          DOCS=$(printf '%s\n' "$CHANGED" | grep -cE '^(docs/.*\.md|[^/]*\.md)$' || true)
+          echo "  docs-shaped $DOCS of $TOTAL changed paths"
+          if [ "$TOTAL" -gt 0 ] && [ "$TOTAL" -eq "$DOCS" ]; then
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "reason=docs and ledger only ($DOCS files)" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "reason=$((TOTAL - DOCS)) non-docs path(s) changed" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report the classification
+        run: echo "::notice::CI scope — ${{ steps.scope.outputs.reason }}"
+
       - uses: actions/setup-node@v4
+        if: steps.scope.outputs.code == 'true'
         with:
           node-version: 22
           cache: npm
+      # `npm ci` over `npm install`: reproducible, and it is what caught the
+      # out-of-sync lockfile in both Dependabot PRs (D-68).
       - run: npm ci
+        if: steps.scope.outputs.code == 'true'
       - run: npm run typecheck
+        if: steps.scope.outputs.code == 'true'
       - run: npm test
+        if: steps.scope.outputs.code == 'true'
