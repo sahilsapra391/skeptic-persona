@@ -122,9 +122,9 @@ describe("score13", () => {
 describe("draft13", () => {
   it("states the holder, the size and the triggering date", () => {
     const doc = parse13Xml(DOC)!;
-    const d = draft13(doc, "SCHEDULE 13D/A");
+    const d = draft13(doc, "SCHEDULE 13D/A", undefined, new Date("2026-08-08T00:00:00.000Z"));
     expect(d).toBe(
-      "Schedule 13D amendment: Haggai Alon reports 201,485 shares, 18.5% of SMX (Security Matters) Public Limited Company, event dated 07/23/2026",
+      "Schedule 13D amendment: Haggai Alon reports 201,485 shares, 18.5% of SMX (Security Matters) Public Limited Company, event dated July 23",
     );
     expect(d).not.toContain("—");
   });

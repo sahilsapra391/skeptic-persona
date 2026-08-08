@@ -96,9 +96,9 @@ describe("draftCot", () => {
       levNet: -361_875,
       changeLevNet: -1_406,
     };
-    const d = draftCot(row);
+    const d = draftCot(row, new Date("2026-08-08T00:00:00.000Z"));
     expect(d).toBe(
-      "CFTC positioning: leveraged funds net short 361,875 E-MINI S&P 500 contracts, down 1,406 on the week, week ending 2026-07-21",
+      "CFTC positioning: leveraged funds net short 361,875 E-MINI S&P 500 contracts, down 1,406 on the week, week ending July 21",
     );
     expect(d).not.toContain("—");
     // Never a claim about why, and never a forecast.
@@ -112,7 +112,7 @@ describe("POSITIONING archetype", () => {
     const r = renderPost(
       ARCHETYPES.POSITIONING,
       {
-        factLine: "CFTC positioning: leveraged funds net short 361,875 E-MINI S&P 500 contracts, week ending 2026-07-21",
+        factLine: "CFTC positioning: leveraged funds net short 361,875 E-MINI S&P 500 contracts, week ending July 21",
         contract: "E-MINI S&P 500",
         levNet: -361_875,
         reportDate: "2026-07-21",

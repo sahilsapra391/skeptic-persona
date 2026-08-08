@@ -79,7 +79,7 @@ describe("draftForm25", () => {
   it("names the exchange, the issuer and the class, with no em-dash", () => {
     const d = draftForm25(parseForm25Xml(DOC)!);
     expect(d).toBe(
-      "Nasdaq Stock Market LLC filed to remove Churchill Capital Corp IX/Cayman (Class A Ordinary, Warrant, Unit) from listing, filed 2026-07-27",
+      "Nasdaq Stock Market LLC filed to remove Churchill Capital Corp IX/Cayman (Class A Ordinary, Warrant, Unit) from listing, filed July 27",
     );
     expect(d).not.toContain("—");
     // Never a claim about why the company failed.
@@ -89,7 +89,7 @@ describe("draftForm25", () => {
 
 describe("DELISTING archetype", () => {
   const payload = {
-    factLine: "Nasdaq Stock Market LLC filed to remove Churchill Capital Corp IX/Cayman from listing, filed 2026-07-27",
+    factLine: "Nasdaq Stock Market LLC filed to remove Churchill Capital Corp IX/Cayman from listing, filed July 27",
     exchange: "Nasdaq Stock Market LLC",
     issuerName: "Churchill Capital Corp IX/Cayman",
     securityClass: "Class A Ordinary, Warrant, Unit",

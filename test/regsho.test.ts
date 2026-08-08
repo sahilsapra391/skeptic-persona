@@ -68,8 +68,8 @@ describe("diffThreshold — the product is the diff", () => {
 
 describe("draftThreshold", () => {
   it("states the symbol, the name and the list date, nothing inferred", () => {
-    const d = draftThreshold({ symbol: "ADVB", name: "ADVANCED BIOMED INC COM NEW", marketCategory: "S" }, "2026-07-27");
-    expect(d).toBe("$ADVB (ADVANCED BIOMED INC COM NEW) joined the Nasdaq Reg SHO threshold list, 2026-07-27");
+    const d = draftThreshold({ symbol: "ADVB", name: "ADVANCED BIOMED INC COM NEW", marketCategory: "S" }, "2026-07-27", new Date("2026-08-08T00:00:00.000Z"));
+    expect(d).toBe("$ADVB (ADVANCED BIOMED INC COM NEW) joined the Nasdaq Reg SHO threshold list, July 27");
     expect(d).not.toContain("—");
     // Never a claim about WHY a security is failing to deliver.
     expect(d.toLowerCase()).not.toMatch(/naked|manipulat|short seller/);
@@ -82,7 +82,7 @@ describe("SETTLEMENT_FAILURE archetype", () => {
     const r = renderPost(
       ARCHETYPES.SETTLEMENT_FAILURE,
       {
-        factLine: "ADVB joined the Nasdaq Reg SHO threshold list, 2026-07-27",
+        factLine: "ADVB joined the Nasdaq Reg SHO threshold list, July 27",
         symbol: "ADVB",
         name: "ADVANCED BIOMED INC COM NEW",
         listDate: "2026-07-27",

@@ -12,6 +12,7 @@ import {
 } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { lookbackFieldsFor, recordFacts } from "../lookback";
+import { resolveSymbol } from "../lib/symbol";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -162,13 +163,15 @@ export function scoreEntry(entry: Edgar8kEntry): number {
   return score;
 }
 
-/** Tier A draft: purely parsed fields (form type, company, the SEC's own item titles). */
-export function draftFor(entry: Edgar8kEntry): string {
-  const substantive = entry.items.filter((i) => i.code !== "9.01");
-  const shown = substantive.length > 0 ? substantive : entry.items;
-  const head = `${entry.formType}: ${entry.company}`;
-  return [head, ...shown.map((i) => `Item ${i.code}: ${i.title}`)].join("\n");
-}
+// draftFor() DELETED (B-21.5). It was test-only: production builds the 8-K
+// card from `payload.company` and `payload.items` through the FILING_8K
+// skeletons in src/templates/archetypes.ts, and nothing in src/ ever called
+// this. Its two assertions -- the head uses the PARSED form type, and 9.01 is
+// dropped as exhibit noise unless it is the only item -- were real rules
+// tested against a dead copy while the live implementation in archetypes.ts
+// had no coverage at all. Both moved to test/templates.test.ts, against the
+// code that actually runs. That is the D-71 family: a test asserting
+// behaviour production never executes.
 
 /** Cap Telegram notifications per run: external fetches share the 50/invocation budget. */
 export const MAX_ENQUEUES_PER_RUN = 10;
@@ -197,7 +200,14 @@ async function ingestEntries(env: Env, entries: Edgar8kEntry[], now: Date): Prom
     // Those filings still land in the lake, they just stop interrupting.
     //
     // Fails OPEN: an issuer we cannot find has not been shown to be small.
-    const gate = keepIssuer(await lookupIssuer(env, entry.cik), floor, authoritative);
+    const issuerRow = await lookupIssuer(env, entry.cik);
+    const gate = keepIssuer(issuerRow, floor, authoritative);
+    // Same row the gate just read; no second query.
+    const symbol = await resolveSymbol(env, {
+      cik: entry.cik,
+      issuerName: entry.company,
+      issuer: issuerRow,
+    });
     if (!gate.keep) {
       score = Math.min(score, SCORE_LOG_ONLY);
       log("debug", "8-K suppressed by issuer gate", { cik: entry.cik, company: entry.company, reason: gate.reason });
@@ -211,7 +221,13 @@ async function ingestEntries(env: Env, entries: Edgar8kEntry[], now: Date): Prom
         eventAt: entry.filedIso || null,
         sourceUrl: entry.indexUrl,
         payload: {
-          company: entry.company,
+          // `company` is what templates, beats and prompts print, so it
+          // carries the resolved label; the filed name keeps its own key.
+          company: symbol.label,
+          companyFiled: entry.company,
+          ticker: symbol.ticker,
+          tickerSource: symbol.source,
+          ...(symbol.ambiguity ? { tickerAmbiguity: symbol.ambiguity } : {}),
           cik: entry.cik,
           formType: entry.formType,
           items: entry.items,

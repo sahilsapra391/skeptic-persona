@@ -7,6 +7,7 @@ import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG
 import { recordFacts } from "../lookback";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtNum } from "./shared";
+import { displayDate } from "../lib/dates";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -114,14 +115,16 @@ export function scoreCot(row: CotRow): number {
 }
 
 /** Tier A. "net long/short" is subtraction over two CFTC fields, nothing more. */
-export function draftCot(row: CotRow): string {
+export function draftCot(row: CotRow, now: Date = new Date()): string {
   const side = (row.levNet ?? 0) >= 0 ? "net long" : "net short";
   const size = fmtNum(Math.abs(row.levNet ?? 0));
   const wk =
     row.changeLevNet !== null
       ? `, ${row.changeLevNet >= 0 ? "up" : "down"} ${fmtNum(Math.abs(row.changeLevNet))} on the week`
       : "";
-  return `CFTC positioning: leveraged funds ${side} ${size} ${row.contract} contracts${wk}, week ending ${row.reportDate}`;
+  // A3: shipped as "week ending 2026-08-04" on cards #1245 and #1246.
+  const ending = displayDate(row.reportDate, now);
+  return `CFTC positioning: leveraged funds ${side} ${size} ${row.contract} contracts${wk}, week ending ${ending ?? row.reportDate}`;
 }
 
 export async function pollCftc(env: Env, now: Date = new Date(), budget: TickBudget = newTickBudget()): Promise<void> {

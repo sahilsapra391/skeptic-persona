@@ -3,6 +3,7 @@ import { newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
 import { unzipEntry } from "../lib/zip";
 import { getSourceState, insertItem, putSourceState, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
+import { displayDate } from "../lib/dates";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 import { enqueueForApproval } from "../pipeline/enqueue";
@@ -346,15 +347,17 @@ const OWNER_LABEL: Readonly<Record<string, string>> = {
   JT: "joint",
 };
 
-function tradeClause(t: HouseTxn): string {
+function tradeClause(t: HouseTxn, now: Date): string {
   const what = t.ticker ? tickerTag(t.ticker) : t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName;
   const owner = OWNER_LABEL[t.owner] ? ` [${OWNER_LABEL[t.owner]}]` : "";
-  return `${txnTypeLabel(t.type)} ${t.amount}, ${what}${owner} (${t.transactionDate})`;
+  // A3: shipped as "(07/01/2026)" on card #1235.
+  const txnDay = displayDate(t.transactionDate, now);
+  return `${txnTypeLabel(t.type)} ${t.amount}, ${what}${owner} (${txnDay ?? t.transactionDate})`;
 }
 
 /** Trade list for the whoWhen skeleton, always carrying its elision marker. */
-export function houseTradeLine(txns: HouseTxn[]): string {
-  const shown = txns.slice(0, 3).map(tradeClause).join("; ");
+export function houseTradeLine(txns: HouseTxn[], now: Date = new Date()): string {
+  const shown = txns.slice(0, 3).map((t) => tradeClause(t, now)).join("; ");
   return txns.length > 3 ? `${shown} +${txns.length - 3} more` : shown;
 }
 
@@ -363,12 +366,20 @@ export function houseTradeLine(txns: HouseTxn[]): string {
  * the same disclosure under the same statute, and a reader should not be able
  * to tell which parser produced the line.
  */
-export function draftHousePtr(member: string, txns: HouseTxn[], filedIso: string, filedDate: string): string {
-  const shown = txns.slice(0, 3).map(tradeClause);
+export function draftHousePtr(
+  member: string,
+  txns: HouseTxn[],
+  filedIso: string,
+  filedDate: string,
+  now: Date = new Date(),
+): string {
+  const shown = txns.slice(0, 3).map((t) => tradeClause(t, now));
   const more = txns.length > 3 ? ` +${txns.length - 3} more` : "";
   const lags = txns.map((t) => lagDays(filedIso, t.transactionDate)).filter((d): d is number => d !== null);
   const lag = lags.length > 0 ? `, disclosed ${Math.min(...lags)} days after the latest trade` : "";
-  return `House PTR: ${member}. ${shown.join("; ")}${more}. Filed ${filedDate}${lag}`;
+  // A3: shipped as "Filed 8/5/2026" on the same card, a THIRD date format.
+  const filedDay = displayDate(filedDate, now);
+  return `House PTR: ${member}. ${shown.join("; ")}${more}. Filed ${filedDay ?? filedDate}${lag}`;
 }
 
 /** Outcome of merging courier-extracted PDF text into a logged House item. */

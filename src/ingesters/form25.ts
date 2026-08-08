@@ -5,6 +5,8 @@ import { decodeEntities, extractAllNs, extractAttr, extractFirst, extractFirstNs
 import { getSourceState, insertItem, putSourceState, recordSourceError, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { isFreshAtIngest } from "./shared";
+import { displayDate } from "../lib/dates";
+import { resolveSymbol } from "../lib/symbol";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -105,10 +107,12 @@ export function scoreForm25(doc: Form25Doc): number {
   return isExchangeInitiated(doc) ? SCORE_POSTABLE : SCORE_LOG_ONLY;
 }
 
-export function draftForm25(doc: Form25Doc): string {
+export function draftForm25(doc: Form25Doc, issuerLabel?: string, now: Date = new Date()): string {
   const cls = doc.securityClass ? ` (${doc.securityClass})` : "";
-  const when = doc.signatureDate ? `, filed ${doc.signatureDate}` : "";
-  return `${doc.exchange} filed to remove ${doc.issuerName}${cls} from listing${when}`;
+  // A3: shipped as ", filed 2026-08-07" on card #1233.
+  const filedDay = displayDate(doc.signatureDate, now);
+  const when = filedDay ? `, filed ${filedDay}` : "";
+  return `${doc.exchange} filed to remove ${issuerLabel && issuerLabel.trim() !== "" ? issuerLabel : doc.issuerName}${cls} from listing${when}`;
 }
 
 export async function pollForm25(
@@ -178,6 +182,8 @@ export async function pollForm25(
         if (!doc) throw new Error("primary_doc did not parse");
 
         const score = scoreForm25(doc);
+        // A2/B-21.1: DELISTING carried no cashtag either.
+        const symbol = await resolveSymbol(env, { cik: doc.issuerCik, issuerName: doc.issuerName });
         const fresh = isFreshAtIngest(row.event_at ?? "", now);
         await env.DB.prepare(
           `UPDATE items SET payload = ?1, score = ?2, status = ?3 WHERE id = ?4 AND status = 'pending_detail'`,
@@ -187,7 +193,10 @@ export async function pollForm25(
               phase: "detail",
               ...doc,
               exchangeInitiated: isExchangeInitiated(doc),
-              factLine: draftForm25(doc),
+              factLine: draftForm25(doc, symbol.label, now),
+              issuerLabel: symbol.label,
+              ticker: symbol.ticker,
+              tickerSource: symbol.source,
             }),
             score,
             score >= SCORE_POSTABLE && fresh ? "new" : "logged",

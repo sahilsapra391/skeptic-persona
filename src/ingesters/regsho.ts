@@ -3,6 +3,7 @@ import { newTickBudget, type TickBudget } from "../lib/budget";
 import { buildUserAgent, politeFetch } from "../lib/http";
 import { getSourceState, insertItem, putSourceState, recordSourceError, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
+import { displayDate } from "../lib/dates";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 import { tickerTag } from "./shared";
@@ -77,9 +78,11 @@ export function diffThreshold(prev: readonly string[], current: readonly Thresho
 }
 
 /** Tier A. Every figure is a count of parsed rows. */
-export function draftThreshold(row: ThresholdRow, listDate: string): string {
+export function draftThreshold(row: ThresholdRow, listDate: string, now: Date = new Date()): string {
   const name = row.name ? ` (${row.name})` : "";
-  return `${tickerTag(row.symbol)}${name} joined the Nasdaq Reg SHO threshold list, ${listDate}`;
+  // A3.
+  const day = displayDate(listDate, now);
+  return `${tickerTag(row.symbol)}${name} joined the Nasdaq Reg SHO threshold list, ${day ?? listDate}`;
 }
 
 export async function pollRegSho(

@@ -119,9 +119,9 @@ describe("scoreForm144", () => {
 describe("draftForm144", () => {
   it("states only parsed fields, with the relationship verbatim from the filing", () => {
     const doc = parseForm144Xml(XML_PREFIXED)!;
-    const d = draftForm144(doc);
+    const d = draftForm144(doc, undefined, undefined, new Date("2026-08-08T00:00:00.000Z"));
     expect(d).toBe(
-      "Bender Investment Company (Member of 10% Owner) filed notice of a proposed sale of 100,000 shares, $5.5M of Cactus Inc on or after 07/27/2026",
+      "Bender Investment Company (Member of 10% Owner) filed notice of a proposed sale of 100,000 shares, $5.5M of Cactus Inc on or after July 27",
     );
     // "sell" is a banned advice token AND the poster's register guard blocks
     // it: the fact line must never contain it.
@@ -177,7 +177,7 @@ describe("guards against arithmetic that is faithful but absurd", () => {
 
 describe("INSIDER_NOTICE archetype", () => {
   const payload = {
-    factLine: "Form 144: X (Officer) filed notice to sell 1,000 shares, $2.0M of ACME on or after 07/27/2026",
+    factLine: "Form 144: X (Officer) filed notice to sell 1,000 shares, $2.0M of ACME on or after July 27",
     sellerName: "X",
     issuerName: "ACME",
     relationshipLabel: "Officer",

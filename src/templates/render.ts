@@ -1,6 +1,7 @@
 import { namesSourceAsActor } from "./attribution";
 import { breakingPrefixFor, DEFAULT_BREAKING_MAX_AGE_HOURS } from "../pipeline/earnings";
 import { evaluateGate } from "./gate";
+import { displayDate } from "../lib/dates";
 import { POST_TEXT_LIMIT, weightedLength } from "./length";
 import type { Archetype, Beat, MediaRef, Payload } from "./types";
 
@@ -86,10 +87,10 @@ const MONTH_NAMES = [
 function formatSlot(raw: unknown, format: string | undefined): string | null {
   if (format === undefined) return String(raw);
   if (format === "date") {
-    const t = Date.parse(String(raw));
-    if (Number.isNaN(t)) return null;
-    const d = new Date(t);
-    return `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCDate()}`;
+    // A3: one convention, and NOT via Date.parse. `Date.parse("08/07/2026")`
+    // is local midnight, which the old `getUTCDate()` read back one day early
+    // on any host east of Greenwich — green in CI and workerd, both UTC.
+    return displayDate(raw, NOW_FOR_SLOTS());
   }
   return null;
 }
@@ -102,8 +103,49 @@ function formatSlot(raw: unknown, format: string | undefined): string | null {
  * copy-ready text. Caught in the first live 13F render; the guard in
  * renderPost is the general fix, this is what a skeleton should call instead.
  */
-export function humanDate(raw: unknown): string | null {
-  return formatSlot(raw, "date");
+export function humanDate(raw: unknown, now?: Date): string | null {
+  return displayDate(raw, now ?? NOW_FOR_SLOTS());
+}
+
+/**
+ * Slot formatting has no `now` in scope — beats are filled from a payload and
+ * a template string, with no clock threaded through. Whether the YEAR prints
+ * is the only thing that depends on one, and printing it always would be
+ * wrong for the common case. So the clock is read here, in one named place, so
+ * a future session can find it rather than discovering a bare `new Date()`
+ * inside a formatter.
+ */
+function NOW_FOR_SLOTS(): Date {
+  return new Date();
+}
+
+/**
+ * A4: stacked punctuation at the attribution join.
+ *
+ * Live cards #1227 and #1241 shipped `Combined $69.22K., per SEC Form 4
+ * filings` and `in the past week., per SEC Form 4 filings`. The fact line
+ * legitimately ends a sentence; the join then adds `, per ...` on top of it.
+ *
+ * THE ABBREVIATION GUARD IS THE WHOLE PROBLEM. A blind `replace(/\.$/, "")`
+ * turns `Robinhood Markets, Inc.` into `Robinhood Markets, Inc` and
+ * `NEONODE INC.` into `NEONODE INC` — mangling a filed company name to fix a
+ * punctuation nit. So a trailing stop is removed only when the word carrying
+ * it is NOT a known abbreviation, and the list is of the forms that actually
+ * end issuer names and citations in this pipeline.
+ */
+const ABBREVIATIONS = new Set([
+  "inc", "co", "corp", "ltd", "llc", "lp", "llp", "plc", "sa", "nv", "bv", "ag",
+  "jr", "sr", "st", "mr", "ms", "mrs", "dr", "no", "vs", "u.s", "u.k", "l.p", "l.l.c",
+]);
+
+export function trimTerminalStop(line: string): string {
+  const m = /^(.*?)([A-Za-z0-9.$%)\]]+)\.$/.exec(line);
+  if (!m) return line;
+  const word = m[2]!.toLowerCase().replace(/[)\]]+$/, "");
+  if (ABBREVIATIONS.has(word)) return line;
+  // A single capital is an initial ("Merton Carl A.") and keeps its stop.
+  if (/^[A-Za-z]$/.test(m[2]!)) return line;
+  return `${m[1]}${m[2]}`;
 }
 
 /** Slot syntax that survived rendering. Nothing may reach copy carrying it. */
@@ -244,7 +286,9 @@ export function renderPost(
     // Two Individuals" — so appending the citation produced a third mention
     // of the same body in seven live pending drafts. Embedded attribution
     // IS attribution; checkRegister and structuralCheck both accept it.
-    lines[0] = namesSourceAsActor(lines[0]!, attribution) ? lines[0]! : `${lines[0]}, ${attribution}`;
+    lines[0] = namesSourceAsActor(lines[0]!, attribution)
+      ? lines[0]!
+      : `${trimTerminalStop(lines[0]!)}, ${attribution}`;
     const block = lines.join("\n");
     if (weightedLength(block) <= POST_TEXT_LIMIT) {
       chosen = candidate;
