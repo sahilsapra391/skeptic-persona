@@ -288,6 +288,22 @@ resolving it quietly.
   comment. `selectIssuerTicker`'s header still described a four-step order
   after the ambiguity tier was added. Sweep comments alongside code whenever
   an algorithm changes.
+- **A metric must be able to REPRESENT the failure it exists to detect**
+  (D-124, B-31.1), which is distinct from reporting it wrongly. `genHealth`
+  joined `FROM generations JOIN queue`, so "approved, generated nothing" could
+  not appear in the numerator OR the denominator — the owner's reported
+  symptom was structurally invisible to the only instrument aimed at it. When
+  adding a health metric, **state the failure mode it targets and prove the
+  query can express it**, ideally by constructing that failure and watching
+  the number move.
+- **An expectation must be independent of the value under test, and a fixture
+  must EXCEED the limit it probes** (D-125, B-31.3). Three decayed assertions
+  so far: `draftFor` tested a function production never called, the
+  "unconfigured" generation test read the ambient env, and the picker test
+  seeded exactly `MAX_GENERATIONS_PER_RUN` rows so raising the cap turned it
+  into "all seeded rows ran". The repo already knew this — `dispatch.test.ts`
+  and `edgar8k.test.ts` both carry explicit anti-vacuity guards — it was
+  applied inconsistently. Seed past the boundary and say why in the fixture.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.
