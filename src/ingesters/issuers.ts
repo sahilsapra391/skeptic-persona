@@ -239,13 +239,28 @@ export interface Issuer {
 export async function lookupIssuer(env: Env, cik: string | number): Promise<Issuer | null> {
   const n = Number(cik);
   if (!Number.isFinite(n) || n <= 0) return null;
-  const row = await env.DB.prepare(
-    `SELECT cik, name, ticker, exchange, public_float AS publicFloat, ticker_alts AS tickerAlts
-       FROM issuers WHERE cik = ?1`,
-  )
-    .bind(n)
-    .first<Issuer>();
-  return row ?? null;
+  // ORDERING-SAFE BY CONSTRUCTION, not by procedure.
+  //
+  // `ticker_alts` arrives in migration 0071. Workers Builds deploys on merge
+  // while migrations are applied by hand, so there is a window where the new
+  // bundle runs against the old schema — and this function sits on the 8-K
+  // float-gate path, the hottest lane in the pipeline. A `SELECT` naming a
+  // column that does not exist throws for every filing in that window.
+  //
+  // D-43 is the same lesson from the other direction: a migration landing
+  // before its handler. The general form is that two things landing in an
+  // order nobody enforces will eventually land in the wrong one, so the read
+  // degrades instead of depending on the sequence. Once 0071 is applied the
+  // fallback simply never fires.
+  const full = `SELECT cik, name, ticker, exchange, public_float AS publicFloat, ticker_alts AS tickerAlts
+       FROM issuers WHERE cik = ?1`;
+  const legacy = `SELECT cik, name, ticker, exchange, public_float AS publicFloat
+       FROM issuers WHERE cik = ?1`;
+  try {
+    return (await env.DB.prepare(full).bind(n).first<Issuer>()) ?? null;
+  } catch {
+    return (await env.DB.prepare(legacy).bind(n).first<Issuer>()) ?? null;
+  }
 }
 
 /** Below this, a filing goes to the lake instead of the queue. */
