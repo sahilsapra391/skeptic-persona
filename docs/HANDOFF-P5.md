@@ -48,9 +48,14 @@ Only the first needs attention.
 
 `COMPLETION.md` on main is B-03.1's terminal artefact: what shipped, what was
 excluded and why, what is blocked and on whom, and the generation numbers.
-Its headline is still true and still the most important sentence in this repo:
+Its headline was WRONG and is corrected here (B-23.1):
 
-> The pipeline works and has published nothing.
+> ~~The pipeline works and has published nothing.~~
+>
+> **The pipeline works and the desk publishes.** 16 manual posts between
+> 2026-08-05 and 08-07, every one with `edit_distance 0`. The "published
+> nothing" claim came from a query selecting `created_at` from `post_log`,
+> whose column is `posted_at` (D-104). O-3 is satisfied at 16 of 10.
 
 ---
 
@@ -163,5 +168,7 @@ returns 404. Both conditions, not one.
 
 ## 9. Owner items
 
-Per B-16.6, exactly one remains across both sessions: **O-3, ten posts.**
-`post_log` is empty. Everything else is closed or ruled.
+Per B-16.6 one item was thought to remain: **O-3, ten posts.** It was already
+satisfied when that was written. `post_log` holds 34 rows — 18 Threads-era and
+**16 manual X posts** — and O-3 is met at 16 of 10 (B-23.1). Everything else is
+closed or ruled.

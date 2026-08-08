@@ -538,9 +538,12 @@ describe("a whitespace-only reply is not an edit", () => {
 });
 
 describe("p5-06: the north star", () => {
-  const NS = (o: Partial<{ cards: number; approvals: number; manualPosts: number; legacyAutoPosts: number }> = {}) => ({
-    cards: 0, approvals: 0, manualPosts: 0, legacyAutoPosts: 0, ...o,
-  });
+  const NS = (
+    o: Partial<{
+      cards: number; approvals: number; manualPosts: number;
+      legacyAutoPosts: number; manualPostsAllTime: number;
+    }> = {},
+  ) => ({ cards: 0, approvals: 0, manualPosts: 0, legacyAutoPosts: 0, manualPostsAllTime: 0, ...o });
 
   it("zero posts out of real approvals is a MEASURED 0%, not a no-data branch", () => {
     // The distinction the whole block turns on. Zero posts against 29
@@ -551,6 +554,23 @@ describe("p5-06: the north star", () => {
     expect(out).toContain("Post rate: 0%");
     expect(out).toContain("0 of 29 approval(s)");
     expect(out).toContain("The Copy button is the constraint");
+  });
+
+  it("a WINDOWED zero never reads as a silent desk when posts exist (D-105)", () => {
+    // The sentence that seeded three sessions reporting a desk that had
+    // published nothing. A quiet seven days is not an empty post_log, and the
+    // two must not render the same.
+    const quietWeek = renderNorthStar(
+      NS({ cards: 100, approvals: 29, manualPostsAllTime: 16 }), NS(), 7,
+    ).join("\n");
+    expect(quietWeek).toContain("Nothing published in this window");
+    expect(quietWeek).toContain("16 manual post(s) all time");
+    expect(quietWeek).not.toContain("EVER been published");
+    expect(quietWeek).not.toContain("The Copy button is the constraint");
+
+    // and the genuine case still says so, in stronger terms than before
+    const trulySilent = renderNorthStar(NS({ cards: 100, approvals: 29 }), NS(), 7).join("\n");
+    expect(trulySilent).toContain("Nothing has EVER been published");
   });
 
   it("but a zero DENOMINATOR is genuinely no rate, and says so", () => {

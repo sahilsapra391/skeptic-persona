@@ -68,6 +68,9 @@ export interface NorthStar {
   readonly manualPosts: number;
   /** Threads-era automated posts. Counted, reported, and NEVER in the rate. */
   readonly legacyAutoPosts: number;
+  /** ALL-TIME manual posts, outside the window (D-105, B-23.5). A windowed
+   *  zero and an empty post_log must never render the same sentence. */
+  readonly manualPostsAllTime: number;
 }
 
 /**
@@ -103,11 +106,17 @@ async function cohort(db: D1Database, sinceIso: string, untilIso: string): Promi
     )
     .bind(sinceIso, untilIso)
     .first<{ cards: number; approvals: number; manual_posts: number; legacy_posts: number }>();
+  // The independent non-empty count. Deliberately NOT windowed: it exists so a
+  // quiet week cannot be reported as a silent desk (D-105).
+  const allTime = await db
+    .prepare(`SELECT COUNT(*) AS n FROM post_log WHERE posted_manually = 1`)
+    .first<{ n: number }>();
   return {
     cards: row?.cards ?? 0,
     approvals: row?.approvals ?? 0,
     manualPosts: row?.manual_posts ?? 0,
     legacyAutoPosts: row?.legacy_posts ?? 0,
+    manualPostsAllTime: allTime?.n ?? 0,
   };
 }
 
@@ -240,9 +249,22 @@ export function renderNorthStar(current: NorthStar, prior: NorthStar, windowDays
       `  Post rate: ${rate}% — ${current.manualPosts} of ${current.approvals} approval(s) posted${trend(current.manualPosts, prior.manualPosts)}`,
     );
     if (current.manualPosts === 0) {
-      // Said out loud rather than left as a 0%. This is the binding constraint
-      // of the whole program, not a quiet metric.
-      lines.push("  Nothing has been published from this window. The Copy button is the constraint, not the queue.");
+      // SCOPED TO THE WINDOW, and it has to be (D-105, B-23.5). This line used
+      // to read "Nothing has been published from this window. The Copy button
+      // is the constraint, not the queue." — a WINDOWED zero phrased as a
+      // claim about the desk. It is the sentence that seeded three sessions
+      // reporting a silent desk, and it fires today with 16 manual posts on
+      // the books, because a quiet seven days is not an empty post_log.
+      //
+      // A zero used to justify a decision is validated against an independent
+      // non-empty count before it is stated, so the two cases can never read
+      // the same.
+      const ever = current.manualPostsAllTime;
+      lines.push(
+        ever === 0
+          ? "  Nothing has EVER been published. The Copy button is the constraint, not the queue."
+          : `  Nothing published in this window (${ever} manual post(s) all time, most recent outside it).`,
+      );
     }
   }
 
