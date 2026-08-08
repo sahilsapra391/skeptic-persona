@@ -1,0 +1,100 @@
+{
+  "_why": [
+    "B-18.1, stop-the-line. CLAUDE.md went from 6,835 bytes to 0 and MERGED at",
+    "f8e515e with the whole suite green, because nothing in the repo asserted on",
+    "it. Both sessions then kept citing rules that no longer existed anywhere in",
+    "the tree. The governance layer failed silently.",
+    "",
+    "THE HOLE THAT MADE A TEST INSUFFICIENT: ci.yml classifies a change whose",
+    "every path matches docs/*.md or *.md as docs-only and SKIPS npm test. Every",
+    "file listed here matches that pattern, so a PR that empties CLAUDE.md is",
+    "classified docs-only and never runs the suite guarding it. scripts/",
+    "check-governance.mjs therefore runs UNCONDITIONALLY in CI, with no npm",
+    "install and no node_modules, and the vitest suite reads this same manifest",
+    "so the two can never drift.",
+    "",
+    "minBytes catches truncation. anchors catch partial resolution, which is the",
+    "likelier failure: a conflict resolved by taking one side can drop half the",
+    "doctrine while leaving a plausible-looking file behind."
+  ],
+  "files": [
+    {
+      "path": "CLAUDE.md",
+      "minBytes": 6000,
+      "anchors": [
+        "Non-negotiables",
+        "No fabrication",
+        "Primary sources only",
+        "No vendor-data republishing",
+        "Honest identity",
+        "No advice language",
+        "Relay protocol",
+        "Engineering discipline",
+        "Endpoint verification is law",
+        "docs/persona.md is the signed-off voice authority"
+      ]
+    },
+    {
+      "path": "docs/p5-ledger.md",
+      "minBytes": 20000,
+      "anchors": ["Gate state", "Owner decisions", "| D-1 |"]
+    },
+    {
+      "path": "docs/DATA_USE_POLICY.md",
+      "minBytes": 1500,
+      "anchors": ["Data use policy", "Congressional disclosure data"]
+    },
+    {
+      "path": "docs/EXCLUSIONS.md",
+      "minBytes": 1500,
+      "anchors": ["Exclusions register", "reopen"]
+    },
+    {
+      "path": "docs/persona.md",
+      "minBytes": 10000,
+      "anchors": ["never-list"]
+    },
+    {
+      "path": "docs/SOURCE_REGISTRY.md",
+      "minBytes": 2000,
+      "anchors": ["Source registry", "Status of every non-healthy source"]
+    },
+    {
+      "path": "docs/PUBLIC.md",
+      "minBytes": 1000,
+      "anchors": ["This repo is public on purpose"]
+    },
+    {
+      "path": "docs/RUNBOOK.md",
+      "minBytes": 1000,
+      "anchors": ["Runbook", "scheduled workflows expire"]
+    },
+    {
+      "path": "docs/IMAGE_POLICY.md",
+      "minBytes": 1000,
+      "anchors": ["Image policy", "Banned, explicitly"]
+    }
+  ],
+  "_fingerprintWhy": [
+    "Named rules that must remain findable BY NAME (B-18.1). Each is cited by",
+    "commit messages that outlive any one session, so losing one silently makes",
+    "the record reference doctrine nobody can read.",
+    "",
+    "D-71 is asserted against the LEDGER, not CLAUDE.md: it is the Senate eFD",
+    "empty-date finding and it has never been in CLAUDE.md. It is fingerprinted",
+    "where it actually lives rather than promoted into doctrine to satisfy a",
+    "checklist."
+  ],
+  "fingerprint": [
+    { "name": "five non-negotiables", "file": "CLAUDE.md", "contains": "Non-negotiables (outrank everything" },
+    { "name": "relay protocol", "file": "CLAUDE.md", "contains": "Relay protocol" },
+    { "name": "D-48 live dispatch before merge", "file": "CLAUDE.md", "contains": "D-48" },
+    { "name": "D-56 redaction and proof against the deployed target", "file": "CLAUDE.md", "contains": "D-56" },
+    { "name": "D-71 Senate 503 was an empty date field", "file": "docs/p5-ledger.md", "contains": "| D-71 |" },
+    { "name": "B-16.2 capability rule", "file": "CLAUDE.md", "contains": "B-16.2" },
+    { "name": "D-89 agreeing examples are not verification", "file": "CLAUDE.md", "contains": "cites agreeing examples is not a verification" },
+    { "name": "D-93 one-to-many selection is a coin flip", "file": "CLAUDE.md", "contains": "is a coin flip, not a" },
+    { "name": "D-94 check the conserved quantity", "file": "CLAUDE.md", "contains": "Row-count agreement is weak evidence" },
+    { "name": "D-95 a doc change is not applied until it is in the commit", "file": "CLAUDE.md", "contains": "same expression that reads" }
+  ]
+}
