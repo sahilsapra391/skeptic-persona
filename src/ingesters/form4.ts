@@ -15,6 +15,7 @@ import {
 } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtNum, fmtUsd, isFreshAtIngest, tickerTag } from "./shared";
+import { deriveDisplayName } from "../lib/names";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -222,9 +223,31 @@ export function ownerLabel(owner: Form4Owner): string {
   return "Insider";
 }
 
+/**
+ * p6-01 (A1). `rptOwnerName` is filed `LAST FIRST MIDDLE`, which is how
+ * "Blecharczyk Nathan" and "Merton Carl A" reached live cards. The filed
+ * string stays on the payload; this is only what gets printed.
+ *
+ * The relationship booleans are the natural-person signal: an officer or a
+ * director is a human by definition, while a filer marked only as a 10% owner
+ * is as often a fund (GIC Private Ltd, DONEGAL MUTUAL INSURANCE CO) as a
+ * person — so a bare two-token name from one of those is left as filed.
+ */
+export function ownerDisplayName(owner: Form4Owner): string {
+  // CONFORMED (B-12.3): unlike Form 144's free-text seller field, EDGAR
+  // machine-populates `rptOwnerName` from the reporting owner's CIK, so it
+  // carries the documented LAST FIRST MIDDLE convention and a reorder is
+  // licensed. Verified 2026-08-07 against the conformed name for the same CIK.
+  return deriveDisplayName(owner.name, {
+    conformed: true,
+    isOfficer: owner.isOfficer,
+    isDirector: owner.isDirector,
+  }).display;
+}
+
 export function draftForm4(doc: Form4Doc, totals: Form4Totals): string {
   const owner = doc.owners[0];
-  const who = owner ? `${owner.name} (${ownerLabel(owner)})` : "Insider";
+  const who = owner ? `${ownerDisplayName(owner)} (${ownerLabel(owner)})` : "Insider";
   const sym = doc.ticker ? tickerTag(doc.ticker) : doc.issuerName;
   const lines: string[] = [];
   // Every field in a line derives from the SAME priced subset the totals
@@ -285,6 +308,7 @@ export async function checkCluster(
   const members = await env.DB.prepare(
     `SELECT insider_cik, MAX(insider_name) AS insider_name,
             MAX(COALESCE(officer_title, CASE WHEN is_director = 1 THEN 'Director' ELSE 'Insider' END)) AS label,
+            MAX(is_officer) AS is_officer, MAX(is_director) AS is_director,
             SUM(CASE WHEN shares IS NOT NULL AND price IS NOT NULL THEN shares * price END) AS value
      FROM insider_trades
      WHERE issuer_cik = ?1 AND code = 'P' AND transaction_date >= ?2
@@ -292,7 +316,14 @@ export async function checkCluster(
      ORDER BY value DESC`,
   )
     .bind(issuer.cik, cutoff)
-    .all<{ insider_cik: string; insider_name: string; label: string; value: number | null }>();
+    .all<{
+      insider_cik: string;
+      insider_name: string;
+      label: string;
+      is_officer: number;
+      is_director: number;
+      value: number | null;
+    }>();
 
   if (members.results.length < CLUSTER_MIN_INSIDERS) return false;
 
@@ -315,8 +346,24 @@ export async function checkCluster(
   // A footnote-only price parses to NULL; that member is named without a
   // dollar figure and the combined total is only claimed when every member's
   // value parsed (never a silently-partial sum presented as the whole).
+  // p6-01: the roster is a DB read, not a payload read, so the display form is
+  // derived HERE rather than inherited. Card #1227 shipped "Merton Carl A,
+  // FALTISCHEK DENISE M, Gendel Mitchell" through exactly this line. The label
+  // column already encodes the natural-person signal the reorder needs: a row
+  // whose label is a real officer title or "Director" is a human.
   const who = members.results
-    .map((m) => `${m.insider_name} (${m.label}) ${m.value !== null ? fmtUsd(m.value) : "amt n/a"}`)
+    .map((m) => {
+      // THE FLAGS COME FROM THEIR COLUMNS (B-12.5). Reconstructing them by
+      // string-matching the label read a null officer_title as "not an
+      // officer", so a filer whose agent omitted the title got one name on
+      // their individual card and a different one in this roster.
+      const display = deriveDisplayName(m.insider_name, {
+        conformed: true,
+        isOfficer: m.is_officer === 1,
+        isDirector: m.is_director === 1,
+      }).display;
+      return `${display} (${m.label}) ${m.value !== null ? fmtUsd(m.value) : "amt n/a"}`;
+    })
     .join(", ");
   const allPriced = members.results.every((m) => m.value !== null);
   const total = members.results.reduce((s, m) => s + (m.value ?? 0), 0);
@@ -414,7 +461,20 @@ async function processDetail(
             totals,
             // Template-engine fields (rendered at enqueue, not frozen here).
             factLine: draft,
-            who: owner ? `${owner.name} (${ownerLabel(owner)})` : null,
+            // p6-01: `who` is what templates, beats and prompts print, so it
+            // carries the display form; the filed name keeps its own keys (and
+            // stays verbatim inside `owners`) for validation and audit.
+            who: owner ? `${ownerDisplayName(owner)} (${ownerLabel(owner)})` : null,
+            ownerNameFiled: owner ? owner.name : null,
+            // Same options as the display, or the audit field would describe
+            // a derivation that never ran (B-12.5).
+            ownerNameShape: owner
+              ? deriveDisplayName(owner.name, {
+                  conformed: true,
+                  isOfficer: owner.isOfficer,
+                  isDirector: owner.isDirector,
+                }).shape
+              : null,
             actionLine: draft.replace(/^Form 4: .*?\) /, ""),
             // Derived from the PRINTED subset, not document order: a
             // footnote-priced buy is excluded from the fact line, so it must

@@ -38,6 +38,15 @@ const genEnv = () =>
     OPENROUTER_MODEL: "test/model",
   });
 
+/** The mirror of genEnv: the key and model explicitly ABSENT, so the
+ *  unconfigured branch is tested against a stated env rather than whatever
+ *  the local machine happens to have in .dev.vars. */
+const unconfiguredEnv = () =>
+  Object.assign(Object.create(Object.getPrototypeOf(env)), env, {
+    OPENROUTER_API_KEY: undefined,
+    OPENROUTER_MODEL: undefined,
+  });
+
 const OR = "https://openrouter.ai";
 let nextReply: () => unknown = () => ({});
 let nextStatus = 200; // persisted interceptors shadow later ones: ONE dynamic interceptor serves all cases
@@ -185,7 +194,12 @@ describe("runGeneration end-to-end", () => {
   it("does nothing unconfigured (no key = queue holds, no crash)", async () => {
     await seedApproved("P-unconfig");
     const before = orCalls;
-    await runGeneration(env, NOW);
+    // The unconfigured env is CONSTRUCTED, never assumed. Reading ambient
+    // `env` made this assertion depend on a file that is gitignored: a
+    // developer with a real OPENROUTER_API_KEY in .dev.vars got four live
+    // calls and a red suite, while CI (which has no .dev.vars) stayed green.
+    // A test that asserts a precondition has to establish it.
+    await runGeneration(unconfiguredEnv(), NOW);
     expect(orCalls).toBe(before);
   });
 

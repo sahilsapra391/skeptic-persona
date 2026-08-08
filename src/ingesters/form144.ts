@@ -6,6 +6,7 @@ import { decodeEntities, extractAllNs, extractAttr, extractFirst, extractFirstNs
 import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtNum, fmtUsd, isFreshAtIngest } from "./shared";
+import { deriveDisplayName } from "../lib/names";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -41,6 +42,10 @@ export interface Form144FeedEntry {
   dirUrl: string;
   indexUrl: string;
   filedIso: string;
+  /** EDGAR's CONFORMED name for the reporting person, from the `(Reporting)`
+   *  entry title. Null when the feed carried no such entry. This, and never
+   *  the document's free-text seller field, is what a reorder may use. */
+  conformedSeller: string | null;
 }
 
 const ACCESSION_RE = /accession-number=([0-9-]+)/;
@@ -51,25 +56,46 @@ const ACCESSION_RE = /accession-number=([0-9-]+)/;
  * ("(Subject)"), with the SAME accession in <id>. Dedup on accession or every
  * notice posts twice.
  */
+/** `144 - MILLER KENDRA D (0001514725) (Reporting)`. The trailing role tag is
+ *  what separates the seller from the issuer, and both share an accession. */
+const TITLE_RE = /^\s*[^-]*-\s*(.+?)\s*\(\d{7,10}\)\s*\((Reporting|Subject)\)\s*$/;
+
 export function parseForm144Feed(xml: string): Form144FeedEntry[] {
   const out: Form144FeedEntry[] = [];
-  const seen = new Set<string>();
+  const byAccession = new Map<string, Form144FeedEntry>();
   for (const entry of extractAllNs(stripBom(xml), "entry")) {
     const accession = ACCESSION_RE.exec(extractFirst(entry, "id") ?? "")?.[1];
-    if (!accession || seen.has(accession)) continue;
-    seen.add(accession);
+    if (!accession) continue;
+
+    // THE CONFORMED SELLER NAME (B-12.3). A filing appears twice, once under
+    // the seller CIK and once under the issuer's, and which one comes FIRST
+    // varies. Taking the first title would have stamped the issuer's name on
+    // half the notices, so the `(Reporting)` tag is matched explicitly and the
+    // other entry only contributes its accession.
+    const title = decodeEntities((extractFirst(entry, "title") ?? "").trim());
+    const m = TITLE_RE.exec(title);
+    const conformed = m && m[2] === "Reporting" ? (m[1] ?? "").trim() || null : null;
+
+    const existing = byAccession.get(accession);
+    if (existing) {
+      if (existing.conformedSeller === null && conformed !== null) existing.conformedSeller = conformed;
+      continue;
+    }
 
     const indexUrl = extractAttr(entry, "link", "href") ?? "";
     if (!indexUrl) continue;
     const updated = extractFirst(entry, "updated") ?? "";
     const filedAt = new Date(updated);
 
-    out.push({
+    const row: Form144FeedEntry = {
       accession,
       indexUrl,
       dirUrl: indexUrl.replace(/\/[^/]*$/, ""),
       filedIso: Number.isNaN(filedAt.getTime()) ? "" : filedAt.toISOString(),
-    });
+      conformedSeller: conformed,
+    };
+    byAccession.set(accession, row);
+    out.push(row);
   }
   return out;
 }
@@ -210,10 +236,41 @@ export function relationshipLabel(doc: Form144Doc): string | null {
   return doc.relationships.length > 0 ? doc.relationships.join(", ") : null;
 }
 
+/**
+ * p6-01 (A1). Form 144's `nameOfPersonForWhoseAccountTheSecuritiesAreToBeSold`
+ * carries the same `LAST FIRST MIDDLE` convention as Form 4's `rptOwnerName`
+ * (live-verified 2026-08-07: "Hermance David F.", "Hakim Anat").
+ *
+ * The relationship strings are the natural-person signal the reorder needs. A
+ * notice filed by an entity is usually marked "10% Owner" alone, so only an
+ * officer or director releases a flip on a bare two-token name.
+ */
+export function sellerDisplayName(doc: Form144Doc, conformedSeller?: string | null): string {
+  const rels = doc.relationships.map((r) => r.toLowerCase());
+  const opts = {
+    isOfficer: rels.some((r) => r.includes("officer")),
+    isDirector: rels.some((r) => r.includes("director")),
+  };
+  // THE FREE-TEXT FIELD IS NEVER REORDERED (B-12.3).
+  // `nameOfPersonForWhoseAccountTheSecuritiesAreToBeSold` is typed by the
+  // filer agent and disagreed with EDGAR's conformed name in 25 of 87
+  // comparable filings on 2026-08-07. Reordering it produced `D. Miller
+  // Kendra` for a person the Form 4 lane rendered `Kendra D. Miller` the same
+  // day, from the same CIK. The conformed name from the feed is the only
+  // licensed reorder input; without it the document text is merely cased.
+  if (conformedSeller && conformedSeller.trim() !== "") {
+    return deriveDisplayName(conformedSeller, { ...opts, conformed: true }).display;
+  }
+  return deriveDisplayName(doc.sellerName, opts).display;
+}
+
 /** Tier A fact line: parsed fields and arithmetic over them, nothing more. */
-export function draftForm144(doc: Form144Doc): string {
+export function draftForm144(doc: Form144Doc, conformedSeller?: string | null): string {
   const rel = relationshipLabel(doc);
-  const who = rel ? `${doc.sellerName} (${rel})` : doc.sellerName;
+  // p6-01 (A1): the DISPLAY form, because EDGAR files `LAST FIRST MIDDLE` and
+  // "Sheena Jonathan" shipped on card #1232. The filed string stays on the
+  // payload as `sellerNameFiled` for validation and audit.
+  const who = `${sellerDisplayName(doc, conformedSeller)}${rel ? ` (${rel})` : ""}`;
   // NOT a ticker: Form 144 parses no trading symbol at all, only the issuer
   // name. Named honestly so nobody later 'fixes' this into $Company Inc.
   const issuer = doc.issuerName;
@@ -256,7 +313,7 @@ export async function pollForm144(env: Env, now: Date = new Date(), budget: Tick
             category: "insider_notice",
             eventAt: e.filedIso || null,
             sourceUrl: e.indexUrl,
-            payload: { phase: "stub", dirUrl: e.dirUrl, accession: e.accession },
+            payload: { phase: "stub", dirUrl: e.dirUrl, accession: e.accession, conformedSeller: e.conformedSeller },
             score: SCORE_LOG_ONLY,
             status: isFreshAtIngest(e.filedIso, now) ? "pending_detail" : "logged",
           },
@@ -303,7 +360,12 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
     // pool and take the whole poll down with it.
     let attempts = 0;
     try {
-      const stub = JSON.parse(row.payload) as { dirUrl: string; accession: string; attempts?: number };
+      const stub = JSON.parse(row.payload) as {
+        dirUrl: string;
+        accession: string;
+        attempts?: number;
+        conformedSeller?: string | null;
+      };
       attempts = stub.attempts ?? 0;
       const res = await politeFetch(`${stub.dirUrl}/primary_doc.xml`, { userAgent, timeoutMs: 20_000 });
       if (!res.ok) throw new Error(`primary_doc ${res.status}`);
@@ -328,7 +390,12 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
             accession: stub.accession,
             issuerCik: doc.issuerCik,
             issuerName: doc.issuerName,
-            sellerName: doc.sellerName,
+            // p6-01: `sellerName` is what every template, beat and prompt
+            // prints, so it carries the DISPLAY form. The filed string keeps
+            // its own key so validation and audit still see the record.
+            sellerName: sellerDisplayName(doc, stub.conformedSeller),
+            sellerNameFiled: doc.sellerName,
+            sellerNameConformed: stub.conformedSeller ?? null,
             relationships: doc.relationships,
             relationshipLabel: relationshipLabel(doc),
             securitiesClass: doc.securitiesClass,
@@ -352,7 +419,7 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
               const withNature = doc.acquisitions.filter((a) => a.nature !== null);
               return withNature.length > 0 && withNature.every((a) => /exercise/i.test(a.nature ?? ""));
             })(),
-            factLine: draftForm144(doc),
+            factLine: draftForm144(doc, stub.conformedSeller),
           }),
           score,
           score >= SCORE_POSTABLE && fresh ? "new" : "logged",
