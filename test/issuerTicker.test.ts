@@ -137,3 +137,31 @@ describe("the selection is total, deterministic and order-independent", () => {
     expect(isNonCommonSymbol("BAC")).toBe(false);
   });
 });
+
+describe("lookupIssuer survives either deploy order (D-43's general form)", () => {
+  it("returns a row against the PRE-0071 schema, with ticker_alts absent", async () => {
+    // Workers Builds deploys on merge; migrations are applied by hand. There
+    // is therefore a window where the new bundle meets the old schema, and
+    // this function sits on the 8-K float-gate path — the hottest lane in the
+    // pipeline. A SELECT naming a column that does not exist would throw for
+    // every filing in that window.
+    //
+    // Proven against the real schema rather than asserted in a comment: the
+    // column is genuinely dropped here and restored afterwards.
+    const { env } = await import("cloudflare:test");
+    const { lookupIssuer } = await import("../src/ingesters/issuers");
+    await env.DB.prepare(
+      `INSERT INTO issuers (cik, name, ticker, exchange, public_float, updated_at)
+       VALUES (7, 'ACME', 'ACME', 'NYSE', 1, 'x')
+       ON CONFLICT(cik) DO UPDATE SET ticker = 'ACME'`,
+    ).run();
+    await env.DB.prepare(`ALTER TABLE issuers DROP COLUMN ticker_alts`).run();
+    try {
+      const row = await lookupIssuer(env, 7);
+      expect(row?.ticker).toBe("ACME");
+      expect(row?.tickerAlts).toBeUndefined();
+    } finally {
+      await env.DB.prepare(`ALTER TABLE issuers ADD COLUMN ticker_alts TEXT NOT NULL DEFAULT ''`).run();
+    }
+  });
+});
