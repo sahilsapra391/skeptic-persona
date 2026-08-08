@@ -268,6 +268,42 @@ resolving it quietly.
   old path would produce at +60/+120/+330/+480/+540 minutes and asserts the
   component parser differs. This is stronger than depending on a runner's
   configuration, which can silently change.
+- **A predicate that answers BACKWARDS is more dangerous than one that
+  throws** (D-118, B-30.1), because callers act on it. `isNonCommonSymbol
+  ("brk-a")` returned true — a common share class read as non-common — and
+  `isPreferredSeries("wfc-pz")` returned false — a preferred series read as
+  common. Both exactly inverted, and live rather than theoretical: lower-case
+  symbols enter from congressional disclosure PDFs. **Every boolean guard in
+  the resolution and validation stack gets tests for BOTH polarities on
+  normalized and unnormalized input.** A guard tested only on the input shape
+  it was written against is tested on its own assumptions.
+- **Debug output is not verification** (D-119, B-30.2). A value printed and
+  eyeballed has not been checked; only an assertion that FAILS on the wrong
+  value has. I printed `Asset 0…` where `$AMAT` belonged, read past it, and
+  the suite caught it one step later. Same family as D-56's exit code and
+  D-102's clean summary line: three different ways of mistaking output for
+  evidence.
+- **A comment documenting an ordering or algorithm the code no longer matches
+  is a defect** (D-109 extended, B-30.3), because the next session reads the
+  comment. `selectIssuerTicker`'s header still described a four-step order
+  after the ambiguity tier was added. Sweep comments alongside code whenever
+  an algorithm changes.
+- **A metric must be able to REPRESENT the failure it exists to detect**
+  (D-124, B-31.1), which is distinct from reporting it wrongly. `genHealth`
+  joined `FROM generations JOIN queue`, so "approved, generated nothing" could
+  not appear in the numerator OR the denominator — the owner's reported
+  symptom was structurally invisible to the only instrument aimed at it. When
+  adding a health metric, **state the failure mode it targets and prove the
+  query can express it**, ideally by constructing that failure and watching
+  the number move.
+- **An expectation must be independent of the value under test, and a fixture
+  must EXCEED the limit it probes** (D-125, B-31.3). Three decayed assertions
+  so far: `draftFor` tested a function production never called, the
+  "unconfigured" generation test read the ambient env, and the picker test
+  seeded exactly `MAX_GENERATIONS_PER_RUN` rows so raising the cap turned it
+  into "all seeded rows ran". The repo already knew this — `dispatch.test.ts`
+  and `edgar8k.test.ts` both carry explicit anti-vacuity guards — it was
+  applied inconsistently. Seed past the boundary and say why in the fixture.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.

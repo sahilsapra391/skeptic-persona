@@ -567,6 +567,11 @@ describe("runGeneration end-to-end", () => {
     const older = await seedApproved("P-old", PTR_PAYLOAD, "CONGRESS_PTR", { decidedAt: new Date(NOW.getTime() - 3_600_000) });
     const q2 = await seedApproved("P-mid1");
     const q3 = await seedApproved("P-mid2");
+    // MORE ROWS THAN THE CAP, or this asserts nothing about the cap. The cap
+    // rose from 3 to 8 under B-10.6 and the old fixture seeded 4, so the
+    // assertion silently became "all seeded rows ran".
+    const filler: number[] = [];
+    for (let i = 0; i < MAX_GENERATIONS_PER_RUN; i++) filler.push(await seedApproved(`P-fill${i}`));
     const newest = await seedApproved("P-new", PTR_PAYLOAD, "CONGRESS_PTR", { decidedAt: new Date(NOW.getTime() + 3_600_000) });
     nextReply = () => GOOD;
     await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
@@ -735,5 +740,125 @@ describe("B-08.3 (D-75): a network blip must never spend a card's voice", () => 
     // More than the old two rounds.
     expect(orCalls - before).toBeGreaterThan(2);
     expect(orCalls - before).toBeLessThanOrEqual(MAX_ATTEMPTS);
+  });
+});
+
+// p6-08 / B-10.5. The three stall paths, each proven against the failure it
+// exists for rather than against a happy run (D-99).
+describe("p6-08: the three stall paths", () => {
+  it("(1) budget exhaustion REQUEUES; it must not spend a card that never reached the model", async () => {
+    const qid = await seedApproved("P-budget");
+    const before = orCalls;
+    // A budget with nothing in it: the round loop breaks at round 0.
+    const spent = newTickBudget();
+    while (spent.take(1, { reserved: true })) {
+      /* drain it */
+    }
+    await runGeneration(genEnv(), NOW, spent, { exemplars: [EXEMPLAR] });
+    expect(orCalls).toBe(before); // the model was never called
+
+    const rows = await env.DB.prepare(`SELECT status FROM generations WHERE queue_id = ?1`)
+      .bind(qid).all<{ status: string }>();
+    const statuses = rows.results.map((r) => r.status);
+    // Before this fix the row got a TERMINAL fallback_template with zero gate
+    // contact -- the D-75 shape, wearing budget instead of network.
+    expect(statuses).not.toContain("fallback_template");
+    expect(statuses).toContain("budget_deferred");
+
+    // TWO CONSECUTIVE EXHAUSTED TICKS, because one is the only shape that
+    // cannot expose the real bug. The first version of this test ran one
+    // exhausted tick then a healthy one and passed while `budget_deferred`
+    // counted as a spent voice attempt -- so the SECOND exhausted tick wrote a
+    // terminal fallback_template with the model still never called, and D-121
+    // survived exactly one tick. D-99's blind spot, inside the test written
+    // for D-121.
+    const spent2 = newTickBudget();
+    while (spent2.take(1, { reserved: true })) {
+      /* drain it again */
+    }
+    await runGeneration(genEnv(), NOW, spent2, { exemplars: [EXEMPLAR] });
+    const afterTwo = await env.DB.prepare(`SELECT status FROM generations WHERE queue_id = ?1`)
+      .bind(qid).all<{ status: string }>();
+    expect(afterTwo.results.map((r) => r.status)).not.toContain("fallback_template");
+    expect(orCalls).toBe(before); // still never called
+
+    // and it is NON-terminal, so a funded tick picks it up with its voice intact
+    nextReply = () => GOOD;
+    await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+    const after = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1 AND status = 'valid'`,
+    ).bind(qid).first<{ n: number }>();
+    expect(after!.n).toBeGreaterThan(0);
+  });
+
+  it("(3) a row that THROWS is retried, then quarantined, and never blocks the lane", async () => {
+    // THE THROW IS INJECTED, and that is worth stating. I could not make
+    // renderForQueue, lakeContext, fetchSourceText or validateVariant throw
+    // from any input: renderForQueue returns {ok:false} for a malformed
+    // payload, an unknown archetype and a missing attribution alike. So the
+    // row-body guard is PRECAUTIONARY, not a fix for a reachable defect, and
+    // this seam is how the quarantine path is proven rather than assumed.
+    //
+    // The stall it guards against is real in shape: before it, a throw exited
+    // the row loop, the row wrote no terminal marker, and it sorted FIRST by
+    // decided_at on the next tick -- one poison row stalling the lane forever.
+    const poison = await seedApproved("P-poison", PTR_PAYLOAD, "CONGRESS_PTR", {
+      decidedAt: new Date(NOW.getTime() - 7_200_000), // oldest, so it runs first
+    });
+    const healthy = await seedApproved("P-healthy");
+    nextReply = () => GOOD;
+    const boom = (queueId: number) => {
+      if (queueId === poison) throw new Error("simulated downstream throw");
+    };
+
+    for (let tick = 1; tick <= 3; tick++) {
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR], throwOnRow: boom });
+    }
+
+    const marks = await env.DB.prepare(`SELECT status FROM generations WHERE queue_id = ?1`)
+      .bind(poison).all<{ status: string }>();
+    const st = marks.results.map((r) => r.status);
+    expect(st.filter((x) => x === "error_retry").length).toBeGreaterThan(0);
+    expect(st).toContain("error_quarantined");
+
+    // THE POINT: the healthy row behind it still generated.
+    const ok = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM generations WHERE queue_id = ?1 AND status = 'valid'`,
+    ).bind(healthy).first<{ n: number }>();
+    expect(ok!.n).toBeGreaterThan(0);
+  });
+});
+
+describe("p6-08 acceptance: ten approvals in one minute all reach a terminal state", () => {
+  it("drains all ten, none lost", async () => {
+    const ids: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      ids.push(await seedApproved(`P-burst${i}`, PTR_PAYLOAD, "CONGRESS_PTR", {
+        decidedAt: new Date(NOW.getTime() - (10 - i) * 1_000), // ten in ten seconds
+      }));
+    }
+    nextReply = () => GOOD;
+    // Two ticks at the raised cap of 8. Before B-10.6 this needed four ticks
+    // at a cap of 3, and the measured drain was 1.57 rows/tick, so in practice
+    // the tail waited about an hour.
+    let ticks = 0;
+    for (; ticks < 6; ticks++) {
+      await runGeneration(genEnv(), NOW, undefined, { exemplars: [EXEMPLAR] });
+      const done = await env.DB.prepare(
+        `SELECT COUNT(DISTINCT queue_id) AS n FROM generations
+          WHERE queue_id IN (${ids.join(",")})
+            AND (status = 'valid' OR status LIKE 'fallback%' OR status LIKE 'skipped%'
+                 OR status = 'rejected:payload' OR status = 'error_quarantined')`,
+      ).first<{ n: number }>();
+      if ((done?.n ?? 0) === ids.length) break;
+    }
+    const terminal = await env.DB.prepare(
+      `SELECT COUNT(DISTINCT queue_id) AS n FROM generations
+        WHERE queue_id IN (${ids.join(",")})
+          AND (status = 'valid' OR status LIKE 'fallback%' OR status LIKE 'skipped%'
+               OR status = 'rejected:payload' OR status = 'error_quarantined')`,
+    ).first<{ n: number }>();
+    expect(terminal!.n, `all ten terminal within ${ticks + 1} ticks`).toBe(10);
+    expect(ticks + 1).toBeLessThanOrEqual(3);
   });
 });

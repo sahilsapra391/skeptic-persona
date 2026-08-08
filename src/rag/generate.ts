@@ -57,7 +57,23 @@ import { checkGroundingProvenance, type GroundingProvenance, corpusHasData, vali
 // the engine, and if even that fails the row is HELD as fallback_blocked
 // with a loud alert, never shown as copy-ready.
 
-export const MAX_GENERATIONS_PER_RUN = 3;
+/**
+ * Rows per tick. RAISED FROM 3 (B-10.6).
+ *
+ * MEASURED DRAIN BEFORE: 11 queue rows across the seven ticks from 20:44Z to
+ * 21:14Z on 2026-08-07 -- 1.57 rows/tick, about 19/hour, against a ceiling of
+ * 36. The row cap was not what bound; RUN_TIME_CAP_MS was, because one row can
+ * spend three variants across several API retries. The owner approved 21 cards
+ * that day and three were still waiting an hour later.
+ *
+ * COST DELTA, in numbers: none per card. Generation is driven by APPROVALS,
+ * and every approved card generates exactly once either way -- 5.23 generation
+ * rows per queue row, measured across all 246 rows in production. Raising the
+ * cap changes only HOW LONG a card waits, not how many calls it costs. The
+ * ceiling moves from 3x288 = 864 to 8x288 = 2,304 rows/day, and neither number
+ * is reachable: the binding input is how many cards the owner approves.
+ */
+export const MAX_GENERATIONS_PER_RUN = 8;
 /** Total LLM attempts per queue row across all runs before falling back. */
 export const MAX_ATTEMPTS = 4;
 
@@ -71,12 +87,44 @@ export const MAX_ATTEMPTS = 4;
  */
 export const MAX_API_RETRIES_PER_RUN = 3;
 
+/** Throws before a row is quarantined. Three ticks of a poison payload is
+ *  enough to distinguish a transient from a permanent one. */
+export const MAX_ERROR_ATTEMPTS = 3;
+
+/** Error markers already written for this row in this cycle. */
+async function countErrorMarkers(db: D1Database, queueId: number, cycle: number): Promise<number> {
+  const r = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM generations
+       WHERE queue_id = ?1 AND cycle = ?2 AND status IN ('error_retry', 'error_quarantined')`,
+    )
+    .bind(queueId, cycle)
+    .first<{ n: number }>();
+  return r?.n ?? 0;
+}
+
 /** Exponential, and short: this runs inside a tick, not across one. */
 export const API_BACKOFF_MS: readonly number[] = [250, 750, 2000];
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 /** Stop starting new rows after this much wall time (cadence is 300s). */
-export const RUN_TIME_CAP_MS = 120_000;
+/**
+ * RECONCILED WITH THE TICK BUDGET (B-10.6), which it silently contradicted.
+ *
+ * `dispatch.ts` sets TICK_TIME_BUDGET_MS = 45s, and checks it only BEFORE a
+ * job starts -- so generation was free to run 120s inside a 45s budget, and
+ * did. That is not a bug in either constant, it is an undocumented exception,
+ * and an undocumented exception is how a future session "fixes" one of them
+ * and breaks the drain.
+ *
+ * Stated plainly: GENERATION IS DELIBERATELY EXEMPT from the tick budget. It
+ * is the only job whose unit of work is an external LLM round-trip, the cron
+ * fires every minute so a long tick delays other jobs by a minute rather than
+ * dropping them, and the cadence is 5 minutes so the only hard requirement is
+ * that a run cannot outlive its own window. 240s against a 300s cadence keeps
+ * a 60s margin for that overlap guard while letting a full 8-row batch finish.
+ */
+export const RUN_TIME_CAP_MS = 240_000;
 /**
  * CEILING on owner finals injected per archetype (p4-09). The EFFECTIVE limit
  * is `floor((committed - 1) / 2)` — see the call site — so promoted text is
@@ -134,7 +182,8 @@ const TERMINAL_PREDICATE = `
   SELECT 1 FROM generations g
   WHERE g.queue_id = q.id
     AND g.cycle = q.regen_cycle
-    AND (g.status = 'valid' OR g.status LIKE 'fallback%' OR g.status LIKE 'skipped%' OR g.status = 'rejected:payload')`;
+    AND (g.status = 'valid' OR g.status LIKE 'fallback%' OR g.status LIKE 'skipped%'
+         OR g.status = 'rejected:payload' OR g.status = 'error_quarantined')`;
 
 interface GenRow {
   queue_id: number;
@@ -300,6 +349,16 @@ async function alertOwner(env: Env, text: string, budget: TickBudget): Promise<b
 }
 
 export interface GenerationDeps {
+  /**
+   * TEST SEAM, and it exists because the alternative is an untested error
+   * path. The row body's try/catch guards `renderForQueue`, `lakeContext`,
+   * `fetchSourceText` and `validateVariant`, none of which I could make throw
+   * from any input I tried -- `renderForQueue` returns `{ok:false}` for a
+   * malformed payload, an unknown archetype and a missing attribution alike.
+   * The guard is therefore PRECAUTIONARY rather than a fix for a reachable
+   * defect, and this hook is how the quarantine path gets proven anyway.
+   */
+  throwOnRow?: (queueId: number) => void;
   /** Injectable for tests; defaults to the committed bank. */
   exemplars?: ReadonlyArray<{
     archetype: ArchetypeId;
@@ -380,7 +439,13 @@ export async function runGeneration(
     }
   }
 
+  let authInvalid = false;
+  let deferredForAuth = 0;
   for (const row of rows.results) {
+    if (authInvalid) {
+      deferredForAuth += 1;
+      continue;
+    }
     // Overlap guard (finding #7): never start a row we might not finish
     // before the next cadence fire could pick it up again.
     if (performance.now() - startedAt > RUN_TIME_CAP_MS) {
@@ -388,7 +453,18 @@ export async function runGeneration(
       break;
     }
     const archetypeId = row.archetype as ArchetypeId;
-
+    // B-10.5(3). EVERYTHING BELOW IS GUARDED.
+    //
+    // Only the OpenRouter call and the payload JSON.parse were wrapped before.
+    // `renderForQueue`, `lakeContext`, `fetchSourceText` and `validateVariant`
+    // were not, and `renderForQueue` is documented elsewhere in this repo as
+    // THROWING on a malformed payload. A throw exited the row loop, jobs.ts
+    // caught it and rethrew to bump consecutive_failures, and the row -- having
+    // written no terminal marker -- sorted FIRST by decided_at on the next
+    // tick and threw again. One poison row blocked the entire generation lane,
+    // permanently and silently.
+    try {
+    deps.throwOnRow?.(row.queue_id);
     // Attempt numbering continues across runs AND across cycles (finding #8's
     // UNIQUE-collision corollary, widened by p5-01): a retried row picks up
     // where its audit trail left off. This is computed HERE, above the two
@@ -404,7 +480,17 @@ export async function runGeneration(
     // probes applies to the hot path here.
     const counters = await env.DB.prepare(
       `SELECT COALESCE(MAX(attempt), 0) AS highest,
-              COUNT(DISTINCT CASE WHEN cycle = ?2 AND status NOT IN ('api_error','api_failed') THEN attempt END) AS spent,
+              -- THE EXCLUSION LIST IS THE VOICE BUDGET. Anything here means
+              -- "the model was never asked", so it must not consume an
+              -- attempt. p6-08 added three statuses and did not add them here,
+              -- and the omission defeated the very fix that introduced them:
+              -- one budget_deferred marker made spentBeforeRun 1, which flips
+              -- voiceEverTested true, so the SECOND exhausted tick wrote a
+              -- terminal fallback_template having still never called the LLM.
+              -- D-121 survived exactly one tick.
+              COUNT(DISTINCT CASE WHEN cycle = ?2
+                    AND status NOT IN ('api_error','api_failed','budget_deferred','error_retry','error_quarantined')
+                    THEN attempt END) AS spent,
               COUNT(DISTINCT CASE WHEN cycle = ?2 AND status IN ('api_error','api_failed') THEN attempt END) AS api_spent
        FROM generations WHERE queue_id = ?1`,
     )
@@ -593,8 +679,18 @@ export async function runGeneration(
     // rule deserves the allowance the constant already promised.
     let apiRetriesThisRun = 0;
     let gateRoundsThisRun = 0;
+    let budgetExhausted = false;
     for (let round = 0; round < MAX_ATTEMPTS && attemptsLeft > round && valid.size < VARIANTS.length; round++) {
-      if (!budget.take(1, { reserved: true })) break;
+      if (!budget.take(1, { reserved: true })) {
+        // B-10.5(1). This used to be a bare `break`, and at round 0 it left
+        // sawApiError false and voiceEverTested false -- so control fell
+        // through to the TERMINAL template fallback and the card was spent
+        // having never reached the model. D-75 fixed exactly that shape for a
+        // network blip; the budget path was the same failure wearing different
+        // clothes. A card that never got a turn has not spent its voice.
+        budgetExhausted = true;
+        break;
+      }
       let content: string;
       try {
         const prompt = buildPrompt(archetypeId, payload, bank, feedback, { source, contextLines: context.lines });
@@ -610,7 +706,15 @@ export async function runGeneration(
             await env.KV.put(KV_OPENROUTER_ALERTED, "1", { expirationTtl: 6 * 3600 });
             await alertOwner(env, "⚠️ OpenRouter key is invalid or out of credit. Generation is paused; approved items keep their template drafts.", budget);
           }
-          return;
+          // B-10.5(2). This was a bare `return`, which abandoned every
+          // remaining row mid-batch with no marker and no count. The rows do
+          // get re-picked (selection re-derives from rows lacking a terminal
+          // marker), so nothing was lost -- but the abandonment was invisible,
+          // and an invisible stall is how the drain problem stayed unexplained
+          // for a week. Now it stops the LOOP, so the deferral is counted and
+          // logged and the function completes normally.
+          authInvalid = true;
+          break; // leaves the round loop; the row loop checks the flag
         }
         // Transient failure (429/5xx/timeout/empty body): record a NON-terminal
         // marker and retry. Two layers of backoff, and neither spends a
@@ -717,16 +821,29 @@ export async function runGeneration(
     // tested. If no round reached the gates this cycle, there is nothing to
     // conclude about the copy and falling back is not a judgement, it is a
     // guess dressed as one.
+    if (authInvalid) {
+      // No terminal row: the key, not the copy, is what failed. Selection
+      // re-picks this row once the key works.
+      continue;
+    }
     const voiceEverTested = spentBeforeRun > 0 || gateRoundsThisRun > 0;
-    if (sawApiError && !voiceEverTested) {
+    if ((sawApiError || budgetExhausted) && !voiceEverTested) {
       // Non-terminal by design: selection re-picks rows that have no terminal
       // row, so this requeues on the next tick with its voice budget intact.
       await insertGeneration(
         env.DB,
-        { queueId: row.queue_id, cycle: row.regen_cycle, variant: "none", text: "", status: "api_failed", attempt },
+        {
+          queueId: row.queue_id,
+          cycle: row.regen_cycle,
+          variant: "none",
+          text: "",
+          status: budgetExhausted && !sawApiError ? "budget_deferred" : "api_failed",
+          attempt,
+        },
         now,
       );
-      log("warn", "generation requeued: API never reached the gates", {
+      log("warn", "generation requeued: the model was never reached", {
+        budgetExhausted,
         queueId: row.queue_id,
         apiSpentBeforeRun,
         apiRetriesThisRun,
@@ -768,5 +885,35 @@ export async function runGeneration(
     }
     await insertGeneration(env.DB, { queueId: row.queue_id, cycle: row.regen_cycle, variant: "none", text: finalFallback, status: "fallback_template", attempt }, now);
     log("warn", "generation fell back to template for queue row", { queueId: row.queue_id });
+    } catch (e) {
+      // A row that throws is retried, then QUARANTINED. Retrying forever is
+      // what turns one bad payload into a dead lane; giving up silently is
+      // what turns it into a card nobody knows is missing.
+      const failures = await countErrorMarkers(env.DB, row.queue_id, row.regen_cycle);
+      const attemptNo = failures + 1;
+      if (attemptNo >= MAX_ERROR_ATTEMPTS) {
+        await insertGeneration(
+          env.DB,
+          { queueId: row.queue_id, cycle: row.regen_cycle, variant: "none", text: "", status: "error_quarantined", attempt: attemptNo },
+          now,
+        );
+        await alertOwner(
+          env,
+          `🛑 #${row.queue_id}: generation threw ${attemptNo} times and is quarantined so it stops blocking the lane. Nothing copy-ready exists for it.`,
+          budget,
+        );
+        log("error", "generation row quarantined after repeated throws", { queueId: row.queue_id, attempts: attemptNo, error: String(e) });
+      } else {
+        await insertGeneration(
+          env.DB,
+          { queueId: row.queue_id, cycle: row.regen_cycle, variant: "none", text: "", status: "error_retry", attempt: attemptNo },
+          now,
+        );
+        log("warn", "generation row threw; will retry", { queueId: row.queue_id, attempts: attemptNo, error: String(e) });
+      }
+    }
+  }
+  if (deferredForAuth > 0) {
+    log("error", "generation batch deferred: OpenRouter key invalid", { deferred: deferredForAuth });
   }
 }

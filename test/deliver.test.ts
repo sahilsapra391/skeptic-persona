@@ -531,12 +531,12 @@ describe("the Copy button actually copies (Bot API 7.11 CopyTextButton)", () => 
 describe("B-08.6: generation health in the digest", () => {
   it("counts api failures SEPARATELY from rejections", async () => {
     const rows = [
-      { archetype: "A", cards: 10, fell_back: 1, api_cards: 0, top_reason: "number", top_reason_n: 3 },
-      { archetype: "B", cards: 2, fell_back: 2, api_cards: 2, top_reason: null, top_reason_n: 0 },
+      { archetype: "A", cards: 10, fell_back: 1, api_cards: 0, no_generation: 0, top_reason: "number", top_reason_n: 3 },
+      { archetype: "B", cards: 2, fell_back: 2, api_cards: 2, no_generation: 0, top_reason: null, top_reason_n: 0 },
     ];
     const out = renderGenHealth(rows).join("\n");
     // 3 of 12 = 25%.
-    expect(out).toContain("25% fallback (3 of 12 cards)");
+    expect(out).toContain("25% fallback (3 of 12)");
     expect(out).toContain("Target under 10%. Baseline 36%.");
     expect(out).toContain("A: 1/10 fell back, top reason number x3");
     // B never reached a gate, so it gets no invented reason.
@@ -546,7 +546,25 @@ describe("B-08.6: generation health in the digest", () => {
 
   it("says nothing when there is nothing to say", () => {
     expect(renderGenHealth([])).toEqual([]);
-    expect(renderGenHealth([{ archetype: "A", cards: 5, fell_back: 0, api_cards: 0, top_reason: null, top_reason_n: 0 }]).join("\n"))
+    expect(renderGenHealth([{ archetype: "A", cards: 5, fell_back: 0, api_cards: 0, no_generation: 0, top_reason: null, top_reason_n: 0 }]).join("\n"))
       .toContain("0% fallback");
+  });
+});
+
+describe("p6-08: a quarantined row still reaches the owner", () => {
+  it("error_quarantined is delivered as a HELD card with a Regenerate handle", async () => {
+    // generate.ts's TERMINAL_PREDICATE gained this status and deliver.ts's
+    // independent copy did not, so the row stopped being re-picked for
+    // generation AND was never delivered: permanently dead, no Edit, no
+    // Regenerate, against the precedent rejected:payload sets.
+    const { buildCard } = await import("../src/rag/deliver");
+    const card = await buildCard(env.DB, 1, "CONGRESS_PTR" as never, "error_quarantined", 1);
+    expect(card.held).toBe(true);
+    expect(card.text).toContain("HELD");
+    expect(card.text).toContain("quarantined");
+    // NOT the generic rejected-variants copy, which would be false: nothing
+    // was ever generated for this row.
+    expect(card.text).not.toContain("Every generated variant was rejected");
+    expect(JSON.stringify(card.buttons)).toContain("Regenerate");
   });
 });
