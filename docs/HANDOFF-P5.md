@@ -48,9 +48,11 @@ Only the first needs attention.
 
 `COMPLETION.md` on main is B-03.1's terminal artefact: what shipped, what was
 excluded and why, what is blocked and on whom, and the generation numbers.
-Its headline is still true and still the most important sentence in this repo:
-
-> The pipeline works and has published nothing.
+**Its original headline was wrong and is corrected in place** (D-92): it claimed
+the desk had published nothing, on the strength of a query that selected a
+column `post_log` does not have. The error was reported as "no rows" and I read
+it as zero. The real figure is **34 manual posts across 7 archetypes,
+2026-07-27 to 2026-08-07**, so owner task **O-3 was already satisfied**.
 
 ---
 
@@ -157,5 +159,6 @@ returns 404. Both conditions, not one.
 
 ## 9. Owner items
 
-Per B-16.6, exactly one remains across both sessions: **O-3, ten posts.**
-`post_log` is empty. Everything else is closed or ruled.
+Per B-16.6 the owner named one remaining item, **O-3, ten posts**. Measured
+2026-08-08: `post_log` holds **34 posts**, so **O-3 is satisfied**. Everything
+else is closed or ruled.
