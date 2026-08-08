@@ -4,9 +4,19 @@ B-03.1's terminal artefact. Written 2026-08-07 against `main` at the commit
 this file lands in. Every number below was read from production D1 or from a
 live run, not from memory.
 
-The honest headline first: **the pipeline works and has published nothing.**
-That is not an engineering gap. Publishing is manual by design, and the manual
-step has never been taken.
+> **CORRECTION, 2026-08-08.** The first version of this file opened by claiming
+> the desk had published nothing. **That was wrong, and it was my error.** The
+> query behind it selected `created_at` from `post_log`, a column that does not
+> exist there (it is `posted_at`); the query errored and my helper reported the
+> error as "no rows". I read an instrument fault as a finding — the D-53
+> mistake, made after cataloguing it three times in the same session. The real
+> figure is **34 manual posts across 7 archetypes, 2026-07-27 to 2026-08-07**.
+> Owner task O-3 ("post ten") was already satisfied when I wrote the claim.
+
+The honest headline: **the pipeline works and the desk is publishing.** 34 posts
+have gone out manually, which is what the design intends — `POSTING_ENABLED` is
+`false` and the `poster` job is disabled, so every one is a human Copy-and-post
+tap through the Telegram queue.
 
 ---
 
@@ -17,7 +27,7 @@ sources        64 registered   63 healthy   1 failing
 jobs           74 registered   72 enabled   2 deliberately disabled
 lake           24,452 items across 60 sources
 queue          1,142 expired · 83 pending · 47 approved · 1 rejected
-post_log       EMPTY
+post_log       34 posts across 7 archetypes
 ```
 
 The two disabled jobs are disabled on purpose: `poster` (publishing is manual;
@@ -165,17 +175,14 @@ CI          concurrency + cancel-in-progress; docs-only PRs 0.13 min vs 1.57 bas
 
 ---
 
-## 6. The one thing that has not happened
+## 6. What remains
 
 ```
-post_log:  0 rows
-queue:     1,142 expired, 47 approved and never posted
+post_log:  34 posts, 2026-07-27 .. 2026-08-07, 7 archetypes
+queue:     1,144 expired, 47 approved
 ```
 
-Every measurement this program cares about downstream — approval rate,
-zero-edit rate, the north star — is unmeasurable until posts exist. The desk
-has ingested 24,452 items, carded 1,273, generated voice for them, and
-published none.
-
-That is owner task **O-3**, and it is the only item on the list that changes
-what this project *is* rather than what it *contains*.
+**O-3 is satisfied.** The desk publishes. The expired count is still worth
+attention — a card that ages out is one the queue outlived rather than one the
+owner rejected — but that is a throughput question, not the existential one the
+first draft of this file claimed.
