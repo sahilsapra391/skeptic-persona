@@ -6,6 +6,17 @@ them from scratch. Each entry: **what**, **why**, and **what would reopen it**.
 An entry here is a closed decision. Reopening one needs a new owner ruling, not
 a good argument.
 
+**SCOPE, and it binds (B-26.1).** This file holds ONLY what is ruled out on
+principle or on evidence. Anything unbuilt, deferred, or waiting on a
+credential belongs in the backlog, not here. **A register that holds backlog
+items stops answering the question it exists to answer** — "has this been
+decided against?" becomes indistinguishable from "has nobody got to this
+yet?", and the second reads as the first. p5-24 (USDA/WASDE) was removed on
+2026-08-08 for exactly that reason: it was never excluded on principle or
+evidence, only unbuilt behind a NASS key that now exists. Its probe record
+lives in `verification/2026-08-07-geopolitics-china-usda-endpoints.md` and its
+backlog row in the p5 ledger.
+
 > Started 2026-08-06 with the NSE/BSE ruling. **p5-40 completes this register**
 > with the rest of the charter's standing exclusions (X scraping and the X API,
 > vendor data, GDELT and aggregators as citation, outlet journalism as
@@ -108,25 +119,6 @@ would break silently.
 feed or a documented API. Re-probe costs ten minutes; the paths are recorded in
 `verification/2026-08-07-geopolitics-china-usda-endpoints.md`.
 
-## USDA WASDE lane (p5-24) — pending one owner action
-
-**What.** The WASDE report and USDA/NASS releases as an ingested source.
-
-**Why.** Ten paths probed across two rounds on 2026-08-07. Every RSS path is
-404 or 403, both Cornell Mann library routes 404, and the WASDE page itself is
-a 164 KB HTML page with no feed. The one live structured route is the **NASS
-QuickStats API, which returns 401 without a key**.
-
-**What would reopen it.** A free NASS QuickStats API key, which is an owner
-action rather than a decision. With the key this lane is buildable
-immediately; without it, content-diffing a monthly 164 KB HTML page is the
-only route and is not worth the fragility.
-
-> **REOPEN CONDITION MET, 2026-08-08 (B-25.2).** `NASS_API_KEY` is set and was
-> verified live against the deployed Worker. **This entry no longer excludes
-> anything** — p5-24 is buildable and merely unbuilt, which is a backlog item
-> and not an exclusion. Left in place with this note so the probe record
-> survives, but it must not be read as a standing decision (D-108).
 
 ## Bluesky as corroboration (p5-25) — and the general circularity test
 

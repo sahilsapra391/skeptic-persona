@@ -210,6 +210,16 @@ resolving it quietly.
   is a program-level causal claim, and the template is not entitled to make
   one. Causal claims about the program belong to the owner, not to generated
   prose.
+- **A status column that disagrees with the repo is worse than no status
+  column** (D-109, B-26.2), because it reads as fact rather than as stale.
+  Eleven ledger rows said `blocked-gate` while six of those lanes had shipped.
+  **Anything derivable from repo or production state must be DERIVED, not
+  hand-maintained.** Derivable today and now checked: whether a cited
+  verification doc exists (`scripts/check-governance.mjs`). Derivable but
+  needing the network, so reported rather than gated: whether a cited PR is
+  merged, and therefore whether `merged-verified` is true. NOT derivable and
+  correctly hand-written: scope, `blocked-owner`, `parked(reason)` — those are
+  judgements, and a judgement is the only thing a status column should hold.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.
