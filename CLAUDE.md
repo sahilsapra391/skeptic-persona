@@ -193,6 +193,33 @@ resolving it quietly.
   not "wrong number", it is **generated prose treated as a finding**. If a
   line diagnoses rather than counts, it needs the denominator that would
   falsify it in the same breath.
+- **A gate written into a dated document cannot know when it has been met**
+  (D-108, B-25.1), so its freeze outlives its condition. `handoff-ingestion-
+  2026-08-02.md` stopped all source work "until 10 manual posts are recorded";
+  the count passed 10 on 2026-08-06 and the stop still read as active two days
+  later. Eleven ledger rows still said `blocked-gate` on the same counter
+  while six of those lanes had already shipped. **Any conditional freeze lives
+  in a LIVE CHECK with a named owner and a re-evaluation trigger, or it does
+  not exist.** A dated doc may record that a gate existed and was met; it may
+  never enforce one. When you write "resumes when X", say who re-evaluates X
+  and what makes them look.
+- **A digest may report what it measured in its window; it may not diagnose
+  why** (D-106, sharpened B-25.3). The defect is a windowed observation
+  followed by an UNWINDOWED CAUSE: "Nothing has been published from this
+  window" is a measurement, "The Copy button is the constraint, not the queue"
+  is a program-level causal claim, and the template is not entitled to make
+  one. Causal claims about the program belong to the owner, not to generated
+  prose.
+- **A status column that disagrees with the repo is worse than no status
+  column** (D-109, B-26.2), because it reads as fact rather than as stale.
+  Eleven ledger rows said `blocked-gate` while six of those lanes had shipped.
+  **Anything derivable from repo or production state must be DERIVED, not
+  hand-maintained.** Derivable today and now checked: whether a cited
+  verification doc exists (`scripts/check-governance.mjs`). Derivable but
+  needing the network, so reported rather than gated: whether a cited PR is
+  merged, and therefore whether `merged-verified` is true. NOT derivable and
+  correctly hand-written: scope, `blocked-owner`, `parked(reason)` — those are
+  judgements, and a judgement is the only thing a status column should hold.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.

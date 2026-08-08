@@ -74,6 +74,25 @@ if (ledger !== undefined) {
   }
 }
 
+// D-109 (B-26.2): a ledger row may not cite a verification doc that is not
+// there. This is the DERIVABLE half of the status column — whether a document
+// exists is a fact about the repo, so it is checked rather than trusted, and
+// a row whose evidence has been deleted or renamed stops reading as verified.
+//
+// Deliberately NOT extended to PR state: that needs the network, and this gate
+// runs unconditionally on every CI job including offline ones. PR-state drift
+// is reported to the owner instead.
+if (ledger !== undefined) {
+  for (const m of ledger.matchAll(/\]\((verification\/[^)]+\.md|memos\/[^)]+\.md)\)/g)) {
+    const rel = m[1];
+    try {
+      readFileSync(join(root, "docs", rel), "utf8");
+    } catch {
+      failures.push(`docs/p5-ledger.md: cites docs/${rel}, which does not exist`);
+    }
+  }
+}
+
 if (failures.length > 0) {
   console.error("GOVERNANCE CHECK FAILED\n");
   for (const f of failures) console.error(`  ${f}`);
