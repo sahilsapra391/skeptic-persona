@@ -61,7 +61,7 @@ resolving it quietly.
   Prove it with a live call that can tell auth-passed from auth-failed (a
   `400` on a junk body, not just "no 401").
 - **A verification that cites agreeing examples is not a verification**
-  (D-87, B-12.2). Ground truth has to be an INDEPENDENT AUTHORITY, not a
+  (D-88, B-12.2). Ground truth has to be an INDEPENDENT AUTHORITY, not a
   larger sample of the same source. p6-01 asserted that Form 144's
   `nameOfPersonForWhoseAccountTheSecuritiesAreToBeSold` follows EDGAR's
   `LAST FIRST` convention and cited two live filings that did. Both were real.
