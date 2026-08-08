@@ -10,7 +10,7 @@ import {
   PENDING_PATH,
   PRESS_PENDING_PATH,
 } from "./ingestRelay";
-import { handleGenerationHistory, handleProbe, handleSeedTest } from "./admin";
+import { handleCredCheck, handleGenerationHistory, handleProbe, handleSeedTest } from "./admin";
 // src/threadsOauth.ts is intentionally left on disk but UNROUTED: the Threads
 // account is banned (poster.ts THREADS_PARKED). Re-import and re-add the two
 // routes below if the appeal succeeds; reconnecting needs a manual browser
@@ -46,6 +46,11 @@ export default {
     }
     if (request.method === "POST" && url.pathname === "/admin/seed-test") {
       return handleSeedTest(request, env);
+    }
+    if (request.method === "POST" && url.pathname === "/admin/credcheck") {
+      // B-14.1: proves a credential WORKS against the deployed target, which
+      // is a different claim from "the put succeeded" (D-56).
+      return handleCredCheck(request, env);
     }
     if (request.method === "POST" && url.pathname === "/admin/probe") {
       return handleProbe(request, env);
