@@ -249,6 +249,25 @@ resolving it quietly.
   a company's stock. Both suites passed throughout. The review runs before
   merge, adversarially (try to REFUTE each finding), and against live primary
   sources rather than fixtures.
+- **A validation belongs where the value is CREATED, not at the call site you
+  were reading** (D-117, B-29.1). If a value can reach copy by more than one
+  path, guarding one path is not a guard. `tickerTag()` was a bare template
+  literal and every caller was trusted: of eight call sites, **six passed
+  unvalidated external input** — Nasdaq's threshold file, the halts feed,
+  symbols parsed out of congressional disclosure PDFs, openFIGI, and the
+  issuers table. `form4` was merely the one that got caught, because Greif
+  files `issuerTradingSymbol` as `"GEF, GEF-B"` and that lane is the
+  highest-volume one at 18/18 on cashtags. Fixing `form4`'s parse fixed
+  `form4` and nothing else. **Before shipping a validator, list every path its
+  value can take to copy and put the guard upstream of all of them.**
+- **Test the bug, not the environment** (D-116 generalized, B-29.3). For a
+  defect that only manifests under conditions the test runner does not
+  reproduce, ENCODE THE OLD MECHANISM and assert the new code disagrees with
+  it. `Date.parse` local-midnight was invisible because CI and workerd both
+  run UTC; rather than demanding a non-UTC runner, the test computes what the
+  old path would produce at +60/+120/+330/+480/+540 minutes and asserts the
+  component parser differs. This is stronger than depending on a runner's
+  configuration, which can silently change.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.

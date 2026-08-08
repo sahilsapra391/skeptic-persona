@@ -1,3 +1,6 @@
+import { isNonCommonSymbol } from "./issuers";
+import { isWellFormedSymbol } from "../lib/symbol";
+
 /**
  * Stale-at-ingest cutoff shared by all ingesters. A wire is only worth
  * notifying about while it is news: anything older than this at FIRST SIGHT
@@ -260,6 +263,26 @@ export function bandSpan(band: string): number | null {
  * case-sensitively, so a $ ticker is the form it expects and an invented one
  * is still refused.
  */
-export function tickerTag(ticker: string): string {
-  return `$${ticker}`;
+export function tickerTag(ticker: string): string | null {
+  // THE GUARD LIVES HERE, at the point a cashtag is CREATED (B-29.1).
+  //
+  // It used to be a bare template literal, and every caller was trusted to
+  // hand it something sane. The sweep says otherwise: of eight call sites,
+  // SIX passed unvalidated external input — `regsho` (Nasdaq's threshold
+  // file), `halts` (the halts feed), `senatePtr` and `housePtr` (symbols
+  // parsed out of disclosure PDFs), `thirteenF` (openFIGI) and `earnings`
+  // (the issuers table). form4 was merely the one that got caught, because
+  // Greif files `issuerTradingSymbol` as "GEF, GEF-B" and that lane is the
+  // highest-volume one at 18/18 on cashtags.
+  //
+  // Guarding form4's parse fixed form4. It did not fix the other five, and
+  // that is the lesson: if a value can reach copy by more than one path,
+  // guarding one path is not a guard.
+  //
+  // Returns NULL rather than a mangled tag. Every caller already holds the
+  // issuer or asset name it can fall back to, which is honest and merely
+  // less pretty.
+  const t = ticker.trim().toUpperCase();
+  if (t === "" || !isWellFormedSymbol(t) || isNonCommonSymbol(t)) return null;
+  return `$${t}`;
 }

@@ -67,7 +67,7 @@ export type CusipMap = ReadonlyMap<string, string>;
  */
 export function displayName(cusip: string, issuer: string, map: CusipMap): string {
   const t = map.get(cusip);
-  return t ? tickerTag(t) : issuer;
+  return (t ? tickerTag(t) : null) ?? issuer;
 }
 
 /**

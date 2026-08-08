@@ -174,7 +174,7 @@ export function parseNyseHalts(csv: string): HaltEvent[] {
 export function draftHalt(e: HaltEvent): string {
   const name = e.name ? ` (${e.name})` : "";
   const hhmm = e.haltTime.slice(0, 5);
-  return `HALT: ${tickerTag(e.symbol)}${name}. ${e.reasonText}, ${hhmm} ET`;
+  return `HALT: ${tickerTag(e.symbol) ?? e.symbol}${name}. ${e.reasonText}, ${hhmm} ET`;
 }
 
 /** Window in which repeat halts on the same symbol are treated as one story. */

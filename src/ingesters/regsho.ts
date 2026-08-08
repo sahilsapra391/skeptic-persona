@@ -82,7 +82,7 @@ export function draftThreshold(row: ThresholdRow, listDate: string, now: Date = 
   const name = row.name ? ` (${row.name})` : "";
   // A3.
   const day = displayDate(listDate, now);
-  return `${tickerTag(row.symbol)}${name} joined the Nasdaq Reg SHO threshold list, ${day ?? listDate}`;
+  return `${tickerTag(row.symbol) ?? row.symbol}${name} joined the Nasdaq Reg SHO threshold list, ${day ?? listDate}`;
 }
 
 export async function pollRegSho(

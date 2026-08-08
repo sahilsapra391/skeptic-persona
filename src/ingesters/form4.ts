@@ -270,7 +270,7 @@ export function ownerDisplayName(owner: Form4Owner): string {
 export function draftForm4(doc: Form4Doc, totals: Form4Totals, now: Date = new Date()): string {
   const owner = doc.owners[0];
   const who = owner ? `${ownerDisplayName(owner)} (${ownerLabel(owner)})` : "Insider";
-  const sym = doc.ticker ? tickerTag(doc.ticker) : doc.issuerName;
+  const sym = (doc.ticker ? tickerTag(doc.ticker) : null) ?? doc.issuerName;
   const lines: string[] = [];
   // Every field in a line derives from the SAME priced subset the totals
   // cover — never a composite of priced totals with unpriced txns' dates or
@@ -369,7 +369,7 @@ export async function checkCluster(
     .map((m) => m.insider_cik)
     .sort()
     .join("+")}`;
-  const sym = issuer.ticker ? tickerTag(issuer.ticker) : issuer.name;
+  const sym = (issuer.ticker ? tickerTag(issuer.ticker) : null) ?? issuer.name;
   // A footnote-only price parses to NULL; that member is named without a
   // dollar figure and the combined total is only claimed when every member's
   // value parsed (never a silently-partial sum presented as the whole).
