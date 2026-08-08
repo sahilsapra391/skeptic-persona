@@ -129,15 +129,37 @@ resolving it quietly.
   meant to catch and prove the check RUNS on that change** — not merely that
   it passes on a normal one. The proof is running the check against the
   failure it exists for, and watching it fail.
-- **On a conflict in a rule or doctrine file, resolve as a UNION** (D-100,
-  B-19.2). Applies to `CLAUDE.md`, `docs/p5-ledger.md`, `docs/EXCLUSIONS.md`
-  and `docs/DATA_USE_POLICY.md`. Never "take the longer side": when both
-  CLAUDE.md restores existed after the truncation, **neither was a superset**
-  — one carried B-16.2's capability rule and none of p6-01's four, the other
-  carried the four and not B-16.2 — so the longer side would have silently
-  dropped a rule set either way. Before resolving, ENUMERATE what each side
-  uniquely holds and say so; these files are append-only and nobody deletes
-  from them by accident.
+- **A check's reporting layer must be incapable of printing a clean result
+  when the check failed** (D-102, B-20.2). Third instance this week, and all
+  three are the reporting layer rather than the check: a `grep -v` over
+  `wrangler`'s stderr that removed the line saying the write had FAILED
+  (D-56); `git show --stat | tail -12`, which hid the one path that mattered
+  because `CLAUDE.md` sorts first among thirteen; and `uniq -d` followed by an
+  unconditional `echo "(empty=none)"`, which printed reassurance directly
+  underneath the duplicates it had just found. **General form: any summary
+  line that can render identically on success and failure is a defect in the
+  check, not in the reader.** Make the success message derive from the same
+  value the failure branch reads.
+- **On a conflict in a rule or doctrine file, ENUMERATE first, then choose the
+  operation** (D-100, amended B-20.1). Applies to `CLAUDE.md`,
+  `docs/p5-ledger.md`, `docs/EXCLUSIONS.md` and `docs/DATA_USE_POLICY.md`.
+  List what each side uniquely holds BEFORE resolving; that list tells you
+  which of three cases you are in.
+  1. **Genuinely divergent content — union.** The default, and the only case
+     union fits. After the CLAUDE.md truncation two restores existed and
+     NEITHER was a superset: [#203] carried B-16.2's capability rule and none
+     of p6-01's four, the p6-02 restore carried the four and not B-16.2.
+     "Take the longer side" drops a rule set either way, silently.
+  2. **Same content under different identifiers — the canonical side wins,
+     and union DUPLICATES.** Rebasing p6-02 onto #206 produced a hunk whose
+     two sides held zero unique rules and differed only in D-number: main had
+     the final D-93/94/95, the branch the pre-renumber D-91/92/93. Unioning
+     there would have written every rule twice under two ids.
+  3. **Superseded work — no-op.** The same rebase replayed a guard commit that
+     #206 had already landed in a better form. It collapses; nothing to merge.
+  Union is the default for (1) ONLY. The enumeration is what tells you whether
+  union is even the right operation, and skipping it is how the ledger grew
+  six rows for three defects.
 - **A renumbering keys on ORIGINAL values, in a single pass** (D-101). Never
   apply mappings iteratively: `D-92->93, D-93->94, D-94->95` run as a loop
   over every row rewrites the same row three times and collapses all of them
