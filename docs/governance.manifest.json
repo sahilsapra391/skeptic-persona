@@ -103,6 +103,10 @@
     { "name": "D-106 a digest may not diagnose why", "file": "CLAUDE.md", "contains": "it may not diagnose" },
     { "name": "D-108 a dated document cannot enforce a gate", "file": "CLAUDE.md", "contains": "cannot know when it has been met" },
     { "name": "D-109 a stale status column reads as fact", "file": "CLAUDE.md", "contains": "worse than no status" },
+    { "name": "D-113 determinism without an authority", "file": "CLAUDE.md", "contains": "Determinism without an authority" },
+    { "name": "D-99b a metric computed with its own artifact", "file": "CLAUDE.md", "contains": "A metric computed with the artifact it is meant to" },
+    { "name": "D-102b a measurement over prose", "file": "CLAUDE.md", "contains": "measurement over prose cannot measure a field" },
+    { "name": "B-28.7 adversarial review is required", "file": "CLAUDE.md", "contains": "Adversarial review is REQUIRED" },
     { "name": "D-95 a doc change is not applied until it is in the commit", "file": "CLAUDE.md", "contains": "same expression that reads" }
   ]
 }

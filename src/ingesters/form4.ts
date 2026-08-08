@@ -17,6 +17,8 @@ import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtNum, fmtUsd, isFreshAtIngest, tickerTag } from "./shared";
 import { displayDate, displayDateRange } from "../lib/dates";
 import { roleGloss } from "../templates/glosses";
+import { isWellFormedSymbol } from "../lib/symbol";
+import { isNonCommonSymbol } from "./issuers";
 import { deriveDisplayName } from "../lib/names";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
@@ -117,6 +119,16 @@ export interface Form4Doc {
   derivativeCount: number;
 }
 
+/** One well-formed symbol, or null. See isWellFormedSymbol for why. */
+function cleanFiledSymbol(raw: string | null): string | null {
+  // UPPERCASE FIRST. isNonCommonSymbol is case-SENSITIVE (its class-suffix
+  // test is /^(?!P$)[A-Z]$/), so a lower-case "brk-a" read as non-common and
+  // was thrown away. Caught by this chunk's own kill-test.
+  const t = decodeEntities((raw ?? "").trim()).toUpperCase();
+  if (t === "") return null;
+  return isWellFormedSymbol(t) && !isNonCommonSymbol(t) ? t : null;
+}
+
 function boolVal(s: string | null): boolean {
   return s === "1" || s === "true";
 }
@@ -178,7 +190,13 @@ export function parseForm4Xml(xml: string): Form4Doc | null {
     documentType: extractFirst(clean, "documentType")?.trim() ?? "",
     issuerCik,
     issuerName: decodeEntities(extractFirst(issuerBlock, "issuerName")?.trim() ?? ""),
-    ticker: decodeEntities(extractFirst(issuerBlock, "issuerTradingSymbol")?.trim() ?? "") || null,
+    // THE SHAPE GUARD LIVES HERE, at the parse, so no consumer can bypass it.
+    // `issuerTradingSymbol` is not always one symbol: Greif files it as
+    // "GEF, GEF-B", both share classes in a single field, and `draftForm4` and
+    // `checkCluster` both call tickerTag() on this value directly without
+    // going through the resolver. A multi-symbol field becomes NULL and the
+    // lane falls back to the issuer name, which the CIK map can still improve.
+    ticker: cleanFiledSymbol(extractFirst(issuerBlock, "issuerTradingSymbol")),
     owners,
     nonDerivative,
     derivativeCount: extractAll(clean, "derivativeTransaction").length,

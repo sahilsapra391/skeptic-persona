@@ -65,6 +65,20 @@ export interface ResolveInput {
  */
 const WELL_FORMED_SYMBOL = /^[A-Z0-9]{1,6}(?:-[A-Z])?$/;
 
+/**
+ * Is this ONE well-formed trading symbol?
+ *
+ * Exported because the shape guard has to live where the symbol is PARSED, not
+ * where one consumer happens to resolve it. Greif files `issuerTradingSymbol`
+ * as "GEF, GEF-B" and `form4.ts` renders `tickerTag(doc.ticker)` directly in
+ * two places -- the fact line and the cluster roster -- neither of which goes
+ * through `resolveSymbol`. Guarding only the resolver left `$GEF, GEF-B`
+ * reachable on the desk's highest-volume lane (B-28.5).
+ */
+export function isWellFormedSymbol(ticker: string): boolean {
+  return WELL_FORMED_SYMBOL.test(ticker.trim().toUpperCase());
+}
+
 /** `Class B Common Stock` -> `B`. Only a single letter counts; anything else
  *  is not a class designation we can match against a ticker suffix. */
 export function classLetter(title: string | null | undefined): string | null {
