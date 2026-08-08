@@ -68,6 +68,7 @@ export type TickerSource =
   | "sec_primary" // unsuffixed symbol on a major exchange
   | "sec_primary_otc" // unsuffixed, OTC only
   | "sec_share_class" // no unsuffixed symbol exists; dual-class common (BRK-A/BRK-B)
+  | "ambiguous_multi" // several unsuffixed major-exchange symbols; type unknowable from the file
   | "unresolved"; // only preferred series, warrants, units or rights exist
 
 /**
@@ -98,7 +99,13 @@ export type TickerSource =
  */
 const SERIES_SUFFIX = /-(.+)$/;
 const PREFERRED_SUFFIX = /^P[A-Z]$/;
-const SHARE_CLASS_SUFFIX = /^[A-Z]$/;
+// A bare `-P` is the PREFERRED marker, not a class letter. Five symbols in the
+// live file carry it — ETI-P (Entergy Texas), PHXE-P, TY-P, DCOM-P, TFIN-P —
+// and Entergy's own 10-K cover registers ETI-P as "5.375% Series A Preferred
+// Stock". They were counted into the "29 single-letter share classes" figure
+// in the header BY THE SAME REGEX THAT WAS MEANT TO VALIDATE IT, which is
+// D-99's shape exactly: the check's blind spot aligned with its target.
+const SHARE_CLASS_SUFFIX = /^(?!P$)[A-Z]$/;
 
 /**
  * Does this symbol name something that is NOT a common share -- a preferred
@@ -137,6 +144,34 @@ export function selectIssuerTicker(
       .slice()
       .sort((a, b) => a.ticker.length - b.ticker.length || (a.ticker < b.ticker ? -1 : a.ticker > b.ticker ? 1 : 0))[0];
 
+  // MORE THAN ONE UNSUFFIXED MAJOR-EXCHANGE SYMBOL MEANS WE CANNOT TELL.
+  //
+  // SEC's file carries no security TYPE, so a common share and a listed
+  // debenture look identical here. Comcast lists CMCSA and CCZ; CCZ is the
+  // "2.0% Exchangeable Subordinated Debentures due 2029" per Comcast's own
+  // 10-K cover. DTE lists DTE/DTW/DTB/DTG/DTK, four of them junior
+  // subordinated debentures. Corebridge lists CRBG and CRBD, the second a
+  // "6.375% Junior Subordinated Note".
+  //
+  // "Shortest, then alphabetical" was deterministic and WRONG: it picks $CCZ
+  // for Comcast, $DTB for DTE and $CRBD for Corebridge. The AT&T/TBB comment
+  // that motivated it only worked because AT&T's common share happens to be
+  // the shortest symbol; where the debt symbol is shorter, the rule inverts.
+  // Nor does a shared prefix separate them — CRBG and CRBD share three.
+  //
+  // So the ambiguity is REPORTED rather than resolved. 644 CIKs are affected
+  // (78 of our 1,459 lake issuers): they print the issuer name as filed, and
+  // the candidates are kept so a filing that names its own class can still be
+  // answered. A missing cashtag is ugly; naming a security the filing never
+  // mentioned is fabrication (non-negotiable #1).
+  if (major.length > 1) {
+    return {
+      ticker: "",
+      exchange: major[0]!.exchange,
+      tickerSource: "ambiguous_multi",
+      alts: major.map((c) => c.ticker).sort(),
+    };
+  }
   const p1 = pick(major);
   if (p1) return { ticker: p1.ticker, exchange: p1.exchange, tickerSource: "sec_primary", alts: [] };
 

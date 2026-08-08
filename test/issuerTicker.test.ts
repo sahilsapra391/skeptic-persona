@@ -36,10 +36,6 @@ const REAL: Array<[string, number, Array<{ ticker: string; exchange: string }>, 
     { ticker: "GS-PA", exchange: "NYSE" }, { ticker: "GS-PC", exchange: "NYSE" },
     { ticker: "GS-PD", exchange: "NYSE" },
   ], "GS", "GS-PD"],
-  ["AT&T", 732717, [
-    { ticker: "T", exchange: "NYSE" }, { ticker: "TBB", exchange: "NYSE" },
-    { ticker: "T-PA", exchange: "NYSE" }, { ticker: "T-PC", exchange: "NYSE" },
-  ], "T", "T-PC"],
   ["BOEING", 12927, [
     { ticker: "BA", exchange: "NYSE" }, { ticker: "BA-PA", exchange: "NYSE" },
   ], "BA", "BA-PA"],
@@ -69,14 +65,53 @@ describe("B-15.4 kill-test: the eight issuers that were wrong in production", ()
     }
   });
 
-  it("AT&T is the case that shows why alphabetical alone is not enough", () => {
-    // `TBB` is unsuffixed and on NYSE, and it is a baby bond, not the common
-    // share. Sorting by length first is what excludes it on purpose rather
-    // than by luck of the alphabet.
-    expect(selectIssuerTicker([
+  it("AT&T is now SUPPRESSED, and that correction is the point", () => {
+    // This test used to assert that "shortest first" picks T over TBB, the
+    // NYSE baby bond. The rule was deterministic and WRONG: it survives here
+    // only because AT&T's common share happens to be the shortest symbol.
+    // Comcast lists CMCSA and CCZ, where CCZ is the "2.0% Exchangeable
+    // Subordinated Debentures due 2029" and IS the shorter one, so the same
+    // rule printed $CCZ for a Comcast filing.
+    //
+    // SEC's file carries no security TYPE, so nothing here can tell a common
+    // share from a listed debenture. The ambiguity is reported instead, and
+    // AT&T loses its cashtag along with the 643 other multi-symbol CIKs. That
+    // is the cost of not naming a security the filing never mentioned.
+    const r = selectIssuerTicker([
       { ticker: "TBB", exchange: "NYSE" },
       { ticker: "T", exchange: "NYSE" },
-    ]).ticker).toBe("T");
+    ]);
+    expect(r.ticker).toBe("");
+    expect(r.tickerSource).toBe("ambiguous_multi");
+    expect(r.alts).toEqual(["T", "TBB"]);
+  });
+
+  it("the three the reviewer proved against each registrant's own 10-K cover", () => {
+    // Comcast: CCZ = 2.0% Exchangeable Subordinated Debentures due 2029.
+    // DTE: DTB = 2020 Series G 4.375% Junior Subordinated Debentures due 2080.
+    // Corebridge: CRBD = 6.375% Junior Subordinated Notes.
+    for (const cands of [
+      [{ ticker: "CMCSA", exchange: "Nasdaq" }, { ticker: "CCZ", exchange: "NYSE" }],
+      [{ ticker: "DTE", exchange: "NYSE" }, { ticker: "DTW", exchange: "NYSE" }, { ticker: "DTB", exchange: "NYSE" }],
+      [{ ticker: "CRBG", exchange: "NYSE" }, { ticker: "CRBD", exchange: "NYSE" }],
+    ]) {
+      expect(selectIssuerTicker(cands).ticker).toBe("");
+    }
+  });
+
+  it("a BARE -P is the preferred marker, not a class letter", () => {
+    // Entergy Texas lists exactly one symbol, ETI-P, and its own 10-K cover
+    // registers it as "5.375% Series A Preferred Stock". It classified as a
+    // share class because SHARE_CLASS_SUFFIX was /^[A-Z]$/ — and the header's
+    // "29 single-letter share classes" count was made with that same regex,
+    // so the five bare -P symbols were counted into the figure meant to
+    // validate it. D-99's shape, in my own measurement.
+    for (const t of ["ETI-P", "PHXE-P", "TY-P", "DCOM-P", "TFIN-P"]) {
+      expect(isNonCommonSymbol(t), t).toBe(true);
+    }
+    expect(selectIssuerTicker([{ ticker: "ETI-P", exchange: "NYSE" }]).ticker).toBe("");
+    // and a real class letter is still a class letter
+    for (const t of ["BRK-A", "CRD-B", "GEF-B"]) expect(isNonCommonSymbol(t), t).toBe(false);
   });
 });
 
