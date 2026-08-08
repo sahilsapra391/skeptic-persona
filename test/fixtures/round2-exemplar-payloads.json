@@ -1,0 +1,38 @@
+{
+ "POLICY_ACTION": {
+  "documentNumber": "2026-16125",
+  "title": "Establishing the President's Military Spouse Commission",
+  "kind": "Executive Order",
+  "number": "14417",
+  "publicationDate": "2026-08-06",
+  "signingDate": "2026-08-03",
+  "htmlUrl": "https://www.federalregister.gov/documents/2026/08/06/2026-16125/establishing-the-presidents-military-spouse-commission",
+  "signingLagDays": 3,
+  "factLine": "Executive Order 14417: Establishing the President's Military Spouse Commission, signed 2026-08-03"
+ },
+ "SETTLEMENT_FAILURE": {
+  "symbol": "ADIL",
+  "name": "ADIAL PHARMACEUTICALS INC COM",
+  "marketCategory": "S",
+  "listDate": "2026-08-04",
+  "listSize": 63,
+  "factLine": "ADIL (ADIAL PHARMACEUTICALS INC COM) joined the Nasdaq Reg SHO threshold list, 2026-08-04"
+ },
+ "POSITIONING": {
+  "contract": "NASDAQ MINI",
+  "market": "NASDAQ MINI - CHICAGO MERCANTILE EXCHANGE",
+  "reportDate": "2026-08-04",
+  "openInterest": 303624,
+  "levLong": 57097,
+  "levShort": 135430,
+  "changeLevLong": -4136,
+  "changeLevShort": 15899,
+  "levNet": -78333,
+  "changeLevNet": -20035,
+  "factLine": "CFTC positioning: leveraged funds net short 78,333 NASDAQ MINI contracts, down 20,035 on the week, week ending 2026-08-04"
+ },
+ "FED_PRESS": {
+  "title": "Federal Reserve Board requests comment on a proposal to modernize rules for mutual banking organizations",
+  "category": "Banking and Consumer Regulatory Policy"
+ }
+}
