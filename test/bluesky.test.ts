@@ -37,11 +37,24 @@ describe("p5-25 Bluesky: discovery only, and off by default", () => {
   it("does NOTHING when disabled, including no credential read", async () => {
     // The lane must be inert behind the flag, not merely quiet: a disabled
     // lane that still authenticates would burn a credential and a request.
+    //
+    // THE DISABLED ENV IS CONSTRUCTED, NEVER ASSUMED. Reading ambient `env`
+    // made this assertion depend on wrangler.toml: the moment the owner
+    // authorised BLUESKY_ENABLED="true" the flag arrived in the test env, this
+    // test polled Bluesky FOR REAL and inserted 121 rows, and it reported the
+    // failure as a broken lane rather than a broken test. Exactly the D-6
+    // shape. A test that asserts a precondition has to establish it.
+    const disabled = Object.assign(Object.create(Object.getPrototypeOf(env)), env, {
+      BLUESKY_ENABLED: "false",
+    });
     const before = await env.DB.prepare(`SELECT COUNT(*) n FROM items WHERE source = ?1`).bind(SOURCE).first<{ n: number }>();
-    const n = await pollBluesky(env as never, new Date("2026-08-07T12:00:00Z"));
+    const n = await pollBluesky(disabled as never, new Date("2026-08-07T12:00:00Z"));
     expect(n).toBe(0);
     const after = await env.DB.prepare(`SELECT COUNT(*) n FROM items WHERE source = ?1`).bind(SOURCE).first<{ n: number }>();
     expect(after!.n).toBe(before!.n);
+    // And absent means off, same as "false".
+    const unset = Object.assign(Object.create(Object.getPrototypeOf(env)), env, { BLUESKY_ENABLED: undefined });
+    expect(await pollBluesky(unset as never, new Date("2026-08-07T12:00:00Z"))).toBe(0);
   });
 
   it("parses the live response shape and drops incomplete posts", () => {
@@ -84,6 +97,27 @@ describe("p5-25 Bluesky: discovery only, and off by default", () => {
     expect(src).not.toContain("ArchetypeId");
     expect(src).not.toMatch(/\barchetype\s*:/);
     expect(SCORE_LOG_ONLY).toBeLessThan(2);
+  });
+
+  it("D-87: points at the AppView host that actually answers", async () => {
+    // The first live run failed with `searchPosts 403` and it looked like an
+    // authorization requirement. It was the hostname. Measured unauthenticated:
+    //   public.api.bsky.app  403 (an HTML Forbidden PAGE, a CDN block)
+    //   api.bsky.app         200, 25 posts
+    //   bsky.social          401 AuthMissing
+    const src = await import("../src/ingesters/bluesky?raw").then((m) => (m as { default: string }).default);
+    expect(src).toContain('const APPVIEW = "https://api.bsky.app"');
+    expect(src).not.toContain("public.api.bsky.app/xrpc");
+  });
+
+  it("D-87: a credential failure must NOT take the lane down", async () => {
+    // Search answers anonymously, so the session is best effort. Requiring it
+    // would trade a working lane for an unmeasured rate-limit benefit.
+    const src = await import("../src/ingesters/bluesky?raw").then((m) => (m as { default: string }).default);
+    const poll = src.slice(src.indexOf("export async function pollBluesky"));
+    // The session call is wrapped, and the failure path logs and continues.
+    expect(poll).toMatch(/try\s*\{[\s\S]{0,200}?await session\(env\)/);
+    expect(poll).toContain("polling anonymously");
   });
 
   it("watch terms name DOCUMENTS, not tickers or topics", () => {
