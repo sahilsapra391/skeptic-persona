@@ -99,3 +99,52 @@ describe("a filing-supplied symbol must LOOK like one symbol", () => {
     }
   });
 });
+
+describe("B-28.5: a multi-symbol field can never reach copy, from ANY path", () => {
+  it("the guard is at the PARSE, so the two form4 render paths cannot bypass it", async () => {
+    // draftForm4 and checkCluster both call tickerTag(doc.ticker) directly,
+    // neither goes through resolveSymbol, and FILING_FORM4 is the desk's
+    // highest-volume lane at 18/18 on cashtags. Guarding only the resolver
+    // left "$GEF, GEF-B" reachable there.
+    const { parseForm4Xml } = await import("../src/ingesters/form4");
+    const xml = (sym: string) => `<ownershipDocument><documentType>4</documentType>
+      <issuer><issuerCik>0000043920</issuerCik><issuerName>GREIF, INC</issuerName>
+      <issuerTradingSymbol>${sym}</issuerTradingSymbol></issuer>
+      <reportingOwner><reportingOwnerId><rptOwnerCik>1</rptOwnerCik>
+      <rptOwnerName>Doe Jane</rptOwnerName></reportingOwnerId></reportingOwner></ownershipDocument>`;
+
+    // the real string, from 7 stored payloads
+    expect(parseForm4Xml(xml("GEF, GEF-B"))!.ticker).toBeNull();
+    // and every other way a field can hold more than one symbol
+    for (const bad of ["GEF GEF-B", "GEF/GEF-B", "GEF;GEF-B", "GEF & GEF-B", "GEF, GEF B"]) {
+      expect(parseForm4Xml(xml(bad))!.ticker, bad).toBeNull();
+    }
+    // a preferred series filed in that field is refused here too
+    expect(parseForm4Xml(xml("ETI-P"))!.ticker).toBeNull();
+    // and a clean symbol still parses, uppercased
+    expect(parseForm4Xml(xml("GEF"))!.ticker).toBe("GEF");
+    expect(parseForm4Xml(xml("brk-a"))!.ticker).toBe("BRK-A");
+  });
+
+  it("no comma or space can survive into a cashtag", async () => {
+    const { parseForm4Xml, draftForm4, totalsFor } = await import("../src/ingesters/form4");
+    const doc = parseForm4Xml(`<ownershipDocument><documentType>4</documentType>
+      <issuer><issuerCik>43920</issuerCik><issuerName>GREIF, INC</issuerName>
+      <issuerTradingSymbol>GEF, GEF-B</issuerTradingSymbol></issuer>
+      <reportingOwner><reportingOwnerId><rptOwnerCik>1</rptOwnerCik>
+      <rptOwnerName>Doe Jane</rptOwnerName></reportingOwnerId>
+      <reportingOwnerRelationship><isOfficer>1</isOfficer></reportingOwnerRelationship></reportingOwner>
+      <nonDerivativeTable><nonDerivativeTransaction>
+        <securityTitle><value>Common</value></securityTitle>
+        <transactionDate><value>2026-08-05</value></transactionDate>
+        <transactionCoding><transactionCode>S</transactionCode></transactionCoding>
+        <transactionAmounts><transactionShares><value>100</value></transactionShares>
+        <transactionPricePerShare><value>10</value></transactionPricePerShare>
+        <transactionAcquiredDisposedCode><value>D</value></transactionAcquiredDisposedCode></transactionAmounts>
+      </nonDerivativeTransaction></nonDerivativeTable></ownershipDocument>`)!;
+    const text = draftForm4(doc, totalsFor(doc.nonDerivative), new Date("2026-08-08T00:00:00.000Z"));
+    expect(text).not.toContain("$GEF, GEF-B");
+    expect(text).not.toMatch(/\$[A-Z0-9-]*[,\s]/);
+    expect(text).toContain("GREIF, INC"); // the filed name, which is honest
+  });
+});

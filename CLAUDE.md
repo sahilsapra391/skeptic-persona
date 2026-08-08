@@ -220,6 +220,35 @@ resolving it quietly.
   merged, and therefore whether `merged-verified` is true. NOT derivable and
   correctly hand-written: scope, `blocked-owner`, `parked(reason)` — those are
   judgements, and a judgement is the only thing a status column should hold.
+- **Determinism without an authority is a consistent wrong answer** (D-113,
+  B-28.1). Replacing a nondeterministic selection with a deterministic one
+  does not make it correct. The `issuers` upsert was a coin flip (D-93); the
+  fix was "shortest symbol, then alphabetical", which is perfectly repeatable
+  and picks **`$CCZ` for Comcast** — its own 10-K cover calls CCZ the "2.0%
+  Exchangeable Subordinated Debentures due 2029". SEC's ticker file carries no
+  security TYPE, so no rule over that file can separate a common share from a
+  listed debenture, and the rule passed its AT&T test only because AT&T's
+  common share happens to be the shortest symbol. **When the source cannot
+  answer the question, report the ambiguity; do not resolve it consistently.**
+- **A metric computed with the artifact it is meant to validate cannot
+  validate it** (D-99 sharpened, B-28.2). The share-class regex was
+  `/^[A-Z]$/`, which counts a bare `-P` as a class letter — and the header's
+  "29 single-letter share classes" figure, offered as evidence the regex was
+  right, was computed WITH that regex, so the five preferred symbols it
+  wrongly admitted were counted into the bucket that hid them. Measure with an
+  independent instrument or the measurement is a restatement.
+- **A measurement over prose cannot measure a field** (D-102 sharpened,
+  B-28.2). "20 stored payloads carrying dashed tickers" came from a `LIKE`
+  over whole payload TEXT and was matching narrative. Queried against the
+  actual ticker field it is 7, all legitimate share classes, and zero bad
+  symbols are stored anywhere. Query the field, not the blob.
+- **Adversarial review is REQUIRED, not optional, on any chunk touching
+  validators, resolution, or copy** (B-28.7). Two chunks, fourteen confirmed
+  defects, and a green suite caught none of them: p6-01 shipped a name
+  normalizer that invented people, p6-02 a resolver that named a debenture as
+  a company's stock. Both suites passed throughout. The review runs before
+  merge, adversarially (try to REFUTE each finding), and against live primary
+  sources rather than fixtures.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.
