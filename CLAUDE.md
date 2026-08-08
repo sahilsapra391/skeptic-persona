@@ -166,6 +166,22 @@ resolving it quietly.
   onto the last number. This is written down because it was warned about in a
   comment two commits before it happened. The duplicate-id check in
   `scripts/check-governance.mjs` is what caught it and is permanent.
+- **An empty result must be provably empty, and every number carries its
+  as-of** (D-104 / D-105, B-23.5). Two distinct failures, both of which
+  reported a desk that had published nothing while `post_log` held 34 rows.
+  **Schema:** a query selecting `created_at` from a table whose column is
+  `posted_at` returns nothing, and a zero that means "asked wrongly" is
+  indistinguishable from one that means "nothing is there". Validate any zero
+  used to justify a decision against the schema and against an independent
+  non-empty count before reporting it. **Staleness:** the p5-ledger's
+  manual-post counter of `4` was CORRECT when measured on 2026-08-06 and wrong
+  from the moment it was quoted afterwards — the same query returns 16.
+  A number quoted without its as-of is an assertion about now made from a
+  measurement of then, so re-derive before reuse. The live instance: the
+  digest printed "Nothing has been published from this window. The Copy button
+  is the constraint" off a WINDOWED zero, phrased as a claim about the desk;
+  it now reports the all-time count alongside, so a quiet week and an empty
+  table can never render the same sentence.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.
