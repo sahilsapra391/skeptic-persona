@@ -121,3 +121,5 @@ QuickStats API, which returns 401 without a key**.
 action rather than a decision. With the key this lane is buildable
 immediately; without it, content-diffing a monthly 164 KB HTML page is the
 only route and is not worth the fragility.
+
+<!-- D-83: docs-only commit, to prove the CI classifier skips the suite and still reports `test`. -->
