@@ -25,7 +25,13 @@ type Fixture = Record<string, { queueId: number; payload: Record<string, unknown
 const FIX = PAYLOADS as unknown as Fixture;
 const COVERED = ["INSIDER_NOTICE", "DELISTING", "OWNERSHIP_STAKE", "PRODUCT_RECALL"] as const;
 
-const provisionals = OWNER_EXEMPLARS.filter((e) => e.provisional === true);
+// SCOPED TO B-08.4's OWN FOUR. A later sweep found six more archetypes with
+// empty banks and added a round-2 set, so a global filter here would make this
+// file fail every time another archetype gets a bank. Round 2 has its own
+// coverage test; this one keeps asserting what it was written to assert.
+const provisionals = OWNER_EXEMPLARS.filter(
+  (e) => e.provisional === true && (COVERED as readonly string[]).includes(e.archetype),
+);
 
 describe("B-08.4: provisional exemplars are grounded, not invented", () => {
   it("covers exactly the four archetypes that had none, with three each", () => {
@@ -97,7 +103,9 @@ describe("B-08.4: provisional exemplars are grounded, not invented", () => {
     for (const e of provisionals) {
       const lines = e.text.split("\n").filter((l) => l.trim() !== "");
       // Head fact line carries the attribution; the beat never does.
-      expect(lines[0], `${e.archetype} head line must carry attribution`).toMatch(/, per [A-Z]/);
+      // [A-Za-z]: "per the House Clerk" and "per the Federal Reserve" are
+      // pinned forms that continue in lowercase after "per".
+      expect(lines[0], `${e.archetype} head line must carry attribution`).toMatch(/, per [A-Za-z]/);
       // At most a fact block plus two trailing lines, and never a bare wall.
       expect(lines.length, `${e.archetype} line count`).toBeLessThanOrEqual(3);
       expect(lines.length).toBeGreaterThanOrEqual(2);

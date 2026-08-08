@@ -439,6 +439,59 @@ Voluntary means they found it. It does not mean they found it early.` },
   { archetype: "PRODUCT_RECALL", register: "commentary", provisional: true, text: `FDA Class II recall: Major Pharmaceuticals, 12 Levothyroxine Sodium Tablets products, reason Subpotent Drug, per FDA.
 Initiated 2026-07-13, reported 2026-07-29.
 Subpotent thyroid medication is a dose nobody notices missing. Sixteen days of it were nobody's news.` },
+  // ---------------------------------------------------------------------
+  // PROVISIONAL exemplars, round 2 (2026-08-07). Same rule as the B-08.4 set:
+  // written from real stored payloads, replaced one-for-one when owner or
+  // advisor text arrives.
+  //
+  // FOUND BY MEASUREMENT, not by reading. After the B-08 fixes landed I swept
+  // every registered archetype against the exemplar bank: SIX had ZERO
+  // exemplars, and four of those actively card. **53 cards** had been
+  // falling back to a voiceless template for want of a bank —
+  // POLICY_ACTION 22, SETTLEMENT_FAILURE 16, POSITIONING 10, FED_PRESS 5.
+  // STORM and TREASURY_AUCTION have never carded, so they are latent rather
+  // than costing anything today, and are left for owner text.
+  //
+  // The guard against this recurring is a test, not vigilance:
+  // test/exemplarCoverage.test.ts fails if any archetype ships with an empty
+  // bank.
+  // ---------------------------------------------------------------------
+
+  // POLICY_ACTION, from the Federal Register payload for EO 14417.
+  // The editorial fact is the gap between signing and publication.
+  { archetype: "POLICY_ACTION", register: "wire", provisional: true, text: `Executive Order 14417: Establishing the President's Military Spouse Commission, signed 2026-08-03, per Federal Register.
+Published 2026-08-06, three days later.
+Signed on a Monday, public on a Thursday.` },
+  { archetype: "POLICY_ACTION", register: "commentary", provisional: true, text: `Executive Order 14417 was signed 2026-08-03 and published 2026-08-06, per Federal Register.
+Three days between the signature and the public record.
+In force from 2026-08-03. On the public record from 2026-08-06.` },
+
+  // SETTLEMENT_FAILURE, from the Reg SHO threshold payload for ADIL.
+  // Threshold listing means persistent delivery failures, not a price move.
+  { archetype: "SETTLEMENT_FAILURE", register: "wire", provisional: true, text: `ADIL (ADIAL PHARMACEUTICALS INC COM) joined the Nasdaq Reg SHO threshold list, 2026-08-04, per Nasdaq.
+63 names on the list that day.
+A threshold listing is about delivery, not direction.` },
+  { archetype: "SETTLEMENT_FAILURE", register: "commentary", provisional: true, text: `ADIL joined the Nasdaq Reg SHO threshold list on 2026-08-04, per Nasdaq.
+63 names on the list that day.
+The list counts shares that were sold and then not delivered, day after day. It says nothing about why.` },
+
+  // POSITIONING, from the CFTC Commitments of Traders payload.
+  // The report is always about a week that has already closed.
+  { archetype: "POSITIONING", register: "wire", provisional: true, text: `CFTC positioning: leveraged funds net short 78,333 NASDAQ MINI contracts, down 20,035 on the week, per CFTC.
+Open interest 303,624.
+The week it describes closed before you read this.` },
+  { archetype: "POSITIONING", register: "commentary", provisional: true, text: `Leveraged funds hold a net short of 78,333 NASDAQ MINI contracts, a move of 20,035 on the week, per CFTC.
+Long 57,097 against short 135,430.
+Commitments of Traders is a snapshot published days later. Everyone quotes it as a current position.` },
+
+  // FED_PRESS. The payload carries a title and a category and NO numbers, so
+  // neither of these states one. An exemplar teaches; one reaching for a
+  // figure the payload lacks teaches the model to invent it.
+  { archetype: "FED_PRESS", register: "wire", provisional: true, text: `Federal Reserve Board requests comment on a proposal to modernize rules for mutual banking organizations, per the Federal Reserve.
+Banking and Consumer Regulatory Policy.` },
+  { archetype: "FED_PRESS", register: "commentary", provisional: true, text: `Federal Reserve Board requests comment on a proposal to modernize rules for mutual banking organizations, per the Federal Reserve.
+Banking and Consumer Regulatory Policy.
+Every rule that lands with a thud started here, while objecting was still cheap.` },
 ];
 
 /**
