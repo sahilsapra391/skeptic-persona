@@ -6,6 +6,7 @@ import { decodeEntities, extractAllNs, extractAttr, extractFirst, extractFirstNs
 import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtNum, fmtUsd, isFreshAtIngest } from "./shared";
+import { displayDate } from "../lib/dates";
 import { deriveDisplayName } from "../lib/names";
 import { resolveSymbol } from "../lib/symbol";
 import { iso } from "../lib/time";
@@ -266,7 +267,12 @@ export function sellerDisplayName(doc: Form144Doc, conformedSeller?: string | nu
 }
 
 /** Tier A fact line: parsed fields and arithmetic over them, nothing more. */
-export function draftForm144(doc: Form144Doc, conformedSeller?: string | null, issuerLabel?: string): string {
+export function draftForm144(
+  doc: Form144Doc,
+  conformedSeller?: string | null,
+  issuerLabel?: string,
+  now: Date = new Date(),
+): string {
   const rel = relationshipLabel(doc);
   // p6-01 (A1): the DISPLAY form, because EDGAR files `LAST FIRST MIDDLE` and
   // "Sheena Jonathan" shipped on card #1232. The filed string stays on the
@@ -287,7 +293,10 @@ export function draftForm144(doc: Form144Doc, conformedSeller?: string | null, i
   if (doc.unitsSold !== null) parts.push(`${fmtNum(doc.unitsSold)} shares`);
   if (doc.aggregateMarketValue !== null) parts.push(`${fmtUsd(doc.aggregateMarketValue)}`);
   const size = parts.length > 0 ? ` ${parts.join(", ")}` : "";
-  const when = doc.approxSaleDate ? ` on or after ${doc.approxSaleDate}` : "";
+  // A3: `approxSaleDate` is filed MM/DD/YYYY and shipped raw on cards #1231
+  // and #1247. Parsed by component, never through Date.parse.
+  const saleDay = displayDate(doc.approxSaleDate, now);
+  const when = saleDay ? ` on or after ${saleDay}` : "";
   // NOT "to sell": persona section 6 bans buy/sell as advice tokens, and the
   // poster's register guard blocks the word outright — every draft would be
   // rejected at the last gate. "Proposed sale" is also the form's own term.
@@ -441,7 +450,7 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
               const withNature = doc.acquisitions.filter((a) => a.nature !== null);
               return withNature.length > 0 && withNature.every((a) => /exercise/i.test(a.nature ?? ""));
             })(),
-            factLine: draftForm144(doc, stub.conformedSeller, symbol.label),
+            factLine: draftForm144(doc, stub.conformedSeller, symbol.label, now),
           }),
           score,
           score >= SCORE_POSTABLE && fresh ? "new" : "logged",

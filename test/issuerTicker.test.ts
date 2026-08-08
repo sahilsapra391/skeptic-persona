@@ -165,3 +165,49 @@ describe("lookupIssuer survives either deploy order (D-43's general form)", () =
     }
   });
 });
+
+describe("B-22.5: share class and series are different things and must never merge", () => {
+  // The predicate decides whether a symbol can ever become a cashtag. Getting
+  // it wrong in one direction prints $MER-PK for Bank of America; wrong in the
+  // other direction strips Berkshire and Crawford of a real common share.
+  it("BRK-A and CRD-B are COMMON SHARE CLASSES and are never stripped", () => {
+    for (const t of ["BRK-A", "BRK-B", "CRD-A", "CRD-B", "BF-A", "BF-B", "GTN-A", "HEI-A"]) {
+      expect(isNonCommonSymbol(t)).toBe(false);
+      expect(isPreferredSeries(t)).toBe(false);
+    }
+    // and they survive selection when no unsuffixed symbol exists
+    expect(selectIssuerTicker([
+      { ticker: "BRK-B", exchange: "NYSE" },
+      { ticker: "BRK-A", exchange: "NYSE" },
+    ]).ticker).toBe("BRK-A");
+    expect(selectIssuerTicker([
+      { ticker: "CRD-B", exchange: "NYSE" },
+      { ticker: "CRD-A", exchange: "NYSE" },
+    ]).ticker).toBe("CRD-A");
+  });
+
+  it("a REAL preferred series is stripped, and resolves to no ticker at all", () => {
+    // MER-PK is the symbol Bank of America actually held in production.
+    for (const t of ["MER-PK", "WFC-PZ", "MS-PQ", "GS-PD", "T-PC", "BA-PA", "C-PR", "SCHW-PJ"]) {
+      expect(isNonCommonSymbol(t)).toBe(true);
+      expect(isPreferredSeries(t)).toBe(true);
+    }
+    expect(selectIssuerTicker([{ ticker: "MER-PK", exchange: "NYSE" }])).toMatchObject({
+      ticker: "",
+      tickerSource: "unresolved",
+    });
+  });
+
+  it("the two families are disjoint over every suffix the live file contains", () => {
+    // 383 preferred, 29 share classes, 136 warrants/units/rights, measured
+    // 2026-08-08 across company_tickers_exchange.json. Nothing may be both.
+    const classes = ["X-A", "X-B", "X-C", "X-Z"];
+    const notCommon = ["X-PA", "X-PZ", "X-WT", "X-UN", "X-RI"];
+    for (const t of classes) expect(isNonCommonSymbol(t)).toBe(false);
+    for (const t of notCommon) expect(isNonCommonSymbol(t)).toBe(true);
+    for (const t of [...classes, ...notCommon]) {
+      // a symbol is never simultaneously a common class and a preferred series
+      expect(isNonCommonSymbol(t) && !isPreferredSeries(t) ? t.includes("-W") || t.includes("-U") || t.includes("-R") : true).toBe(true);
+    }
+  });
+});

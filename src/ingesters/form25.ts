@@ -5,6 +5,7 @@ import { decodeEntities, extractAllNs, extractAttr, extractFirst, extractFirstNs
 import { getSourceState, insertItem, putSourceState, recordSourceError, SCORE_LOG_ONLY, SCORE_POSTABLE } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { isFreshAtIngest } from "./shared";
+import { displayDate } from "../lib/dates";
 import { resolveSymbol } from "../lib/symbol";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
@@ -106,9 +107,11 @@ export function scoreForm25(doc: Form25Doc): number {
   return isExchangeInitiated(doc) ? SCORE_POSTABLE : SCORE_LOG_ONLY;
 }
 
-export function draftForm25(doc: Form25Doc, issuerLabel?: string): string {
+export function draftForm25(doc: Form25Doc, issuerLabel?: string, now: Date = new Date()): string {
   const cls = doc.securityClass ? ` (${doc.securityClass})` : "";
-  const when = doc.signatureDate ? `, filed ${doc.signatureDate}` : "";
+  // A3: shipped as ", filed 2026-08-07" on card #1233.
+  const filedDay = displayDate(doc.signatureDate, now);
+  const when = filedDay ? `, filed ${filedDay}` : "";
   return `${doc.exchange} filed to remove ${issuerLabel && issuerLabel.trim() !== "" ? issuerLabel : doc.issuerName}${cls} from listing${when}`;
 }
 
@@ -190,7 +193,7 @@ export async function pollForm25(
               phase: "detail",
               ...doc,
               exchangeInitiated: isExchangeInitiated(doc),
-              factLine: draftForm25(doc, symbol.label),
+              factLine: draftForm25(doc, symbol.label, now),
               issuerLabel: symbol.label,
               ticker: symbol.ticker,
               tickerSource: symbol.source,

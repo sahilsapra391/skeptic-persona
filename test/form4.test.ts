@@ -146,8 +146,10 @@ describe("totals + scoring", () => {
       nonDerivative: [txn({ code: "P", shares: 50_000, price: 12.34, sharesAfter: 1_250_000, pctChange: 4.2 })],
       derivativeCount: 0,
     };
-    const d = draftForm4(doc, totalsFor(doc.nonDerivative));
-    expect(d).toBe("Form 4: Jane Doe (CEO) bought 50,000 $DOCS at ~$12.34 ($617K) on 2026-07-24, stake now 1,250,000 shares (+4.2%)");
+    // `now` is EXPLICIT: whether the year prints depends on what year it is,
+    // so a defaulted clock would make this test pass until January.
+    const d = draftForm4(doc, totalsFor(doc.nonDerivative), new Date("2026-08-08T00:00:00.000Z"));
+    expect(d).toBe("Form 4: Jane Doe (CEO) bought 50,000 $DOCS at ~$12.34 ($617K) on July 24, stake now 1,250,000 shares (+4.2%)");
   });
 
   it("an unpriced buy in the same filing suppresses stake/pct and its date never leaks into the span", () => {
@@ -165,10 +167,13 @@ describe("totals + scoring", () => {
       ],
       derivativeCount: 0,
     };
-    const d = draftForm4(doc, totalsFor(doc.nonDerivative));
-    expect(d).toBe("Form 4: Jane Doe (Director) bought 10,000 $MIX at ~$20.00 ($200K) on 2026-07-24");
+    // `now` is EXPLICIT: whether the year prints depends on what year it is,
+    // so a defaulted clock would make this test pass until January.
+    const d = draftForm4(doc, totalsFor(doc.nonDerivative), new Date("2026-08-08T00:00:00.000Z"));
+    expect(d).toBe("Form 4: Jane Doe (Director) bought 10,000 $MIX at ~$20.00 ($200K) on July 24");
     expect(d).not.toContain("stake now");
     expect(d).not.toContain("2026-07-20");
+    expect(d).not.toContain("July 20"); // the unpriced buy's date, in either form
   });
 });
 
@@ -479,7 +484,9 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
       nonDerivative: [txn({ code: "P", shares: 50_000, price: 12.34 })],
       derivativeCount: 0,
     };
-    const d = draftForm4(doc, totalsFor(doc.nonDerivative));
+    // `now` is EXPLICIT: whether the year prints depends on what year it is,
+    // so a defaulted clock would make this test pass until January.
+    const d = draftForm4(doc, totalsFor(doc.nonDerivative), new Date("2026-08-08T00:00:00.000Z"));
     expect(d).toContain("Doximity, Inc.");
     expect(d).not.toContain("$Doximity");
   });
@@ -491,7 +498,9 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
       nonDerivative: [txn({ code: "P", shares: 1_000, price: 10 })],
       derivativeCount: 0,
     };
-    const d = draftForm4(doc, totalsFor(doc.nonDerivative));
+    // `now` is EXPLICIT: whether the year prints depends on what year it is,
+    // so a defaulted clock would make this test pass until January.
+    const d = draftForm4(doc, totalsFor(doc.nonDerivative), new Date("2026-08-08T00:00:00.000Z"));
     // Exactly one cashtag; the money figures keep their own $ and gain nothing.
     expect([...d.matchAll(/\$[A-Z]{1,5}\b/g)].map((m) => m[0])).toEqual(["$ACME"]);
   });

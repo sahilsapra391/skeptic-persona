@@ -15,6 +15,7 @@ import {
 } from "../lib/db";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtNum, fmtUsd, isFreshAtIngest, tickerTag } from "./shared";
+import { displayDate, displayDateRange } from "../lib/dates";
 import { deriveDisplayName } from "../lib/names";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
@@ -245,7 +246,7 @@ export function ownerDisplayName(owner: Form4Owner): string {
   }).display;
 }
 
-export function draftForm4(doc: Form4Doc, totals: Form4Totals): string {
+export function draftForm4(doc: Form4Doc, totals: Form4Totals, now: Date = new Date()): string {
   const owner = doc.owners[0];
   const who = owner ? `${ownerDisplayName(owner)} (${ownerLabel(owner)})` : "Insider";
   const sym = doc.ticker ? tickerTag(doc.ticker) : doc.issuerName;
@@ -255,11 +256,16 @@ export function draftForm4(doc: Form4Doc, totals: Form4Totals): string {
   // stake (that would assert a false combination of true numbers).
   const priced = (side: "P" | "S") =>
     doc.nonDerivative.filter((t) => t.code === side && t.shares !== null && t.price !== null && t.date);
+  // A3: one convention. This produced " on 2026-08-06" and
+  // " over 2026-08-05–2026-08-06" on live cards #1234, #1237, #1243 and #1244.
   const span = (txns: Form4Txn[]): string => {
     const dates = txns.map((t) => t.date).sort();
     const lo = dates[0];
     const hi = dates.at(-1);
-    return lo ? (lo === hi ? ` on ${lo}` : ` over ${lo}–${hi}`) : "";
+    if (!lo) return "";
+    const shown = lo === hi ? displayDate(lo, now) : displayDateRange(lo, hi, now);
+    // A date we cannot read is OMITTED rather than printed raw.
+    return shown ? (lo === hi ? ` on ${shown}` : ` over ${shown}`) : "";
   };
   if (totals.buyValue > 0) {
     const buys = priced("P");
@@ -441,7 +447,7 @@ async function processDetail(
       log("debug", "form4 suppressed by issuer gate", { cik: doc.issuerCik, reason: gate.reason });
     }
     const fresh = isFreshAtIngest(row.event_at ?? "", now);
-    const draft = draftForm4(doc, totals);
+    const draft = draftForm4(doc, totals, now);
 
     // ONE atomic batch: the pending_detail-guarded flip plus every trade row
     // (OR IGNORE on the (item_id, txn_index) key). A crash can't strand an

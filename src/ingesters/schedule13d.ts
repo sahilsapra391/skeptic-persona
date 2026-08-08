@@ -7,6 +7,7 @@ import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG
 import { recordFacts } from "../lookback";
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtNum, isFreshAtIngest } from "./shared";
+import { displayDate } from "../lib/dates";
 import { resolveSymbol } from "../lib/symbol";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
@@ -161,13 +162,15 @@ export function score13(doc: Schedule13Doc, formType: string): number {
   return SCORE_LOG_ONLY;
 }
 
-export function draft13(doc: Schedule13Doc, formType: string, issuerLabel?: string): string {
+export function draft13(doc: Schedule13Doc, formType: string, issuerLabel?: string, now: Date = new Date()): string {
   const kind = /13D/i.test(formType) ? "13D" : "13G";
   const amended = formType.endsWith("/A") ? " amendment" : "";
   const size =
     doc.persons.find((p) => p.name === doc.topPersonName)?.aggregateAmountOwned ?? null;
   const shares = size !== null ? `${fmtNum(size)} shares, ` : "";
-  const when = doc.dateOfEvent ? `, event dated ${doc.dateOfEvent}` : "";
+  // A3: shipped as ", event dated 08/06/2026" on card #1239.
+  const eventDay = displayDate(doc.dateOfEvent, now);
+  const when = eventDay ? `, event dated ${eventDay}` : "";
   return `Schedule ${kind}${amended}: ${doc.topPersonName} reports ${shares}${doc.topPercent}% of ${issuerLabel && issuerLabel.trim() !== "" ? issuerLabel : doc.issuerName}${when}`;
 }
 
@@ -269,7 +272,7 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
             // form-type string re-read at render time.
             isSchedule13D: /13D/i.test(stub.formType),
             ...doc,
-            factLine: draft13(doc, stub.formType, symbol.label),
+            factLine: draft13(doc, stub.formType, symbol.label, now),
             issuerLabel: symbol.label,
             ticker: symbol.ticker,
             tickerSource: symbol.source,
