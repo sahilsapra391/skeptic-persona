@@ -119,6 +119,31 @@ resolving it quietly.
   it.** Read into a variable first, and verify a doc item with
   `git show <sha> --stat` before reporting it done -- a `--stat | tail -n`
   that hides the alphabetically-first path is how this stayed invisible.
+- **A safeguard whose blind spot aligns with its target is worse than none**
+  (D-99, B-19.1), because it also produces confidence. Three instances so far:
+  a validator that passed 8-for-8 only because an unrelated payload field
+  carried the same token; a `grep -v` redacting a command's stderr that
+  swallowed the line saying the write had FAILED (D-56); and a governance test
+  skipped by the docs-only CI classifier on exactly the PRs that can empty
+  governance files (D-96). **When you build a check, state what change it is
+  meant to catch and prove the check RUNS on that change** — not merely that
+  it passes on a normal one. The proof is running the check against the
+  failure it exists for, and watching it fail.
+- **On a conflict in a rule or doctrine file, resolve as a UNION** (D-100,
+  B-19.2). Applies to `CLAUDE.md`, `docs/p5-ledger.md`, `docs/EXCLUSIONS.md`
+  and `docs/DATA_USE_POLICY.md`. Never "take the longer side": when both
+  CLAUDE.md restores existed after the truncation, **neither was a superset**
+  — one carried B-16.2's capability rule and none of p6-01's four, the other
+  carried the four and not B-16.2 — so the longer side would have silently
+  dropped a rule set either way. Before resolving, ENUMERATE what each side
+  uniquely holds and say so; these files are append-only and nobody deletes
+  from them by accident.
+- **A renumbering keys on ORIGINAL values, in a single pass** (D-101). Never
+  apply mappings iteratively: `D-92->93, D-93->94, D-94->95` run as a loop
+  over every row rewrites the same row three times and collapses all of them
+  onto the last number. This is written down because it was warned about in a
+  comment two commits before it happened. The duplicate-id check in
+  `scripts/check-governance.mjs` is what caught it and is permanent.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.

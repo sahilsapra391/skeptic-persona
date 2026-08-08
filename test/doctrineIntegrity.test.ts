@@ -80,6 +80,19 @@ describe("governance files are intact", () => {
   }
 });
 
+describe("one id, one defect (D-101)", () => {
+  it("no D-number appears twice in the ledger", () => {
+    // The check that caught my own cascade. Five collisions happened while two
+    // sessions appended to this file, and a duplicate id makes every commit
+    // message citing that number ambiguous forever.
+    const counts = new Map<string, number>();
+    for (const m of LEDGER.matchAll(/^\| (D-\d+) \|/gm)) {
+      counts.set(m[1]!, (counts.get(m[1]!) ?? 0) + 1);
+    }
+    expect([...counts.entries()].filter(([, n]) => n > 1)).toEqual([]);
+  });
+});
+
 describe("named rules survive by name (B-18.1 fingerprint)", () => {
   // Each is cited by commit messages that outlive any one session. Losing one
   // silently makes the record reference doctrine nobody can read.

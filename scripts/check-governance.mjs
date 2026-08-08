@@ -55,6 +55,25 @@ for (const fp of manifest.fingerprint) {
   }
 }
 
+// D-101 (B-19.4): no two ledger rows may answer to the same D-number.
+//
+// This is the check that caught my own cascade — renumbering D-92->93, 93->94,
+// 94->95 as a LOOP over every row rewrote each row three times and collapsed
+// all of them onto D-95. It is permanent because five separate collisions
+// happened while two sessions appended to one ledger, and because a duplicate
+// id makes every commit message citing that number ambiguous forever.
+const ledger = contents.get("docs/p5-ledger.md");
+if (ledger !== undefined) {
+  const seen = new Map();
+  for (const m of ledger.matchAll(/^\| (D-\d+) \|/gm)) {
+    const id = m[1];
+    seen.set(id, (seen.get(id) ?? 0) + 1);
+  }
+  for (const [id, n] of seen) {
+    if (n > 1) failures.push(`docs/p5-ledger.md: ${id} appears ${n} times — one id, one defect`);
+  }
+}
+
 if (failures.length > 0) {
   console.error("GOVERNANCE CHECK FAILED\n");
   for (const f of failures) console.error(`  ${f}`);
