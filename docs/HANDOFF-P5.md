@@ -48,11 +48,9 @@ Only the first needs attention.
 
 `COMPLETION.md` on main is B-03.1's terminal artefact: what shipped, what was
 excluded and why, what is blocked and on whom, and the generation numbers.
-**Its original headline was wrong and is corrected in place** (D-92): it claimed
-the desk had published nothing, on the strength of a query that selected a
-column `post_log` does not have. The error was reported as "no rows" and I read
-it as zero. The real figure is **34 manual posts across 7 archetypes,
-2026-07-27 to 2026-08-07**, so owner task **O-3 was already satisfied**.
+Its headline is still true and still the most important sentence in this repo:
+
+> The pipeline works and has published nothing.
 
 ---
 
@@ -144,8 +142,14 @@ returns 404. Both conditions, not one.
 
 1. **`CLAUDE.md` has no guard and was emptied to 0 bytes on main** (D-91),
    losing all five non-negotiables and every engineering rule. Restored. It is
-   append-only doctrine: **on a conflict, take the longer side, always.** A
-   one-line non-empty CI check would close this and is owed.
+   append-only doctrine, but **"take the longer side" is the wrong rule and was
+   corrected on 2026-08-08: resolve a CLAUDE.md conflict as a UNION.** When
+   both restores existed, neither was a superset — #203 carried B-16.2's
+   capability rule and none of p6-01's four, and the p6-02 restore carried the
+   four and not B-16.2. Taking the longer side would have silently dropped one
+   set. CLOSED by D-97: the check is built, it runs unconditionally in CI
+   because the docs-only diet would otherwise skip it, and it fingerprints
+   named rules so partial resolution fails too.
 2. **Two sessions sharing one checkout share one HEAD.** Every `git checkout`
    switches the other session's branch mid-task. Use a worktree.
 3. **`git add -A` sweeps the other session's untracked files.** It happened
@@ -159,6 +163,5 @@ returns 404. Both conditions, not one.
 
 ## 9. Owner items
 
-Per B-16.6 the owner named one remaining item, **O-3, ten posts**. Measured
-2026-08-08: `post_log` holds **34 posts**, so **O-3 is satisfied**. Everything
-else is closed or ruled.
+Per B-16.6, exactly one remains across both sessions: **O-3, ten posts.**
+`post_log` is empty. Everything else is closed or ruled.

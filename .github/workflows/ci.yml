@@ -54,6 +54,20 @@ jobs:
       # level would mean the check NEVER REPORTS and the PR could never merge
       # — a stricter gate by accident, and a confusing one. Short-circuiting
       # the expensive steps keeps the contract intact and skips only the work.
+      # B-18.1, AND IT RUNS BEFORE THE CLASSIFIER ON PURPOSE.
+      #
+      # The docs-only short-circuit below skips `npm test` for a change whose
+      # every path matches `docs/*.md` or `*.md`. Every governance file matches
+      # that pattern, so the suite that guards CLAUDE.md is skipped by exactly
+      # the PRs that can break it. That is not hypothetical: CLAUDE.md went
+      # 6,835 bytes -> 0 and merged at f8e515e with a green tick.
+      #
+      # No `if:`, no `npm ci`, no node_modules. It needs the checkout and the
+      # node already on the runner, so it costs a second or two even on the
+      # docs-only path it exists to cover.
+      - name: Governance files intact
+        run: node scripts/check-governance.mjs
+
       - name: Classify the change
         id: scope
         run: |

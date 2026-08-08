@@ -121,3 +121,29 @@ QuickStats API, which returns 401 without a key**.
 action rather than a decision. With the key this lane is buildable
 immediately; without it, content-diffing a monthly 164 KB HTML page is the
 only route and is not worth the fragility.
+
+## Bluesky as corroboration (p5-25) — and the general circularity test
+
+**What.** Bluesky stays a discovery lane at log-only. It is never promoted to
+a corroborating source, and neither is any future social or aggregator source
+that fails the test below.
+
+**Why, measured not argued (B-18.2).** Across 121 sampled posts, **0 gave
+clear corroboration of anything we card**. The reason is structural rather
+than a sampling problem: the high-volume accounts are EDGAR republishers, and
+we already ingest EDGAR directly at 13,803 / 4,125 / 1,463 items on those same
+lanes. Confirming a filing with a post *about that filing* is circular — it
+adds a second copy of our own primary ingestion and calls it independent. The
+genuinely independent voices in the sample carry no resolvable handle, so
+nothing in either half of the distribution is usable.
+
+**THE GENERAL TEST, and it applies to every future social or aggregator
+source:** a source that echoes our own primary ingestion is not corroboration.
+Before proposing one, ask what it would tell us that our own ingestion of the
+same primary document does not. If the answer is "the same fact, later", it is
+a discovery lane at best and never a citation.
+
+**What would reopen it.** A corroboration lane needs sources that observe
+something we cannot observe ourselves — not a faster or friendlier restatement
+of a filing we already parse. Resolvable identity is a precondition, not a
+nicety.

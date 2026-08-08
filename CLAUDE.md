@@ -79,6 +79,46 @@ resolving it quietly.
   exercises that capability**, not just the handshake. It creates the Bluesky
   session *and runs a search*; it reads NASS *counts*; it reads GitHub *runs*.
   Anything less is a green light on a lane that cannot work.
+- **A verification that cites agreeing examples is not a verification**
+  (D-89, B-12.2). Ground truth has to be an INDEPENDENT AUTHORITY, not a
+  larger sample of the same source. p6-01 asserted Form 144's
+  `nameOfPersonForWhoseAccountTheSecuritiesAreToBeSold` follows EDGAR's
+  `LAST FIRST` convention, citing two live filings that did. Both real, both
+  picked because they agreed. The field is free text typed by the filer
+  agent, and against EDGAR's own conformed name per CIK it disagreed in 25 of
+  87 comparable filings the same day. **CIK 0001514725 filed a Form 144
+  (`KENDRA D MILLER`) and a Form 4 (`Miller Kendra D`) on 2026-08-07**, and
+  the pipeline rendered `D. Miller Kendra` and `Kendra D. Miller` for one
+  person, on two cards, each linking to the filing that contradicted it.
+  Scaling the sample 49 -> 115 names had already caught five defects and
+  still missed this, because every name in both came from the same place.
+  Name the authority you checked against, and report the disagreement rate.
+- **A silent selection over a one-to-many source is a coin flip, not a
+  lookup** (D-93, B-17.2). It does not produce broken data, it produces
+  PLAUSIBLE data, which is why it survives review. `issuers` is keyed on
+  `cik` while SEC's ticker file lists 10,398 rows over 7,999 CIKs, so
+  `ON CONFLICT(cik) DO UPDATE` took whichever row came last. **JPMorgan Chase
+  resolved to `$VYLD`** -- unsuffixed, undashed, right exchange, entirely
+  wrong -- alongside BANK OF AMERICA at `MER-PK` and MORGAN STANLEY at
+  `MS-PQ`. Nothing about `$VYLD` looks wrong to a validator, and 247 rows sat
+  like that in production. When a write is keyed on something the source does
+  not key on, make the choice EXPLICIT, deterministic and recorded.
+- **Row-count agreement is weak evidence; check the quantity that has to be
+  conserved** (D-94, B-17.2). `holdings_13f` has the identical upsert shape,
+  and filing 301 declared 90 rows while storing 29, which reads as silent
+  loss. It is not: `parseInfotable` aggregates on the same key before the
+  write. **The tell was that parsed and stored VALUE totals matched to the
+  dollar** -- rows may legitimately merge, money may not vanish. Withdraw a
+  finding the moment the conserved quantity clears it.
+- **A doc change is not applied until it is in the COMMIT** (D-95). Twice in
+  this program I reported a doc item done that was never in the diff, and the
+  second time I destroyed the file doing it: `open(f,'w').write(open(f).read()
+  .replace(...))` truncates on the FIRST open, so the read returns empty and
+  the write stores nothing. It emptied this file, `git add -A` staged it, and
+  it merged in #201. **Never write a file in the same expression that reads
+  it.** Read into a variable first, and verify a doc item with
+  `git show <sha> --stat` before reporting it done -- a `--stat | tail -n`
+  that hides the alphabetically-first path is how this stayed invisible.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.
