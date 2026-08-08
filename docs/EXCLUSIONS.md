@@ -122,6 +122,12 @@ action rather than a decision. With the key this lane is buildable
 immediately; without it, content-diffing a monthly 164 KB HTML page is the
 only route and is not worth the fragility.
 
+> **REOPEN CONDITION MET, 2026-08-08 (B-25.2).** `NASS_API_KEY` is set and was
+> verified live against the deployed Worker. **This entry no longer excludes
+> anything** — p5-24 is buildable and merely unbuilt, which is a backlog item
+> and not an exclusion. Left in place with this note so the probe record
+> survives, but it must not be read as a standing decision (D-108).
+
 ## Bluesky as corroboration (p5-25) — and the general circularity test
 
 **What.** Bluesky stays a discovery lane at log-only. It is never promoted to

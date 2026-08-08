@@ -4,6 +4,13 @@
 hands, not a decision. It is owner decision 5 only in the sense that the lane
 stays frozen until the password exists.
 
+> **CONDITION SATISFIED, 2026-08-08 (B-25.2).** `BLUESKY_APP_PASSWORD` is set
+> and was verified live against the deployed Worker (authenticated
+> `searchPosts` returns posts). The freeze this memo describes is OVER, and
+> the lane has since shipped at log-only. Recorded here rather than deleted:
+> this doc may say a gate EXISTED and was met; it may not enforce one
+> (D-108).
+
 ## What you do
 
 1. Sign in to Bluesky as the account this desk will read from.

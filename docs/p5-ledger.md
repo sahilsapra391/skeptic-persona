@@ -24,8 +24,17 @@ Last reconciled against production D1: 2026-08-04.
 **Counter gap: CLOSED.** 16 of 10. It moves through the owner's thumbs, not through
 code. Nothing in items 1-6 of the wrap sprint changes it.
 
-Phase 2 and beyond are `blocked-gate` until BOTH clear. The counter moves
-through the owner's thumbs, not through code.
+Phase 2 and beyond WERE `blocked-gate` until BOTH cleared. **Both have
+cleared** (B-25.2): the counter reads 16 of 10 and Phase 0 is complete.
+> **GATE RELEASED 2026-08-08 (B-25.2).** Every `blocked-gate` label below is
+> STALE and is corrected in place. The gate was "10 manual posts + Phase 0
+> complete"; the counter reads **16** (D-104), and the owner's 2026-08-06
+> override had already removed it from build order. **Nothing was honoring the
+> freeze** — p5-20, p5-21, p5-25, p5-30, p5-31 and p5-32 all shipped while the
+> table said they could not start. A status column that disagrees with the
+> repo is worse than no status column, because it is read as fact. See D-108:
+> a gate written into a document cannot know when it has been met.
+
 
 ## Phase 0 — Owed work (no gate, blocks everything)
 
@@ -124,27 +133,27 @@ PARKED_EXEMPLARS                      3   FED_STATEMENT_DIFF, TAPE_CHECK, NIGHTL
 
 ## Phase 2 — Gate-cleared expansion
 
-All `blocked-gate` (needs 10 manual posts + Phase 0 complete). Two are also
+The gate is MET (16 of 10) and released (B-25.2). Two are also
 `blocked-owner` on a ruling that no session may answer.
 
 | Chunk | Scope | Status | PR | Verification |
 |---|---|---|---|---|
-| p5-20 | Company voice, EDGAR-native 8-K item 2.02 earnings lane (EVENT only, no figures) | blocked-gate | — | — |
-| p5-21 | PR wire re-probe: GlobeNewswire, PR Newswire, ACCESSWIRE | blocked-gate | — | — |
-| p5-22 | Geopolitics official-statements lane | blocked-gate + blocked-owner (decision 1) | — | — |
-| p5-23 | China official-English lane | blocked-gate + blocked-owner (decision 2) | — | — |
-| p5-24 | Commodities beyond energy: USDA WASDE | blocked-gate | — | — |
-| p5-25 | Bluesky polling lane | blocked-gate + blocked-owner (decision 5) | — | — |
+| p5-20 | Company voice, EDGAR-native 8-K item 2.02 earnings lane (EVENT only, no figures) | **SHIPPED** (earnings lane live; the gate never held it) | — | — |
+| p5-21 | PR wire re-probe: GlobeNewswire, PR Newswire, ACCESSWIRE | **SHIPPED** (prWires ingester live) | — | — |
+| p5-22 | Geopolitics official-statements lane | **delivered via press_wto + press_eu_commission** (gate released B-25.2) | — | — |
+| p5-23 | China official-English lane | blocked-owner (decision 2); **gate released B-25.2**, no machine-readable endpoint | — | — |
+| p5-24 | Commodities beyond energy: USDA WASDE | **UNBLOCKED B-25.2**: gate released AND the NASS key is set and verified. Buildable now; not built. | — | — |
+| p5-25 | Bluesky polling lane | **SHIPPED, log-only** (bluesky lane live behind BLUESKY_ENABLED; retired from promotion per B-18.2) | — | — |
 
 ## Phase 3 — Deep lanes
 
 | Chunk | Scope | Status | PR | Verification |
 |---|---|---|---|---|
-| p5-30 | IPO/S-1 lane with amendment tracking | blocked-gate | — | — |
-| p5-31 | Proxy-contest lane; 13D cross-reference from our lake | blocked-gate | — | — |
-| p5-32 | XBRL financials lane; earnings numbers become licensed facts | blocked-gate | — | — |
-| p5-33 | TOPIC namespace, then DEVICE taxonomy, then VOICE growth | blocked-gate | — | — |
-| p5-34 | Non-US corporate filing systems | blocked-gate + blocked-owner (decision 4) | — | — |
+| p5-30 | IPO/S-1 lane with amendment tracking | **SHIPPED** (s1Ipo lane live) | — | — |
+| p5-31 | Proxy-contest lane; 13D cross-reference from our lake | **SHIPPED** (proxyContest lane live) | — | — |
+| p5-32 | XBRL financials lane; earnings numbers become licensed facts | **SHIPPED** (earningsResults live) | — | — |
+| p5-33 | TOPIC namespace, then DEVICE taxonomy, then VOICE growth | **UNBLOCKED B-25.2**, not built | — | — |
+| p5-34 | Non-US corporate filing systems | blocked-owner (decision 4); **gate released B-25.2** | — | — |
 
 ## Phase 4 — Exclusions register
 
@@ -193,7 +202,7 @@ reading it, and the second worse than the first:
 | 2 | China official-English lane: in or out | in, lag disclosed | blocked-owner | p5-23 |
 | 3 | NSE/BSE license: buy or park | park | **RULED 2026-08-06: PARK.** Recorded in [EXCLUSIONS.md](EXCLUSIONS.md) with reopen conditions | closed |
 | 4 | Non-US corporate filings: park or rank one | park | blocked-owner | p5-34 |
-| 5 | Bluesky app password: set it or lane stays frozen | — | **DONE 2026-08-06.** `BLUESKY_APP_PASSWORD` set and verified bound. p5-25 still `blocked-gate`; when built it also needs `BLUESKY_HANDLE` (the identifier for `createSession`), which is public and belongs in `[vars]`, not a secret | closed on the owner's side |
+| 5 | Bluesky app password: set it or lane stays frozen | — | **DONE 2026-08-06.** `BLUESKY_APP_PASSWORD` set and verified bound. p5-25 has since SHIPPED at log-only and the gate is released (B-25.2); it also needs `BLUESKY_HANDLE` (the identifier for `createSession`), which is public and belongs in `[vars]`, not a secret | closed on the owner's side |
 | 6 | Re-card policy for expired cards | (c) promote path | **RULED 2026-08-06, FINAL: expired means declined.** No auto re-card, ever. The item stays in the lake as context; a NEW event on the same entity cards and may carry the old item as history. The p5-05 measurement does not argue against it (see D-27) | closed |
 
 ### Owner decision 7 — the BREAKING prefix (B-01.10, 2026-08-06)
@@ -375,6 +384,7 @@ outside the scope rejects.
 | D-105 | 2026-08-08, B-23.5 | **A correct query never re-run is its own failure mode, distinct from a wrong one.** The p5-ledger recorded the manual-post counter as `4` with the exact SQL beside it. The SQL was right and the number was right on 2026-08-06; the same query returns **16** today, and every session that quoted `4` afterwards was asserting something about now from a measurement of then. **Any number used to justify a decision carries its as-of timestamp and is re-derived before reuse.** Live instance fixed: `renderNorthStar` printed "Nothing has been published from this window. The Copy button is the constraint, not the queue." off a WINDOWED zero, phrased as a claim about the desk — the sentence that seeded the silent-desk belief, and it fires today with 16 posts on the books. `NorthStar` now carries `manualPostsAllTime`, the independent non-empty count, so a quiet week and an empty table cannot render the same sentence. Both branches tested. | fixed |
 | D-106 | 2026-08-08, B-24.3 | **Generated prose treated as a finding, and it set program priority for a week.** `renderNorthStar` printed "Nothing has been published from this window. The Copy button is the constraint, not the queue." The first clause names its window; **the second diagnoses the entire program and names nothing.** Three sessions read that line, repeated it into every status report, and it drove the ingestion stop, the O-3 framing and the "the pipeline works and has published nothing" headline — while `post_log` held 16 manual posts. The class is not a wrong number, it is a SENTENCE: reporting a metric and asserting a fact about the world are different acts and only one of them needs a denominator. **Rule in CLAUDE.md:** any digest line that diagnoses rather than counts must name its window and carry the independent all-time count that would falsify it. **Swept the rest of the digest:** the other zero-guards (`l.filings === 0`, `current.cards === 0`, `current.approvals === 0`, `stats.posted === 0`) all either name their window or refuse to compute a rate, and the zero-edit branch explicitly says "This is not a score of 0%. Nothing has been measured yet." One offender, now fixed. | fixed |
 | D-107 | 2026-08-08, B-24.1 | **`posted_verbatim` as a distinct provenance tier.** 16 cards shipped with `edit_distance 0`, and `promoteFinal`'s guard — `if (!input.wasEdited) return null` — refuses every one of them by design, because feeding accepted output back is training on our own predictions. That guard is UNTOUCHED. This is a separate entry point with its own reasoning: an unedited post carries no new information, but it carries **selection** — Edit and Regenerate were both one tap away and the owner used neither. Endorsement, not instruction. Ranked below owner-authored text and above advisor-written provisionals. **Re-derived from `post_log` on every call rather than copied into `voice_finals`,** so a post later corrected stops being quoted without anyone remembering to clean up (tested by correcting one and watching it drop out). **No second cap constant:** verbatim draws from the SAME minority budget that already governs promoted finals, with edited finals filling it first, so the bank cannot become mostly ratified model output at any volume. **The exemplar gate is unchanged** — `committed.length === 0` still refuses the LLM call, so an archetype covered only by verbatim entries still needs owner exemplars. Distinguishable in the retrieval log, not just in the type. | fixed |
+| D-108 | 2026-08-08, B-25.1/B-25.2 | **A gate written into a dated document cannot know when it has been met, so its freeze outlives its condition.** Swept every doc, handoff, verification record, plan file and the exclusions register for conditional freezes. **Four found, ALL FOUR already satisfied, and every one still reading as active.** (1) `handoff-ingestion-2026-08-02.md` stopped all source work "until 10 manual posts are recorded" — met 2026-08-06, still enforcing on 08-08. (2) The Bluesky memo's "the lane stays frozen until the password exists" — `BLUESKY_APP_PASSWORD` set and verified, and the lane had already shipped. (3) EXCLUSIONS' USDA/WASDE entry, whose stated reopen condition was a NASS key that is now set and verified, meaning the register was excluding something that is merely unbuilt. (4) **Eleven ledger rows still marked `blocked-gate` on the 10-post counter, while six of those lanes had SHIPPED** — p5-20, p5-21, p5-25, p5-30, p5-31, p5-32. Nothing was honoring the freeze in practice; the labels were fiction that read as fact. All four released and named. **Rule in CLAUDE.md: a conditional freeze lives in a live check with a named owner and a re-evaluation trigger, or it does not exist. A dated doc may record that a gate existed and was met; it may never enforce one.** | fixed |
 
 ### Known and accepted, recorded rather than fixed
 
