@@ -7,6 +7,7 @@ import { getSourceState, insertItem, putSourceState, SCORE_AUTO_ALERT, SCORE_LOG
 import { enqueueForApproval } from "../pipeline/enqueue";
 import { fmtNum, fmtUsd, isFreshAtIngest } from "./shared";
 import { deriveDisplayName } from "../lib/names";
+import { resolveSymbol } from "../lib/symbol";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -265,15 +266,23 @@ export function sellerDisplayName(doc: Form144Doc, conformedSeller?: string | nu
 }
 
 /** Tier A fact line: parsed fields and arithmetic over them, nothing more. */
-export function draftForm144(doc: Form144Doc, conformedSeller?: string | null): string {
+export function draftForm144(doc: Form144Doc, conformedSeller?: string | null, issuerLabel?: string): string {
   const rel = relationshipLabel(doc);
   // p6-01 (A1): the DISPLAY form, because EDGAR files `LAST FIRST MIDDLE` and
   // "Sheena Jonathan" shipped on card #1232. The filed string stays on the
   // payload as `sellerNameFiled` for validation and audit.
   const who = `${sellerDisplayName(doc, conformedSeller)}${rel ? ` (${rel})` : ""}`;
-  // NOT a ticker: Form 144 parses no trading symbol at all, only the issuer
-  // name. Named honestly so nobody later 'fixes' this into $Company Inc.
-  const issuer = doc.issuerName;
+  // THE DELIBERATE EXCLUSION IS OVERTURNED (A2, ruled B-10.4). This line used
+  // to read "Form 144 parses no trading symbol at all... named honestly so
+  // nobody later 'fixes' this into $Company Inc." That was true about the
+  // DOCUMENT and wrong about the pipeline: the filing carries `issuerCik`, and
+  // SEC's own CIK-to-ticker file has been in the `issuers` table since
+  // 2026-07-28. The lane simply never asked. Measured cost: 0 of 7
+  // INSIDER_NOTICE cards in the #1200-#1260 window carried a cashtag.
+  //
+  // `issuerLabel` is resolved by the caller through src/lib/symbol.ts, which
+  // never infers a symbol from a name and falls back to the name as filed.
+  const issuer = issuerLabel && issuerLabel.trim() !== "" ? issuerLabel : doc.issuerName;
   const parts: string[] = [];
   if (doc.unitsSold !== null) parts.push(`${fmtNum(doc.unitsSold)} shares`);
   if (doc.aggregateMarketValue !== null) parts.push(`${fmtUsd(doc.aggregateMarketValue)}`);
@@ -380,6 +389,13 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
         score = Math.min(score, SCORE_LOG_ONLY);
         log("debug", "form144 suppressed by issuer gate", { cik: doc.issuerCik, reason: gate.reason });
       }
+      // A2: resolve ONCE per filing, before the payload is composed, so the
+      // fact line and the stored fields cannot disagree about the symbol.
+      const symbol = await resolveSymbol(env, {
+        cik: doc.issuerCik,
+        securitiesClass: doc.securitiesClass,
+        issuerName: doc.issuerName,
+      });
       const fresh = isFreshAtIngest(row.event_at ?? "", now);
       await env.DB.prepare(
         `UPDATE items SET payload = ?1, score = ?2, status = ?3 WHERE id = ?4 AND status = 'pending_detail'`,
@@ -390,6 +406,12 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
             accession: stub.accession,
             issuerCik: doc.issuerCik,
             issuerName: doc.issuerName,
+            // A2: what the card prints, and WHERE it came from, so a wrong
+            // cashtag is auditable rather than mysterious.
+            issuerLabel: symbol.label,
+            ticker: symbol.ticker,
+            tickerSource: symbol.source,
+            ...(symbol.ambiguity ? { tickerAmbiguity: symbol.ambiguity } : {}),
             // p6-01: `sellerName` is what every template, beat and prompt
             // prints, so it carries the DISPLAY form. The filed string keeps
             // its own key so validation and audit still see the record.
@@ -419,7 +441,7 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
               const withNature = doc.acquisitions.filter((a) => a.nature !== null);
               return withNature.length > 0 && withNature.every((a) => /exercise/i.test(a.nature ?? ""));
             })(),
-            factLine: draftForm144(doc, stub.conformedSeller),
+            factLine: draftForm144(doc, stub.conformedSeller, symbol.label),
           }),
           score,
           score >= SCORE_POSTABLE && fresh ? "new" : "logged",
