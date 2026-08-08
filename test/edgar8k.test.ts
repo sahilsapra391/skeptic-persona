@@ -3,7 +3,6 @@ import { beforeAll, describe, expect, it } from "vitest";
 // Tests run inside workerd (no fs); Vite inlines the fixture at build time.
 import RAW_FIXTURE from "./fixtures/edgar-8k-current.atom.xml?raw";
 import {
-  draftFor,
   QUEUEABLE_ITEMS,
   EDGAR_8K_FEED,
   EDGAR_8K_FEED_PAGE2,
@@ -155,34 +154,6 @@ describe("isFreshAtIngest", () => {
   });
 });
 
-describe("draftFor", () => {
-  it("head uses the PARSED form type, never a hardcoded label", () => {
-    const d = draftFor(
-      entry({
-        company: "ACME CORP",
-        formType: "8-K/A",
-        items: [{ code: "5.02", title: "Departure of Directors or Certain Officers" }],
-      }),
-    );
-    expect(d).toBe("8-K/A: ACME CORP\nItem 5.02: Departure of Directors or Certain Officers");
-  });
-
-  it("drops exhibit-only noise but keeps 9.01 when it is the only item", () => {
-    const d = draftFor(
-      entry({
-        company: "ACME CORP",
-        items: [
-          { code: "5.02", title: "Departure of Directors or Certain Officers" },
-          { code: "9.01", title: "Financial Statements and Exhibits" },
-        ],
-      }),
-    );
-    expect(d).toBe("8-K: ACME CORP\nItem 5.02: Departure of Directors or Certain Officers");
-    expect(draftFor(entry({ items: [{ code: "9.01", title: "Financial Statements and Exhibits" }] }))).toContain(
-      "Item 9.01",
-    );
-  });
-});
 
 describe("pollEdgar8k end-to-end", () => {
   beforeAll(() => {

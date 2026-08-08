@@ -163,17 +163,15 @@ export function scoreEntry(entry: Edgar8kEntry): number {
   return score;
 }
 
-/** Tier A draft: purely parsed fields (form type, company, the SEC's own item titles). */
-export function draftFor(entry: Edgar8kEntry, companyLabel?: string): string {
-  const substantive = entry.items.filter((i) => i.code !== "9.01");
-  const shown = substantive.length > 0 ? substantive : entry.items;
-  // A2: the resolved label when we have one, the filed name otherwise. Live
-  // cards #1200-#1260 carried a cashtag on 0 of 4 FILING_8K items, because
-  // this lane loaded the issuer row for the float gate and then threw the
-  // ticker away.
-  const head = `${entry.formType}: ${companyLabel && companyLabel.trim() !== "" ? companyLabel : entry.company}`;
-  return [head, ...shown.map((i) => `Item ${i.code}: ${i.title}`)].join("\n");
-}
+// draftFor() DELETED (B-21.5). It was test-only: production builds the 8-K
+// card from `payload.company` and `payload.items` through the FILING_8K
+// skeletons in src/templates/archetypes.ts, and nothing in src/ ever called
+// this. Its two assertions -- the head uses the PARSED form type, and 9.01 is
+// dropped as exhibit noise unless it is the only item -- were real rules
+// tested against a dead copy while the live implementation in archetypes.ts
+// had no coverage at all. Both moved to test/templates.test.ts, against the
+// code that actually runs. That is the D-71 family: a test asserting
+// behaviour production never executes.
 
 /** Cap Telegram notifications per run: external fetches share the 50/invocation budget. */
 export const MAX_ENQUEUES_PER_RUN = 10;

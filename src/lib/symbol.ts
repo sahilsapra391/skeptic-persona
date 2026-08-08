@@ -116,7 +116,19 @@ export async function resolveSymbol(env: Env, input: ResolveInput): Promise<Reso
     };
   }
 
-  // 3. The issuer name as filed. Honest, licensed by the record, and the thing
-  //    the desk printed before any of this existed.
+  // 3. THE ISSUER NAME AS FILED, AND THIS IS A RULE, NOT A SHORTFALL (B-21.3).
+  //
+  //    A filer with no CIK has no ticker to find. REGULATORY_NEWS was 0 of 15
+  //    on cashtags in the review window and every one of those is CORRECT:
+  //    SEBI orders and EIA releases are not EDGAR issuers, so there is nothing
+  //    to resolve and the name as filed is the honest rendering.
+  //
+  //    **NO TICKER MAY EVER BE INFERRED FROM AN ISSUER NAME.** Not by
+  //    substring, not by fuzzy match, not by "obviously that's Apple". This is
+  //    the same trap as form144.ts's old comment pointing the other way: that
+  //    one refused a resolution the CIK map could have made honestly, this one
+  //    refuses a resolution nothing can make honestly. A missing cashtag on a
+  //    non-EDGAR source is the correct output and a future session should read
+  //    a low coverage number on this lane as the rule working.
   return asName("issuer_name");
 }
