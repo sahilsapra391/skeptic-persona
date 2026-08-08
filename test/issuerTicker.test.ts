@@ -246,3 +246,34 @@ describe("B-22.5: share class and series are different things and must never mer
     }
   });
 });
+
+describe("B-29.2: every symbol predicate is case-normalized", () => {
+  it("a lower-case symbol answers the same as its upper-case twin", () => {
+    // "brk-a" read as NON-common and "wfc-pz" read as a share class: both
+    // answers inverted. Symbols arrive lower-case from disclosure PDFs and
+    // from hand-written payloads.
+    for (const t of ["BRK-A", "CRD-B", "WFC-PZ", "MER-PK", "ETI-P", "GEF", "T"]) {
+      expect(isNonCommonSymbol(t.toLowerCase()), t).toBe(isNonCommonSymbol(t));
+      expect(isPreferredSeries(t.toLowerCase()), t).toBe(isPreferredSeries(t));
+    }
+  });
+
+  it("selection normalizes at the door and returns an upper-case symbol", () => {
+    expect(selectIssuerTicker([
+      { ticker: "brk-b", exchange: "NYSE" },
+      { ticker: "brk-a", exchange: "NYSE" },
+    ])).toEqual({ ticker: "BRK-A", exchange: "NYSE", tickerSource: "sec_share_class", alts: ["BRK-B"] });
+    expect(selectIssuerTicker([{ ticker: " gef ", exchange: "NYSE" }]).ticker).toBe("GEF");
+  });
+});
+
+describe("B-29.1: the guard is inside tickerTag, so no call site can bypass it", () => {
+  it("refuses everything that is not one common symbol, whatever the caller", async () => {
+    const { tickerTag } = await import("../src/ingesters/shared");
+    for (const bad of ["GEF, GEF-B", "WFC-PZ", "ACME-WT", "ETI-P", "TOOLONGSYM", "", "  ", "$GEF"]) {
+      expect(tickerTag(bad), bad).toBeNull();
+    }
+    expect(tickerTag("gef")).toBe("$GEF");
+    expect(tickerTag("brk-a")).toBe("$BRK-A");
+  });
+});

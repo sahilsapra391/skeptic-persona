@@ -266,7 +266,11 @@ export function efdDateToIso(mdY: string): string {
 
 /** Tier A draft; the disclosure-lag line is the built-in editorial (all parsed). */
 function senateClause(t: EfdTxn): string {
-  const what = t.ticker ? tickerTag(t.ticker) : t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName;
+  // PARENTHESES ARE LOAD-BEARING. `a ?? b.length > 40 ? x : y` parses as
+  // `(a ?? (b.length > 40)) ? x : y`, so a RESOLVED ticker made the ternary
+  // pick the truncated asset name and the cashtag never appeared.
+  const tag = t.ticker ? tickerTag(t.ticker) : null;
+  const what = tag ?? (t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}\u2026` : t.assetName);
   return `${t.type} ${t.amount}, ${what} (${t.transactionDate})`;
 }
 

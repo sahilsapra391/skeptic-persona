@@ -89,13 +89,23 @@ export type TickerSource =
  * arguable; warrants, units and rights are not common shares at all.
  *
  * Selection is explicit and total, in this order:
- *   1. an unsuffixed symbol on a major exchange   -> sec_primary
- *   2. an unsuffixed symbol anywhere              -> sec_primary_otc
- *   3. no unsuffixed symbol exists, but a single-letter share class does:
+ *   1. SEVERAL unsuffixed major-exchange symbols -> ambiguous_multi, NO ticker.
+ *      SEC's file carries no security TYPE, so a common share and a listed
+ *      debenture are indistinguishable in it. Comcast lists CMCSA and CCZ, and
+ *      CCZ is the "2.0% Exchangeable Subordinated Debentures due 2029" per
+ *      Comcast's own 10-K cover. 644 CIKs, 78 of our lake issuers. Reported,
+ *      never resolved: determinism without an authority is a consistent wrong
+ *      answer (D-113).
+ *   2. exactly one unsuffixed symbol on a major exchange -> sec_primary
+ *   3. an unsuffixed symbol anywhere                     -> sec_primary_otc
+ *   4. no unsuffixed symbol exists, but a single-letter share class does:
  *      take the alphabetically first, deterministically  -> sec_share_class
- *      (only 20 CIKs; BRK-A/BRK-B, BF-A/BF-B, CRD-A/CRD-B and the like)
- *   4. otherwise NO TICKER -> unresolved, and the lane falls back to the
+ *      (BRK-A/BRK-B, BF-A/BF-B, CRD-A/CRD-B and the like)
+ *   5. otherwise NO TICKER -> unresolved, and the lane falls back to the
  *      issuer name as filed. Never a preferred series, never a warrant.
+ *
+ * A bare `-P` is a PREFERRED marker, not a class letter (D-114), and every
+ * predicate here is case-normalized (D-118).
  */
 const SERIES_SUFFIX = /-(.+)$/;
 const PREFERRED_SUFFIX = /^P[A-Z]$/;
@@ -116,29 +126,37 @@ const SHARE_CLASS_SUFFIX = /^(?!P$)[A-Z]$/;
  * CLASS (`BRK-A`) and is allowed.
  */
 export function isNonCommonSymbol(ticker: string): boolean {
-  const m = SERIES_SUFFIX.exec(ticker);
+  // CASE-NORMALIZED (B-29.2). The suffix tests are /^(?!P$)[A-Z]$/ and friends,
+  // so a lower-case "brk-a" read as NON-common and a lower-case "wfc-pz" read
+  // as a share class -- both answers inverted. Symbols arrive lower-case from
+  // disclosure PDFs and from hand-written payloads, so normalizing at the
+  // predicate is the only place it cannot be forgotten.
+  const m = SERIES_SUFFIX.exec(ticker.trim().toUpperCase());
   if (!m) return false;
   return !SHARE_CLASS_SUFFIX.test(m[1]!);
 }
 
 /** The narrower case: a preferred series specifically. */
 export function isPreferredSeries(ticker: string): boolean {
-  const m = SERIES_SUFFIX.exec(ticker);
+  const m = SERIES_SUFFIX.exec(ticker.trim().toUpperCase());
   return m !== null && PREFERRED_SUFFIX.test(m[1]!);
 }
 
 export function selectIssuerTicker(
   candidates: ReadonlyArray<{ ticker: string; exchange: string }>,
 ): { ticker: string; exchange: string; tickerSource: TickerSource; alts: string[] } {
-  const clean = candidates.filter((c) => c.ticker !== "");
+  // Normalized ONCE, at the door, so every downstream test in this function
+  // sees the same case (B-29.2).
+  const clean = candidates
+    .filter((c) => c.ticker.trim() !== "")
+    .map((c) => ({ ticker: c.ticker.trim().toUpperCase(), exchange: c.exchange }));
   const unsuffixed = clean.filter((c) => !SERIES_SUFFIX.test(c.ticker));
 
   const major = unsuffixed.filter((c) => MAJOR_EXCHANGES.has(c.exchange));
-  // SHORTEST first, then alphabetical. Both halves matter. Alphabetical alone
-  // would be settled by luck on AT&T, whose CIK also lists `TBB` -- an
-  // unsuffixed NYSE symbol that is a baby bond, not the common share. The
-  // common share carries the bare root, so the shorter symbol wins; the
-  // alphabetical tiebreak then makes the choice independent of row order.
+  // Deterministic ordering for the SINGLE-candidate tiers below. It is no
+  // longer used to choose between several major-exchange symbols -- that case
+  // is refused outright, because "shortest, then alphabetical" was repeatable
+  // and still picked $CCZ for Comcast and $DTB for DTE (D-113).
   const pick = <T extends { ticker: string }>(xs: T[]): T | undefined =>
     xs
       .slice()

@@ -35,7 +35,7 @@ export interface IssuerRow {
 /** `$AAPL` when the CIK resolves, the filed company name when it does not. */
 export function displayNameFor(company: string, issuer: IssuerRow | null): string {
   const t = issuer?.ticker?.trim();
-  return t ? tickerTag(t) : company;
+  return (t ? tickerTag(t) : null) ?? company;
 }
 
 /**

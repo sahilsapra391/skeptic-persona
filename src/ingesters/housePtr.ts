@@ -348,7 +348,11 @@ const OWNER_LABEL: Readonly<Record<string, string>> = {
 };
 
 function tradeClause(t: HouseTxn, now: Date): string {
-  const what = t.ticker ? tickerTag(t.ticker) : t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}…` : t.assetName;
+  // PARENTHESES ARE LOAD-BEARING. `a ?? b.length > 40 ? x : y` parses as
+  // `(a ?? (b.length > 40)) ? x : y`, so a RESOLVED ticker made the ternary
+  // pick the truncated asset name and the cashtag never appeared.
+  const tag = t.ticker ? tickerTag(t.ticker) : null;
+  const what = tag ?? (t.assetName.length > 40 ? `${t.assetName.slice(0, 40)}\u2026` : t.assetName);
   const owner = OWNER_LABEL[t.owner] ? ` [${OWNER_LABEL[t.owner]}]` : "";
   // A3: shipped as "(07/01/2026)" on card #1235.
   const txnDay = displayDate(t.transactionDate, now);
