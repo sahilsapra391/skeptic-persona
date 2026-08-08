@@ -23,7 +23,7 @@
 // name, and record WHERE the answer came from so a card can be audited.
 
 import type { Env } from "../env";
-import { isNonCommonSymbol, lookupIssuer } from "../ingesters/issuers";
+import { isNonCommonSymbol, lookupIssuer, type Issuer } from "../ingesters/issuers";
 
 /** Where a cashtag came from. Stored on the payload for audit (A2). */
 export type SymbolSource =
@@ -52,6 +52,10 @@ export interface ResolveInput {
   securitiesClass?: string | null;
   /** The issuer name as filed. Always the fallback, never absent. */
   issuerName: string;
+  /** An already-fetched issuer row. The 8-K lane loads one for the float gate
+   *  on every filing, so passing it here resolves the symbol for free rather
+   *  than repeating a primary-key read on the hottest path in the pipeline. */
+  issuer?: Issuer | null;
 }
 
 /** `Class B Common Stock` -> `B`. Only a single letter counts; anything else
@@ -80,7 +84,12 @@ export async function resolveSymbol(env: Env, input: ResolveInput): Promise<Reso
   }
 
   // 2. SEC's CIK map. A primary-key hit, one row, already in the issuers table.
-  const row = input.cik === null || input.cik === undefined ? null : await lookupIssuer(env, input.cik);
+  const row =
+    input.issuer !== undefined
+      ? input.issuer
+      : input.cik === null || input.cik === undefined
+        ? null
+        : await lookupIssuer(env, input.cik);
   if (row && row.ticker !== "") {
     // A wrong ticker is worse than none, and the selection at ingest can only
     // be as good as the file. This is the last line of defence: a preferred
