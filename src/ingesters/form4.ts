@@ -234,7 +234,15 @@ export function ownerLabel(owner: Form4Owner): string {
  * person — so a bare two-token name from one of those is left as filed.
  */
 export function ownerDisplayName(owner: Form4Owner): string {
-  return deriveDisplayName(owner.name, { isOfficer: owner.isOfficer, isDirector: owner.isDirector }).display;
+  // CONFORMED (B-12.3): unlike Form 144's free-text seller field, EDGAR
+  // machine-populates `rptOwnerName` from the reporting owner's CIK, so it
+  // carries the documented LAST FIRST MIDDLE convention and a reorder is
+  // licensed. Verified 2026-08-07 against the conformed name for the same CIK.
+  return deriveDisplayName(owner.name, {
+    conformed: true,
+    isOfficer: owner.isOfficer,
+    isDirector: owner.isDirector,
+  }).display;
 }
 
 export function draftForm4(doc: Form4Doc, totals: Form4Totals): string {
@@ -300,6 +308,7 @@ export async function checkCluster(
   const members = await env.DB.prepare(
     `SELECT insider_cik, MAX(insider_name) AS insider_name,
             MAX(COALESCE(officer_title, CASE WHEN is_director = 1 THEN 'Director' ELSE 'Insider' END)) AS label,
+            MAX(is_officer) AS is_officer, MAX(is_director) AS is_director,
             SUM(CASE WHEN shares IS NOT NULL AND price IS NOT NULL THEN shares * price END) AS value
      FROM insider_trades
      WHERE issuer_cik = ?1 AND code = 'P' AND transaction_date >= ?2
@@ -307,7 +316,14 @@ export async function checkCluster(
      ORDER BY value DESC`,
   )
     .bind(issuer.cik, cutoff)
-    .all<{ insider_cik: string; insider_name: string; label: string; value: number | null }>();
+    .all<{
+      insider_cik: string;
+      insider_name: string;
+      label: string;
+      is_officer: number;
+      is_director: number;
+      value: number | null;
+    }>();
 
   if (members.results.length < CLUSTER_MIN_INSIDERS) return false;
 
@@ -337,12 +353,16 @@ export async function checkCluster(
   // whose label is a real officer title or "Director" is a human.
   const who = members.results
     .map((m) => {
-      const label = m.label ?? "";
+      // THE FLAGS COME FROM THEIR COLUMNS (B-12.5). Reconstructing them by
+      // string-matching the label read a null officer_title as "not an
+      // officer", so a filer whose agent omitted the title got one name on
+      // their individual card and a different one in this roster.
       const display = deriveDisplayName(m.insider_name, {
-        isOfficer: label !== "" && label !== "Director" && label !== "Insider",
-        isDirector: label === "Director",
+        conformed: true,
+        isOfficer: m.is_officer === 1,
+        isDirector: m.is_director === 1,
       }).display;
-      return `${display} (${label}) ${m.value !== null ? fmtUsd(m.value) : "amt n/a"}`;
+      return `${display} (${m.label}) ${m.value !== null ? fmtUsd(m.value) : "amt n/a"}`;
     })
     .join(", ");
   const allPriced = members.results.every((m) => m.value !== null);
@@ -446,7 +466,15 @@ async function processDetail(
             // stays verbatim inside `owners`) for validation and audit.
             who: owner ? `${ownerDisplayName(owner)} (${ownerLabel(owner)})` : null,
             ownerNameFiled: owner ? owner.name : null,
-            ownerNameShape: owner ? deriveDisplayName(owner.name).shape : null,
+            // Same options as the display, or the audit field would describe
+            // a derivation that never ran (B-12.5).
+            ownerNameShape: owner
+              ? deriveDisplayName(owner.name, {
+                  conformed: true,
+                  isOfficer: owner.isOfficer,
+                  isDirector: owner.isDirector,
+                }).shape
+              : null,
             actionLine: draft.replace(/^Form 4: .*?\) /, ""),
             // Derived from the PRINTED subset, not document order: a
             // footnote-priced buy is excluded from the fact line, so it must

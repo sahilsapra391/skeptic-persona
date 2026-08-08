@@ -60,6 +60,21 @@ resolving it quietly.
   because the courier was already down: it would have detonated on recovery.
   Prove it with a live call that can tell auth-passed from auth-failed (a
   `400` on a junk body, not just "no 401").
+- **A verification that cites agreeing examples is not a verification**
+  (D-83, B-12.2). Ground truth has to be an INDEPENDENT AUTHORITY, not a
+  larger sample of the same source. p6-01 asserted that Form 144's
+  `nameOfPersonForWhoseAccountTheSecuritiesAreToBeSold` follows EDGAR's
+  `LAST FIRST` convention and cited two live filings that did. Both were real.
+  Both had been picked because they agreed. The field is free text typed by
+  the filer agent, and against EDGAR's own conformed name per CIK it
+  disagreed in 25 of 87 comparable filings the same day. **CIK 0001514725
+  filed a Form 144 (`KENDRA D MILLER`) and a Form 4 (`Miller Kendra D`) on
+  2026-08-07**; the pipeline rendered `D. Miller Kendra` and `Kendra D.
+  Miller` for one person, on two cards, each linking to the filing that
+  contradicted it. Scaling the sample from 49 names to 115 had already caught
+  five defects and still missed this one, because every name in both samples
+  came from the same place. Before claiming a field follows a convention,
+  name the authority you checked it against and report the disagreement rate.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.

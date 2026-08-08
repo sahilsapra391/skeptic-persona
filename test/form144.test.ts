@@ -286,7 +286,15 @@ describe("pollForm144 end-to-end", () => {
     expect(detailed.length).toBeGreaterThan(0);
     const p = JSON.parse(detailed[0]!.payload) as Record<string, unknown>;
     expect(p.aggregateMarketValue).toBe(5500000);
-    expect(p.factLine).toContain("Bender Investment Company");
+    // B-12.3: the card prints EDGAR's CONFORMED name for the CIK
+    // ("Bender Investment Co", from the feed's `(Reporting)` title), not the
+    // document's free text ("Bender Investment Company"). One CIK renders one
+    // name across every lane, which is the contradiction this chunk closes.
+    expect(p.factLine).toContain("Bender Investment Co");
+    expect(p.sellerName).toBe("Bender Investment Co");
+    expect(p.sellerNameConformed).toBe("Bender Investment Co");
+    // and the document's own text is still on the payload for audit
+    expect(p.sellerNameFiled).toBe("Bender Investment Company");
     expect(p.pctOfOutstanding).toBeCloseTo(0.14, 2);
 
     // Re-poll inserts nothing new (dedup on accession).
