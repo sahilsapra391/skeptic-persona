@@ -95,6 +95,9 @@
     { "name": "D-89 agreeing examples are not verification", "file": "CLAUDE.md", "contains": "cites agreeing examples is not a verification" },
     { "name": "D-93 one-to-many selection is a coin flip", "file": "CLAUDE.md", "contains": "is a coin flip, not a" },
     { "name": "D-94 check the conserved quantity", "file": "CLAUDE.md", "contains": "Row-count agreement is weak evidence" },
+    { "name": "D-99 a safeguard whose blind spot aligns with its target", "file": "CLAUDE.md", "contains": "blind spot aligns with its target" },
+    { "name": "D-100 union on conflict in a doctrine file", "file": "CLAUDE.md", "contains": "resolve as a UNION" },
+    { "name": "D-101 renumbering keys on original values", "file": "CLAUDE.md", "contains": "keys on ORIGINAL values" },
     { "name": "D-95 a doc change is not applied until it is in the commit", "file": "CLAUDE.md", "contains": "same expression that reads" }
   ]
 }
