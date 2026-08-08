@@ -12,7 +12,7 @@ import { fitsInPost } from "../templates/length";
 import { checkRegister } from "../templates/validate";
 import { chatComplete, OpenRouterError, parseVariants } from "./openrouter";
 import { OWNER_EXEMPLARS, stylePackFor } from "./stylepack";
-import { ownerFinals } from "./learn";
+import { ownerFinals, postedVerbatim } from "./learn";
 import { fetchSourceText, hasDedicatedCapture, isBlockedGroundingHost, type SourceText } from "./sourceText";
 import { lakeContext } from "./context";
 import { openerHash, skeletonHash } from "./echo";
@@ -301,7 +301,13 @@ async function alertOwner(env: Env, text: string, budget: TickBudget): Promise<b
 
 export interface GenerationDeps {
   /** Injectable for tests; defaults to the committed bank. */
-  exemplars?: ReadonlyArray<{ archetype: ArchetypeId; text: string; register?: "wire" | "commentary" }>;
+  exemplars?: ReadonlyArray<{
+    archetype: ArchetypeId;
+    text: string;
+    register?: "wire" | "commentary";
+    /** Advisor-written placeholders rank BELOW posted_verbatim (B-24.1). */
+    provisional?: true;
+  }>;
 }
 
 /**
@@ -450,12 +456,43 @@ export async function runGeneration(
     // Holding it to a strict minority of the committed count means the owner's
     // signed-off range always outweighs anything the loop added, by
     // construction rather than by a detector that has to notice.
+    // B-24.1 adds a THIRD tier, posted_verbatim, and deliberately does NOT add
+    // a second cap constant. The minority budget above is a reviewed
+    // invariant — the owner's signed-off range must outweigh anything the loop
+    // added, by construction — so verbatim entries draw from that SAME budget
+    // rather than beside it. Edited finals fill it first because a rewrite is
+    // strictly stronger evidence than an endorsement; verbatim tops up only
+    // what the finals left. The bank therefore cannot become mostly ratified
+    // model output no matter how many cards ship unedited.
+    //
+    // ORDER, per B-24.1: finals, then owner-authored, then posted_verbatim,
+    // then provisional. Verbatim outranks anything an advisor wrote and never
+    // outranks the owner's own text.
+    //
+    // THE GATE IS UNCHANGED. `committed.length === 0` still refuses the LLM
+    // call, so an archetype covered only by verbatim entries still counts as
+    // needing owner exemplars — a promoted or ratified line can never
+    // bootstrap an archetype the owner has not written for.
     const committed = exemplars.filter((e) => e.archetype === archetypeId);
-    const finalsAllowance = ownerFinalsAllowance(committed.length);
+    const minorityBudget = ownerFinalsAllowance(committed.length);
+    const finals = await ownerFinals(env.DB, archetypeId, minorityBudget);
+    const verbatim = await postedVerbatim(env.DB, archetypeId, minorityBudget - finals.length);
+    const ownerAuthored = committed.filter((e) => e.provisional !== true);
+    const provisional = committed.filter((e) => e.provisional === true);
     const bank =
-      committed.length === 0
-        ? committed
-        : [...(await ownerFinals(env.DB, archetypeId, finalsAllowance)), ...committed];
+      committed.length === 0 ? committed : [...finals, ...ownerAuthored, ...verbatim, ...provisional];
+    if (finals.length > 0 || verbatim.length > 0) {
+      // Distinguishable in the retrieval log, not just in the type (B-24.1).
+      log("info", "exemplar bank assembled", {
+        queueId: row.queue_id,
+        archetype: archetypeId,
+        ownerAuthored: ownerAuthored.length,
+        provisional: provisional.length,
+        finals: finals.length,
+        postedVerbatim: verbatim.length,
+        minorityBudget,
+      });
+    }
     if (bank.length === 0) {
       await insertGeneration(env.DB, { queueId: row.queue_id, cycle: row.regen_cycle, variant: "none", text: "", status: "skipped_no_exemplar", attempt }, now);
       log("info", "generation skipped: no owner exemplar for archetype", { queueId: row.queue_id, archetype: archetypeId });

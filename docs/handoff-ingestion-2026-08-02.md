@@ -12,6 +12,14 @@ inferred rather than observed it says so.
 > 25/day target**. Adding sources makes the live problem worse, not better.
 >
 > Resumption test: `SELECT COUNT(*) FROM post_log WHERE posted_manually = 1` ≥ 10.
+>
+> **RESUMPTION TEST SATISFIED, 2026-08-08 (B-24.4).** That query returns **16**.
+> The stop is lifted on its own terms. "The desk has published nothing in five
+> days" was TRUE on 2026-08-02 — the first manual post landed 2026-08-05 — and
+> is false now; it is left standing with this note rather than rewritten,
+> because the doc is a dated record. **A gate written into a dated document
+> does not know when it has been met** (D-105): re-derive the test before
+> treating the instruction as live.
 > It is **0** today.
 
 ## Where the pipeline actually is

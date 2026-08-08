@@ -212,6 +212,65 @@ export function promotionStatement(db: D1Database, now: Date, input: PromotionIn
  * it to a ledger. Filtering at retrieval also covers rows promoted before this
  * gate existed, which a promotion-time check alone would not.
  */
+/**
+ * Cards the owner posted with ZERO edits, as a distinct provenance tier
+ * (B-24.1). Re-derived from `post_log` on every call rather than copied into
+ * `voice_finals`, so a post later corrected stops being quoted here without
+ * anyone remembering to clean up.
+ *
+ * WHY THIS IS A SEPARATE ENTRY POINT AND NOT A RELAXATION OF promoteFinal'S
+ * GUARD. That guard — `if (!input.wasEdited) return null` — exists because
+ * feeding accepted output back is training on our own predictions, and it
+ * stays exactly as it is. An unedited post genuinely carries no new
+ * information. It carries SELECTION: Edit and Regenerate were both one tap
+ * away and the owner used neither. Endorsement, not instruction, and ranked
+ * accordingly.
+ *
+ * The 16 that exist today are all `edit_distance 0`, which is a suspiciously
+ * perfect rate on a small n and is why B-24.2 tracks it as volume grows.
+ */
+export async function postedVerbatim(
+  db: D1Database,
+  archetype: ArchetypeId,
+  limit: number,
+): Promise<OwnerExemplar[]> {
+  if (limit <= 0) return [];
+  let rows;
+  try {
+    rows = await db
+      .prepare(
+        `SELECT final_text AS text, draft_variant AS variant FROM post_log
+         WHERE archetype = ?1
+           AND posted_manually = 1
+           AND final_text IS NOT NULL
+           AND draft_text IS NOT NULL
+           AND final_text = draft_text
+         ORDER BY posted_at DESC
+         LIMIT ?2`,
+      )
+      .bind(archetype, limit)
+      .all<{ text: string; variant: string | null }>();
+  } catch (e) {
+    // Same degrade-rather-than-throw contract as ownerFinals.
+    log("warn", "post_log unavailable; using committed exemplars only", { error: String(e) });
+    return [];
+  }
+  const out: OwnerExemplar[] = [];
+  for (const r of rows.results) {
+    if (!r.text) continue;
+    // Held to the SAME register bar as a committed exemplar. A post that
+    // shipped is not automatically a good model for the next one.
+    if ([...checkRegister(r.text, archetype), ...urlCheck(r.text)].length > 0) continue;
+    out.push({
+      archetype,
+      register: registerFor(r.variant) ?? "wire",
+      text: r.text,
+      provenance: "posted_verbatim",
+    });
+  }
+  return out;
+}
+
 export async function ownerFinals(
   db: D1Database,
   archetype: ArchetypeId,
@@ -300,6 +359,42 @@ export interface ZeroEditStats {
 
 /** post_log rows that represent a real GENERATION outcome, not a fallback. */
 const GENERATED_ONLY = `draft_variant IS NOT NULL AND draft_variant <> 'template'`;
+
+export interface ArchetypeShipRate {
+  readonly archetype: string;
+  readonly posted: number;
+  readonly unedited: number;
+}
+
+/**
+ * Ships-unedited, PER ARCHETYPE (B-24.2).
+ *
+ * The aggregate rate is 16 of 16 today, which is a suspiciously perfect number
+ * on a small n and is exactly why this is tracked as volume grows: a rate that
+ * stays at 100% is either a genuinely good voice or a signal nobody is really
+ * reading the cards, and the per-archetype split is what separates those. A
+ * single archetype carrying every post would also make the aggregate look like
+ * a verdict on the whole desk when it is a verdict on one lane.
+ */
+export async function zeroEditByArchetype(db: D1Database, since: Date): Promise<ArchetypeShipRate[]> {
+  const rows = await db
+    .prepare(
+      `SELECT archetype,
+              COUNT(*) AS posted,
+              SUM(CASE WHEN edit_distance = 0 THEN 1 ELSE 0 END) AS unedited
+       FROM post_log
+       WHERE posted_manually = 1 AND posted_at >= ?1 AND edit_distance IS NOT NULL
+       GROUP BY archetype
+       ORDER BY posted DESC, archetype`,
+    )
+    .bind(iso(since))
+    .all<{ archetype: string; posted: number; unedited: number | null }>();
+  return rows.results.map((r) => ({
+    archetype: r.archetype,
+    posted: r.posted,
+    unedited: r.unedited ?? 0,
+  }));
+}
 
 export async function zeroEditStats(db: D1Database, since: Date): Promise<ZeroEditStats> {
   const row = await db

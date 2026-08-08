@@ -3,7 +3,14 @@ import type { TickBudget } from "../lib/budget";
 import { newTickBudget } from "../lib/budget";
 import { sendMessage } from "../lib/telegram";
 import { log } from "../lib/log";
-import { recentEditedPairs, zeroEditStats, type EditPair, type ZeroEditStats } from "./learn";
+import {
+  recentEditedPairs,
+  zeroEditByArchetype,
+  zeroEditStats,
+  type ArchetypeShipRate,
+  type EditPair,
+  type ZeroEditStats,
+} from "./learn";
 
 // P4-09: the nightly report the owner reads to decide whether any of this is
 // working. It leads with the zero-edit rate because that is the track's stated
@@ -422,6 +429,10 @@ export function renderDigest(
   windowDays: number,
   northStar: readonly string[] = [],
   efd: readonly string[] = [],
+  /** Ships-unedited per archetype (B-24.2). Passed in rather than queried:
+   *  this renderer is pure and unit-tested, because the wording is the
+   *  feature. Same contract as renderNorthStar. */
+  byArchetype: readonly ArchetypeShipRate[] = [],
 ): string {
   const lines: string[] = [`Skeptic Wire — voice digest, last ${windowDays} days`, ""];
   // FIRST, and above the zero-edit rate on purpose. The zero-edit rate scores
@@ -440,6 +451,15 @@ export function renderDigest(
     lines.push("Zero-edit rate: no posts published in the window, so there is no rate to report.");
     lines.push("This is not a score of 0%. Nothing has been measured yet.");
     return lines.join("\n");
+  }
+  // B-24.2: the aggregate can hide a single lane carrying every post, and a
+  // rate pinned at 100% is either a good voice or nobody reading closely. The
+  // split is what tells them apart.
+  if (byArchetype.length > 0) {
+    lines.push(
+      "Ships-unedited by archetype: " +
+        byArchetype.map((a) => `${a.archetype} ${a.unedited}/${a.posted}`).join(", "),
+    );
   }
 
   if (scoreable === 0) {
@@ -492,6 +512,7 @@ export async function runVoiceDigest(env: Env, now: Date, _budget: TickBudget = 
   const pairs = stats.edited > 0 ? await recentEditedPairs(env.DB, since, DIGEST_PAIR_LIMIT) : [];
   const { current, prior } = await northStarStats(env.DB, now, DIGEST_WINDOW_DAYS);
   const efd = await efdLatency(env.DB, since);
+  const byArchetype = stats.posted > 0 ? await zeroEditByArchetype(env.DB, since) : [];
   const text = renderDigest(
     stats,
     pairs,
@@ -509,6 +530,7 @@ export async function runVoiceDigest(env: Env, now: Date, _budget: TickBudget = 
       ...renderGenHealth(await genHealth(env.DB, since.toISOString(), now.toISOString())),
     ],
     renderEfdLatency(efd, DIGEST_WINDOW_DAYS),
+    byArchetype,
   );
   try {
     await sendMessage(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, text);

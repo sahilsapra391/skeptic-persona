@@ -182,6 +182,17 @@ resolving it quietly.
   is the constraint" off a WINDOWED zero, phrased as a claim about the desk;
   it now reports the all-time count alongside, so a quiet week and an empty
   table can never render the same sentence.
+- **A digest sentence that makes a claim about the WORLD must name its window
+  and carry its independent all-time count** (D-106, B-24.3). Reporting a
+  metric and asserting a fact are different acts, and generated prose is read
+  as a finding. `renderNorthStar` printed "Nothing has been published from
+  this window. The Copy button is the constraint, not the queue." — the first
+  clause names its window, the second diagnoses the whole program and names
+  none. Three sessions read it, repeated it into every status report, and it
+  set priority for a week while `post_log` held 16 manual posts. The class is
+  not "wrong number", it is **generated prose treated as a finding**. If a
+  line diagnoses rather than counts, it needs the denominator that would
+  falsify it in the same breath.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.
