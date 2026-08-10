@@ -37,42 +37,65 @@
     {
       "path": "docs/p5-ledger.md",
       "minBytes": 20000,
-      "anchors": ["Gate state", "Owner decisions", "| D-1 |"]
+      "anchors": [
+        "Gate state",
+        "Owner decisions",
+        "| D-1 |"
+      ]
     },
     {
       "path": "docs/DATA_USE_POLICY.md",
       "minBytes": 1500,
-      "anchors": ["Data use policy", "Congressional disclosure data"]
+      "anchors": [
+        "Data use policy",
+        "Congressional disclosure data"
+      ]
     },
     {
       "path": "docs/EXCLUSIONS.md",
       "minBytes": 1500,
-      "anchors": ["Exclusions register", "reopen"]
+      "anchors": [
+        "Exclusions register",
+        "reopen"
+      ]
     },
     {
       "path": "docs/persona.md",
       "minBytes": 10000,
-      "anchors": ["never-list"]
+      "anchors": [
+        "never-list"
+      ]
     },
     {
       "path": "docs/SOURCE_REGISTRY.md",
       "minBytes": 2000,
-      "anchors": ["Source registry", "Status of every non-healthy source"]
+      "anchors": [
+        "Source registry",
+        "Status of every non-healthy source"
+      ]
     },
     {
       "path": "docs/PUBLIC.md",
       "minBytes": 1000,
-      "anchors": ["This repo is public on purpose"]
+      "anchors": [
+        "This repo is public on purpose"
+      ]
     },
     {
       "path": "docs/RUNBOOK.md",
       "minBytes": 1000,
-      "anchors": ["Runbook", "scheduled workflows expire"]
+      "anchors": [
+        "Runbook",
+        "scheduled workflows expire"
+      ]
     },
     {
       "path": "docs/IMAGE_POLICY.md",
       "minBytes": 1000,
-      "anchors": ["Image policy", "Banned, explicitly"]
+      "anchors": [
+        "Image policy",
+        "Banned, explicitly"
+      ]
     }
   ],
   "_fingerprintWhy": [
@@ -86,33 +109,155 @@
     "checklist."
   ],
   "fingerprint": [
-    { "name": "five non-negotiables", "file": "CLAUDE.md", "contains": "Non-negotiables (outrank everything" },
-    { "name": "relay protocol", "file": "CLAUDE.md", "contains": "Relay protocol" },
-    { "name": "D-48 live dispatch before merge", "file": "CLAUDE.md", "contains": "D-48" },
-    { "name": "D-56 redaction and proof against the deployed target", "file": "CLAUDE.md", "contains": "D-56" },
-    { "name": "D-71 Senate 503 was an empty date field", "file": "docs/p5-ledger.md", "contains": "| D-71 |" },
-    { "name": "B-16.2 capability rule", "file": "CLAUDE.md", "contains": "B-16.2" },
-    { "name": "D-89 agreeing examples are not verification", "file": "CLAUDE.md", "contains": "cites agreeing examples is not a verification" },
-    { "name": "D-93 one-to-many selection is a coin flip", "file": "CLAUDE.md", "contains": "is a coin flip, not a" },
-    { "name": "D-94 check the conserved quantity", "file": "CLAUDE.md", "contains": "Row-count agreement is weak evidence" },
-    { "name": "D-99 a safeguard whose blind spot aligns with its target", "file": "CLAUDE.md", "contains": "blind spot aligns with its target" },
-    { "name": "D-100 enumerate first, then choose the operation", "file": "CLAUDE.md", "contains": "ENUMERATE first, then choose the" },
-    { "name": "D-102 a clean result must be impossible when the check failed", "file": "CLAUDE.md", "contains": "incapable of printing a clean result" },
-    { "name": "D-101 renumbering keys on original values", "file": "CLAUDE.md", "contains": "keys on ORIGINAL values" },
-    { "name": "D-104/D-105 an empty result must be provably empty", "file": "CLAUDE.md", "contains": "An empty result must be provably empty" },
-    { "name": "D-106 a digest may not diagnose why", "file": "CLAUDE.md", "contains": "it may not diagnose" },
-    { "name": "D-108 a dated document cannot enforce a gate", "file": "CLAUDE.md", "contains": "cannot know when it has been met" },
-    { "name": "D-109 a stale status column reads as fact", "file": "CLAUDE.md", "contains": "worse than no status" },
-    { "name": "D-113 determinism without an authority", "file": "CLAUDE.md", "contains": "Determinism without an authority" },
-    { "name": "D-117 a validation belongs where the value is created", "file": "CLAUDE.md", "contains": "belongs where the value is CREATED" },
-    { "name": "D-118 a predicate that answers backwards", "file": "CLAUDE.md", "contains": "answers BACKWARDS is more dangerous" },
-    { "name": "D-124 a metric must represent its failure", "file": "CLAUDE.md", "contains": "able to REPRESENT the failure" },
-    { "name": "D-125 a fixture must exceed the limit it probes", "file": "CLAUDE.md", "contains": "must EXCEED the limit it probes" },
-    { "name": "D-119 debug output is not verification", "file": "CLAUDE.md", "contains": "Debug output is not verification" },
-    { "name": "D-116 test the bug, not the environment", "file": "CLAUDE.md", "contains": "Test the bug, not the environment" },
-    { "name": "D-99b a metric computed with its own artifact", "file": "CLAUDE.md", "contains": "A metric computed with the artifact it is meant to" },
-    { "name": "D-102b a measurement over prose", "file": "CLAUDE.md", "contains": "measurement over prose cannot measure a field" },
-    { "name": "B-28.7 adversarial review is required", "file": "CLAUDE.md", "contains": "Adversarial review is REQUIRED" },
-    { "name": "D-95 a doc change is not applied until it is in the commit", "file": "CLAUDE.md", "contains": "same expression that reads" }
+    {
+      "name": "five non-negotiables",
+      "file": "CLAUDE.md",
+      "contains": "Non-negotiables (outrank everything"
+    },
+    {
+      "name": "relay protocol",
+      "file": "CLAUDE.md",
+      "contains": "Relay protocol"
+    },
+    {
+      "name": "D-48 live dispatch before merge",
+      "file": "CLAUDE.md",
+      "contains": "D-48"
+    },
+    {
+      "name": "D-56 redaction and proof against the deployed target",
+      "file": "CLAUDE.md",
+      "contains": "D-56"
+    },
+    {
+      "name": "D-71 Senate 503 was an empty date field",
+      "file": "docs/p5-ledger.md",
+      "contains": "| D-71 |"
+    },
+    {
+      "name": "B-16.2 capability rule",
+      "file": "CLAUDE.md",
+      "contains": "B-16.2"
+    },
+    {
+      "name": "D-89 agreeing examples are not verification",
+      "file": "CLAUDE.md",
+      "contains": "cites agreeing examples is not a verification"
+    },
+    {
+      "name": "D-93 one-to-many selection is a coin flip",
+      "file": "CLAUDE.md",
+      "contains": "is a coin flip, not a"
+    },
+    {
+      "name": "D-94 check the conserved quantity",
+      "file": "CLAUDE.md",
+      "contains": "Row-count agreement is weak evidence"
+    },
+    {
+      "name": "D-99 a safeguard whose blind spot aligns with its target",
+      "file": "CLAUDE.md",
+      "contains": "blind spot aligns with its target"
+    },
+    {
+      "name": "D-100 enumerate first, then choose the operation",
+      "file": "CLAUDE.md",
+      "contains": "ENUMERATE first, then choose the"
+    },
+    {
+      "name": "D-102 a clean result must be impossible when the check failed",
+      "file": "CLAUDE.md",
+      "contains": "incapable of printing a clean result"
+    },
+    {
+      "name": "D-101 renumbering keys on original values",
+      "file": "CLAUDE.md",
+      "contains": "keys on ORIGINAL values"
+    },
+    {
+      "name": "D-104/D-105 an empty result must be provably empty",
+      "file": "CLAUDE.md",
+      "contains": "An empty result must be provably empty"
+    },
+    {
+      "name": "D-106 a digest may not diagnose why",
+      "file": "CLAUDE.md",
+      "contains": "it may not diagnose"
+    },
+    {
+      "name": "D-108 a dated document cannot enforce a gate",
+      "file": "CLAUDE.md",
+      "contains": "cannot know when it has been met"
+    },
+    {
+      "name": "D-109 a stale status column reads as fact",
+      "file": "CLAUDE.md",
+      "contains": "worse than no status"
+    },
+    {
+      "name": "D-113 determinism without an authority",
+      "file": "CLAUDE.md",
+      "contains": "Determinism without an authority"
+    },
+    {
+      "name": "D-117 a validation belongs where the value is created",
+      "file": "CLAUDE.md",
+      "contains": "belongs where the value is CREATED"
+    },
+    {
+      "name": "D-118 a predicate that answers backwards",
+      "file": "CLAUDE.md",
+      "contains": "answers BACKWARDS is more dangerous"
+    },
+    {
+      "name": "D-124 a metric must represent its failure",
+      "file": "CLAUDE.md",
+      "contains": "able to REPRESENT the failure"
+    },
+    {
+      "name": "D-125 a fixture must exceed the limit it probes",
+      "file": "CLAUDE.md",
+      "contains": "must EXCEED the limit it probes"
+    },
+    {
+      "name": "D-119 debug output is not verification",
+      "file": "CLAUDE.md",
+      "contains": "Debug output is not verification"
+    },
+    {
+      "name": "D-116 test the bug, not the environment",
+      "file": "CLAUDE.md",
+      "contains": "Test the bug, not the environment"
+    },
+    {
+      "name": "D-99b a metric computed with its own artifact",
+      "file": "CLAUDE.md",
+      "contains": "A metric computed with the artifact it is meant to"
+    },
+    {
+      "name": "D-102b a measurement over prose",
+      "file": "CLAUDE.md",
+      "contains": "measurement over prose cannot measure a field"
+    },
+    {
+      "name": "B-28.7 adversarial review is required",
+      "file": "CLAUDE.md",
+      "contains": "Adversarial review is REQUIRED"
+    },
+    {
+      "name": "D-95 a doc change is not applied until it is in the commit",
+      "file": "CLAUDE.md",
+      "contains": "same expression that reads"
+    },
+    {
+      "name": "D-128 presence is not semantics",
+      "file": "CLAUDE.md",
+      "contains": "Presence is not semantics"
+    },
+    {
+      "name": "D-130 domain invariants are suppression rules",
+      "file": "CLAUDE.md",
+      "contains": "suppression rules, never corrections"
+    }
   ]
 }

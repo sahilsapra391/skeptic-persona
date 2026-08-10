@@ -36,6 +36,19 @@ export interface InsiderFacts {
   /** Distinct transaction codes present, so a beat can gate on shape. */
   codes: string[];
   rowCount: number;
+  /**
+   * Shares acquired minus shares disposed across the filing. Negative means
+   * the holding shrank; ZERO means it closed exactly where it opened.
+   *
+   * This is what an exercise-and-sell filing has INSTEAD of a percentage.
+   * Barrett exercised 293,968 and sold 293,968 the same day: pctDisposed is
+   * suppressed because nothing was disposed of on net, and the honest,
+   * fully-derived line is that he ended the day on the share count he started
+   * it with. 12 of 60 live filings are net-flat or net-positive.
+   */
+  netShareChange: number | null;
+  /** Shares sold under an open-market sale code, as opposed to disposed. */
+  sharesSold: number | null;
 }
 
 /**
@@ -63,6 +76,17 @@ export function planLanguage(planFlag: boolean): string | null {
 const num = (v: number | null | undefined): v is number => typeof v === "number" && Number.isFinite(v);
 
 /**
+ * Transaction codes that are actually SELLING.
+ *
+ * `S` is an open-market or private sale. Deliberately nothing else: `F` is
+ * securities withheld to cover tax or an exercise price, `G` is a bona fide
+ * gift, `D` is a disposition back to the issuer, `J` is "other". Those are all
+ * dispositions and none of them is an insider choosing to sell into the
+ * market, which is the only thing this desk's primary lane is about.
+ */
+const SALE_CODES = new Set(["S"]);
+
+/**
  * Percentage of the stake disposed. THE HEADLINE NUMBER OF THE PRIMARY LANE,
  * and the one that has to be right or not printed at all.
  *
@@ -83,11 +107,60 @@ const num = (v: number | null | undefined): v is number => typeof v === "number"
  * whole number -- a stake missing one of five lines is not a stake.
  */
 export function pctDisposedOf(txns: readonly Form4Txn[]): { pct: number; sharesAfter: number } | null {
-  const disposed = txns
-    .filter((t) => t.acquiredDisposed === "D" && num(t.shares))
+  const disposals = txns.filter((t) => t.acquiredDisposed === "D" && num(t.shares));
+  const disposed = disposals.reduce((n, t) => n + (t.shares ?? 0), 0);
+  const acquired = txns
+    .filter((t) => t.acquiredDisposed === "A" && num(t.shares))
     .reduce((n, t) => n + (t.shares ?? 0), 0);
   if (disposed <= 0) return null;
 
+  // INVARIANT 1 (D-130): only an open-market SALE is selling. `F` is shares
+  // withheld to pay tax or an exercise price, `G` is a gift, `D` is a
+  // disposition back to the issuer. Nine live filings had a disposal total
+  // that was 100% F or G; calling those "X% disposed" on a desk whose lane is
+  // insider SELLING describes something that did not happen.
+  const sold = disposals
+    .filter((t) => SALE_CODES.has(t.code.trim().toUpperCase()))
+    .reduce((n, t) => n + (t.shares ?? 0), 0);
+  if (sold <= 0) return null;
+
+  // INVARIANT 2 (D-130): a holding that did not SHRINK was not disposed of.
+  // Twelve live filings acquired at least as much as they disposed -- seven
+  // are exercise-plus-withholding where the insider ended up with MORE shares,
+  // and three are exercise-and-sell that closed exactly where they opened.
+  // Michael Barrett exercised 293,968 and sold 293,968 the same day, ending on
+  // 403,074 shares, precisely where he started. The old code called that
+  // "42.2% of his stake" because it measured the sale against the balance
+  // AFTER the exercise. He sold none of the stake he already had.
+  if (acquired >= disposed) return null;
+
+  const remaining = closingStakeOf(txns);
+  if (remaining === null) return null;
+
+  // The stake as it stood before the filing, reconstructed rather than
+  // assumed: what is left, plus everything that went out, less everything
+  // that came in.
+  const opening = remaining + disposed - acquired;
+  if (opening <= 0) return null;
+
+  // INVARIANT 3 (D-130): a share of a stake is a percentage. Anything outside
+  // 0-100 means the reconstruction is wrong, and a wrong reconstruction is
+  // suppressed rather than clamped -- clamping to 100 would turn a broken
+  // filing into a confident "sold their entire stake".
+  const pct = Math.round((sold / opening) * 1000) / 10;
+  if (!(pct > 0 && pct <= 100)) return null;
+  return { pct, sharesAfter: remaining };
+}
+
+/**
+ * The stake left when the filing closes: every ownership line's final balance,
+ * summed. Null when any line's balance is missing or incoherent.
+ *
+ * Separate from the percentage on purpose. Barrett's exercise-and-sell has no
+ * honest percentage but a perfectly honest closing stake of 403,074 shares,
+ * and a beat should be able to print the one without the other.
+ */
+export function closingStakeOf(txns: readonly Form4Txn[]): number | null {
   // Ownership line = direct/indirect plus the nature text, because a filer can
   // report four separate trusts that are all "I".
   const lines = new Map<string, Form4Txn[]>();
@@ -95,6 +168,7 @@ export function pctDisposedOf(txns: readonly Form4Txn[]): { pct: number; sharesA
     const key = `${t.direct ? "D" : "I"}|${t.natureOfOwnership ?? ""}`;
     lines.set(key, [...(lines.get(key) ?? []), t]);
   }
+  if (lines.size === 0) return null;
 
   let remaining = 0;
   for (const rows of lines.values()) {
@@ -105,18 +179,17 @@ export function pctDisposedOf(txns: readonly Form4Txn[]): { pct: number; sharesA
     if (!last || !num(last.sharesAfter)) return null;
     remaining += last.sharesAfter;
   }
-
-  const prior = remaining + disposed;
-  if (prior <= 0) return null;
-  return { pct: Math.round((disposed / prior) * 1000) / 10, sharesAfter: remaining };
+  return remaining;
 }
 
 /**
  * Does this ownership line behave like a running balance at all?
  *
- * Two live filings (Bullish, 2026-08-06) report nine consecutive sales each
- * with `sharesOwnedFollowingTransaction` of 0, then a disposal whose balance
- * RISES to 17,806,342. Read as a running balance that is nonsense, and the
+ * Two live Clear Secure ($YOU) filings of 2026-08-06, accessions
+ * 0001466453-26-000030 (Caryn Seidman Becker) and 0001869246-26-000022
+ * (Alclear Investments, LLC), report nine consecutive sales each with
+ * `sharesOwnedFollowingTransaction` of 0, then a disposal whose balance RISES
+ * to 17,806,342. Read as a running balance that is nonsense, and the
  * arithmetic over it produced 3.5% one way and 81.0% the other -- two wrong
  * answers, no right one available.
  *
@@ -197,9 +270,18 @@ export function insiderFactsOf(
 ): InsiderFacts {
   const disposed = pctDisposedOf(txns);
   const es = exerciseAndSellOf(txns, derivatives);
+  const priced = txns.filter((t) => num(t.shares));
+  const inShares = priced.filter((t) => t.acquiredDisposed === "A").reduce((n, t) => n + (t.shares ?? 0), 0);
+  const outShares = priced.filter((t) => t.acquiredDisposed === "D").reduce((n, t) => n + (t.shares ?? 0), 0);
+  const sold = priced
+    .filter((t) => t.acquiredDisposed === "D" && SALE_CODES.has(t.code.trim().toUpperCase()))
+    .reduce((n, t) => n + (t.shares ?? 0), 0);
   return {
     pctDisposed: disposed?.pct ?? null,
-    sharesAfter: disposed?.sharesAfter ?? null,
+    // The closing stake stands on its own; it does not need the percentage.
+    sharesAfter: closingStakeOf(txns),
+    netShareChange: priced.length > 0 ? inShares - outShares : null,
+    sharesSold: sold > 0 ? sold : null,
     planFlag,
     exerciseAndSell: es !== null,
     exerciseSpread: es?.spread ?? null,

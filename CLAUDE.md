@@ -304,6 +304,29 @@ resolving it quietly.
   into "all seeded rows ran". The repo already knew this — `dispatch.test.ts`
   and `edgar8k.test.ts` both carry explicit anti-vacuity guards — it was
   applied inconsistently. Seed past the boundary and say why in the fixture.
+- **Presence is not semantics** (D-128, B-32.2). An element existing does not
+  establish what it means, and a parse can be perfectly correct while the
+  claim about the field is false. Establish a new field's meaning against the
+  issuing body's spec, or against filings where the value is NON-EMPTY. Never
+  against the fact that the element appears. `transactionTimeliness` appears
+  in 15 of 60 live Form 4s and is EMPTY in all 34 occurrences; it shipped as a
+  boolean `lateFiling` documented as "the late-filing marker, 15 of 60",
+  which counted presence and wrote it down as meaning. The suite could not see
+  it because the code was right and the belief was wrong. Corollary: a defect
+  can be about the DATA rather than the code, and those are invisible to tests
+  written from the same wrong belief — so measure a new field's value
+  distribution across a real corpus before building on it, not just its
+  parse.
+- **Domain invariants are suppression rules, never corrections** (D-130,
+  B-32.3). Where a derived field can be checked against something that must be
+  true of the world — a disposal cannot increase a balance, a percentage lies
+  in 0–100, proceeds equal shares times price, a holding that grew was not
+  "disposed" — assert it, and when it fails print NOTHING. Do not repair the
+  value: where two readings of a field disagree and no invariant selects
+  between them, there is no evidence for either, and a repaired number carries
+  the same authority as a real one while being a guess. Two Clear Secure
+  filings gave 3.5% one way and 81.0% the other; the correct output was
+  neither.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.

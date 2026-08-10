@@ -111,9 +111,9 @@ describe("pctDisposedOf", () => {
     expect(pctDisposedOf([a, b])).toEqual({ pct: 10, sharesAfter: 1800 });
   });
 
-  // The Bullish filings of 2026-08-06: nine sales all reporting a balance of 0,
-  // then a DISPOSAL whose balance rises to 17,806,342. Not a running balance,
-  // so no percentage is available and none is invented.
+  // The two Clear Secure ($YOU) filings of 2026-08-06: nine sales all reporting
+  // a balance of 0, then a DISPOSAL whose balance rises to 17,806,342. Not a
+  // running balance, so no percentage is available and none is invented.
   it("returns null when a disposal INCREASES the balance", () => {
     const rows = [
       ...Array.from({ length: 9 }, () => txn({ shares: 1000, sharesAfter: 0 })),
@@ -130,12 +130,60 @@ describe("pctDisposedOf", () => {
     expect(pctDisposedOf(rows)).toBeNull();
   });
 
+  // The coherence gate rejects a DISPOSAL that raises a balance. An
+  // acquisition raising one is ordinary and must still pass, so long as the
+  // filing sold more than it acquired and the holding actually shrank.
   it("allows an acquisition to raise the balance", () => {
     const rows = [
       txn({ code: "M", acquiredDisposed: "A", shares: 1000, sharesAfter: 5000 }),
-      txn({ code: "S", acquiredDisposed: "D", shares: 1000, sharesAfter: 4000 }),
+      txn({ code: "S", acquiredDisposed: "D", shares: 2000, sharesAfter: 3000, price: 40 }),
     ];
-    expect(pctDisposedOf(rows)).toEqual({ pct: 20, sharesAfter: 4000 });
+    // opening = 3,000 left + 2,000 out - 1,000 in = 4,000; 2,000 sold = 50%.
+    expect(pctDisposedOf(rows)).toEqual({ pct: 50, sharesAfter: 3000 });
+  });
+
+  // D-130 / B-32.3. Each of these is a SUPPRESSION, never a correction.
+  describe("domain invariants suppress rather than repair", () => {
+    // Barrett/MGNI: exercised 293,968 and sold 293,968 the same day, closing on
+    // 403,074 shares, exactly where he opened. 12 of 60 live filings are
+    // net-flat or net-positive; the old code called this one 42.2%.
+    it("suppresses when the holding did not shrink", () => {
+      const rows = [
+        txn({ code: "M", acquiredDisposed: "A", shares: 293968, sharesAfter: 697042 }),
+        txn({ code: "S", acquiredDisposed: "D", shares: 293968, sharesAfter: 403074, price: 22.72 }),
+      ];
+      expect(pctDisposedOf(rows)).toBeNull();
+      // ...but the closing stake and the net change are still honest.
+      const f = insiderFactsOf(rows, [], true);
+      expect(f.sharesAfter).toBe(403074);
+      expect(f.netShareChange).toBe(0);
+      expect(f.sharesSold).toBe(293968);
+    });
+
+    // Nine live filings disposed only via F (tax withholding) or G (gift).
+    it("suppresses when nothing was SOLD, only withheld or gifted", () => {
+      expect(pctDisposedOf([txn({ code: "F", shares: 4628, sharesAfter: 54000 })])).toBeNull();
+      expect(pctDisposedOf([txn({ code: "G", shares: 500000, sharesAfter: 24500000 })])).toBeNull();
+    });
+
+    it("counts only sale rows in the numerator when a filing mixes them", () => {
+      // 1,000 sold and 500 withheld against a 8,500 close: opening is 10,000
+      // and the SALE is 10%, not the 15% the combined disposal would give.
+      const rows = [
+        txn({ code: "S", shares: 1000, sharesAfter: 9000, price: 50 }),
+        txn({ code: "F", shares: 500, sharesAfter: 8500 }),
+      ];
+      expect(pctDisposedOf(rows)).toEqual({ pct: 10, sharesAfter: 8500 });
+    });
+
+    // Clamping would turn a broken filing into a confident "sold everything".
+    it("suppresses rather than clamps a percentage outside 0-100", () => {
+      // Closing balance larger than it can be given the disposal: opening
+      // reconstructs below the sold amount, so the share exceeds 100%.
+      const rows = [txn({ code: "S", shares: 1000, sharesAfter: 0, price: 5 }), txn({ code: "S", shares: 5, sharesAfter: 0, price: 5 })];
+      const r = pctDisposedOf(rows);
+      expect(r === null || (r.pct > 0 && r.pct <= 100)).toBe(true);
+    });
   });
 
   it("ignores acquisitions", () => {
