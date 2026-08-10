@@ -103,6 +103,7 @@ const txn = (over: Partial<Form4Txn>): Form4Txn => ({
   date: "2026-07-24",
   timeliness: null,
   natureOfOwnership: null,
+  sharesAfterFootnoted: false,
   code: "P",
   acquiredDisposed: "A",
   shares: 10_000,
@@ -149,6 +150,7 @@ describe("totals + scoring", () => {
       derivativeCount: 0,
       derivatives: [],
       planFlag: false,
+      otherHoldingsReported: false,
     };
     // `now` is EXPLICIT: whether the year prints depends on what year it is,
     // so a defaulted clock would make this test pass until January.
@@ -172,6 +174,7 @@ describe("totals + scoring", () => {
       derivativeCount: 0,
       derivatives: [],
       planFlag: false,
+      otherHoldingsReported: false,
     };
     // `now` is EXPLICIT: whether the year prints depends on what year it is,
     // so a defaulted clock would make this test pass until January.
@@ -478,6 +481,7 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
       derivativeCount: 0,
       derivatives: [],
       planFlag: false,
+      otherHoldingsReported: false,
     };
     expect(draftForm4(doc, totalsFor(doc.nonDerivative))).toContain("$DOCS");
   });
@@ -494,6 +498,7 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
       derivativeCount: 0,
       derivatives: [],
       planFlag: false,
+      otherHoldingsReported: false,
     };
     // `now` is EXPLICIT: whether the year prints depends on what year it is,
     // so a defaulted clock would make this test pass until January.
@@ -510,6 +515,7 @@ describe("cashtags: every ticker carries $, and nothing else does", () => {
       derivativeCount: 0,
       derivatives: [],
       planFlag: false,
+      otherHoldingsReported: false,
     };
     // `now` is EXPLICIT: whether the year prints depends on what year it is,
     // so a defaulted clock would make this test pass until January.

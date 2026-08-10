@@ -327,6 +327,21 @@ resolving it quietly.
   the same authority as a real one while being a guess. Two Clear Secure
   filings gave 3.5% one way and 81.0% the other; the correct output was
   neither.
+- **A derived figure must be scoped to what it actually measures** (D-131,
+  from B-32.1's exemplar review). `sharesOwnedFollowingTransaction` on the
+  non-derivative table is ONE security class, and Form 4 also carries
+  `derivativeHolding`, `nonDerivativeHolding` and derivative transactions with
+  their own balances -- none of which this parser reads. Eric Yuan's Zoom
+  filing closes on 22,998 Class A while reporting 20,692,085 Class B on rows we
+  never see; printing "kept 22,998 shares" understates by 1,800x. 17 of 50
+  live filings carrying a stake are in that shape. Separately, a closing
+  balance carrying a `<footnoteId>` is not a plain share count at all: Danita
+  Ostling's 4,608 is "2,590 held outright and 2,018 issuable upon the vesting
+  of restricted stock units". Do not sum classes to repair this -- Class A,
+  Class B, RSUs and options are different instruments and adding them invents a
+  quantity no filing states. Detect and SUPPRESS. The general rule: before
+  printing a derived figure, name the population it is over and prove the
+  parser sees all of it.
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.

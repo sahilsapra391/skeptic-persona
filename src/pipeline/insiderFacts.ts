@@ -49,6 +49,12 @@ export interface InsiderFacts {
   netShareChange: number | null;
   /** Shares sold under an open-market sale code, as opposed to disposed. */
   sharesSold: number | null;
+  /**
+   * The closing stake we computed does NOT describe everything the filer
+   * holds, because the filing reports a second class, options, RSUs, or a
+   * footnoted balance. 22 of 50 live filings carrying a stake are partial.
+   */
+  stakeIsPartial: boolean;
 }
 
 /**
@@ -106,7 +112,16 @@ const SALE_CODES = new Set(["S"]);
  * is a disposal), and sum. A line whose final balance did not parse voids the
  * whole number -- a stake missing one of five lines is not a stake.
  */
-export function pctDisposedOf(txns: readonly Form4Txn[]): { pct: number; sharesAfter: number } | null {
+export function pctDisposedOf(
+  txns: readonly Form4Txn[],
+  otherHoldingsReported = false,
+): { pct: number; sharesAfter: number } | null {
+  // INVARIANT 4 (D-131): "% of their stake" needs to be over their STAKE.
+  // When the filing also reports holdings we do not aggregate -- a second
+  // share class, options, RSUs -- the non-derivative closing balance is one
+  // security class and the percentage is over the wrong denominator. Allaire's
+  // 8.8% is 8.8% of his Class A and 0.37% of everything the filing reports.
+  if (otherHoldingsReported) return null;
   const disposals = txns.filter((t) => t.acquiredDisposed === "D" && num(t.shares));
   const disposed = disposals.reduce((n, t) => n + (t.shares ?? 0), 0);
   const acquired = txns
@@ -161,6 +176,11 @@ export function pctDisposedOf(txns: readonly Form4Txn[]): { pct: number; sharesA
  * and a beat should be able to print the one without the other.
  */
 export function closingStakeOf(txns: readonly Form4Txn[]): number | null {
+  // INVARIANT 5 (D-131): a footnoted balance is not a plain share count.
+  // Ostling's 4,608 is "2,590 held outright and 2,018 issuable upon vesting of
+  // restricted stock units". Printing it as shares kept states 2,018 shares
+  // she does not hold.
+  if (txns.some((t) => t.sharesAfterFootnoted)) return null;
   // Ownership line = direct/indirect plus the nature text, because a filer can
   // report four separate trusts that are all "I".
   const lines = new Map<string, Form4Txn[]>();
@@ -267,8 +287,9 @@ export function insiderFactsOf(
   txns: readonly Form4Txn[],
   derivatives: readonly Form4Derivative[],
   planFlag: boolean,
+  otherHoldingsReported = false,
 ): InsiderFacts {
-  const disposed = pctDisposedOf(txns);
+  const disposed = pctDisposedOf(txns, otherHoldingsReported);
   const es = exerciseAndSellOf(txns, derivatives);
   const priced = txns.filter((t) => num(t.shares));
   const inShares = priced.filter((t) => t.acquiredDisposed === "A").reduce((n, t) => n + (t.shares ?? 0), 0);
@@ -281,6 +302,9 @@ export function insiderFactsOf(
     // The closing stake stands on its own; it does not need the percentage.
     sharesAfter: closingStakeOf(txns),
     netShareChange: priced.length > 0 ? inShares - outShares : null,
+    // True when the filing reports positions outside what we counted, so no
+    // beat may print a bare "kept N shares" (D-131).
+    stakeIsPartial: otherHoldingsReported || txns.some((t) => t.sharesAfterFootnoted),
     sharesSold: sold > 0 ? sold : null,
     planFlag,
     exerciseAndSell: es !== null,

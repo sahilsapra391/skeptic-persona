@@ -20,6 +20,7 @@ const txn = (o: Partial<Form4Txn>): Form4Txn => ({
   pctChange: null,
   timeliness: null,
   natureOfOwnership: null,
+  sharesAfterFootnoted: false,
   ...o,
 });
 
@@ -174,6 +175,32 @@ describe("pctDisposedOf", () => {
         txn({ code: "F", shares: 500, sharesAfter: 8500 }),
       ];
       expect(pctDisposedOf(rows)).toEqual({ pct: 10, sharesAfter: 8500 });
+    });
+
+    // D-131. Yuan's Zoom filing closes on 22,998 Class A while reporting
+    // 20,692,085 Class B on rows we never read; Allaire's Circle filing closes
+    // on 645,503 Class A against 15,948,605 Class B in holding rows. 17 of 50
+    // live filings carrying a stake are in this shape.
+    it("suppresses the percentage when the filing reports holdings we do not count", () => {
+      const rows = [txn({ code: "S", shares: 62264, sharesAfter: 645503, price: 62.03 })];
+      expect(pctDisposedOf(rows, false)?.pct).toBe(8.8);
+      expect(pctDisposedOf(rows, true)).toBeNull();
+      // ...and the payload says so, so no beat prints a bare "kept N shares".
+      expect(insiderFactsOf(rows, [], true, true).stakeIsPartial).toBe(true);
+      expect(insiderFactsOf(rows, [], true, false).stakeIsPartial).toBe(false);
+    });
+
+    // Ostling's 4,608 carries footnote F2: "2,590 shares ... held outright and
+    // 2,018 shares ... issuable upon the vesting of restricted stock units".
+    // Printing that as shares kept states 2,018 shares she does not hold.
+    it("suppresses a footnoted closing balance, which is not a share count", () => {
+      const rows = [txn({ code: "S", shares: 20000, sharesAfter: 4608, price: 61.65, sharesAfterFootnoted: true })];
+      expect(pctDisposedOf(rows)).toBeNull();
+      const f = insiderFactsOf(rows, [], false);
+      expect(f.sharesAfter).toBeNull();
+      expect(f.stakeIsPartial).toBe(true);
+      // The sale itself is untouched: 20,000 shares sold is still stated.
+      expect(f.sharesSold).toBe(20000);
     });
 
     // Clamping would turn a broken filing into a confident "sold everything".

@@ -116,6 +116,16 @@ export interface Form4Txn {
    * filer can report five of them in one filing. See pctDisposedOf (D-129).
    */
   natureOfOwnership: string | null;
+  /**
+   * The closing balance carried a <footnoteId>, so it is NOT a plain share
+   * count and must not be printed as one (D-131).
+   *
+   * Danita Ostling's Circle filing reports 4,608 with footnote F2: "2,590
+   * shares of Class A common stock held outright ... and 2,018 shares ...
+   * issuable upon the vesting of restricted stock units". 5 of 50 live
+   * closing balances are footnoted this way.
+   */
+  sharesAfterFootnoted: boolean;
   pctChange: number | null; // computed from parsed fields; null when not derivable
   /**
    * `L` when a row declares itself late.
@@ -163,6 +173,23 @@ export interface Form4Doc {
    * Absence is not evidence.
    */
   planFlag: boolean;
+  /**
+   * The filing reports positions we do NOT aggregate: derivative or
+   * non-derivative HOLDING rows, or derivative transactions with their own
+   * closing balances (D-131).
+   *
+   * We parse none of those blocks, so the non-derivative closing balance is a
+   * SINGLE security class and calling it "their stake" is wrong wherever this
+   * is true. Eric Yuan's Zoom filing closes on 22,998 Class A while reporting
+   * 20,692,085 Class B on rows we never read. Jeremy Allaire's Circle filing
+   * closes on 645,503 Class A against 15,948,605 Class B in holding rows.
+   * 17 of 50 live filings that carry a closing stake are in this shape.
+   *
+   * Summing the classes would be its own fabrication: Class A, Class B, RSUs
+   * and options are different instruments on different terms, and adding them
+   * into one "shares" figure invents a quantity no filing states.
+   */
+  otherHoldingsReported: boolean;
 }
 
 /** One well-formed symbol, or null. See isWellFormedSymbol for why. */
@@ -212,6 +239,7 @@ export function parseForm4Xml(xml: string): Form4Doc | null {
   const nonDerivative: Form4Txn[] = extractAll(clean, "nonDerivativeTransaction").map((block) => {
     const shares = nestedNumber(block, "transactionShares");
     const sharesAfter = nestedNumber(block, "sharesOwnedFollowingTransaction");
+    const sharesAfterFootnoted = (extractFirst(block, "sharesOwnedFollowingTransaction") ?? "").includes("footnoteId");
     const adRaw = nestedValue(block, "transactionAcquiredDisposedCode");
     const acquiredDisposed = adRaw === "A" || adRaw === "D" ? adRaw : null;
     let pctChange: number | null = null;
@@ -229,6 +257,7 @@ export function parseForm4Xml(xml: string): Form4Doc | null {
       sharesAfter,
       direct: (nestedValue(block, "directOrIndirectOwnership") ?? "D") === "D",
       natureOfOwnership: nestedValue(block, "natureOfOwnership")?.trim() || null,
+      sharesAfterFootnoted,
       pctChange,
       timeliness:
         extractFirst(extractFirst(block, "transactionCoding") ?? "", "transactionTimeliness")?.trim() || null,
@@ -262,6 +291,14 @@ export function parseForm4Xml(xml: string): Form4Doc | null {
     // Top-level and unwrapped. `nestedValue` returns null here; that is the
     // whole reason this is a separate read.
     planFlag: boolVal(extractFirst(clean, "aff10b5One")?.trim() ?? null),
+    // Presence only. We do not read these rows, we only need to know they
+    // exist so nothing downstream calls one security class "their stake".
+    otherHoldingsReported:
+      extractAll(clean, "nonDerivativeHolding").length > 0 ||
+      extractAll(clean, "derivativeHolding").length > 0 ||
+      extractAll(clean, "derivativeTransaction").some((b) =>
+        (extractFirst(b, "sharesOwnedFollowingTransaction") ?? "") !== "",
+      ),
   };
 }
 
@@ -611,7 +648,7 @@ async function processDetail(
             isAmendment: stub.formType.endsWith("/A"),
             // p6-03 (B2): the derived fields. Every one omitted rather than
             // approximated when its inputs are absent.
-            ...insiderFactsOf(doc.nonDerivative, doc.derivatives, doc.planFlag),
+            ...insiderFactsOf(doc.nonDerivative, doc.derivatives, doc.planFlag, doc.otherHoldingsReported),
             // Lake context. The count keys are absent unless the window is
             // covered; the coverage numbers themselves always ride along so
             // the ledger can say why a card was thin.

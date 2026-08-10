@@ -258,6 +258,11 @@
       "name": "D-130 domain invariants are suppression rules",
       "file": "CLAUDE.md",
       "contains": "suppression rules, never corrections"
+    },
+    {
+      "name": "D-131 a derived figure must be scoped to what it measures",
+      "file": "CLAUDE.md",
+      "contains": "name the population it is over"
     }
   ]
 }
