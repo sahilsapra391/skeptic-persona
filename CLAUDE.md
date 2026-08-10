@@ -342,6 +342,21 @@ resolving it quietly.
   quantity no filing states. Detect and SUPPRESS. The general rule: before
   printing a derived figure, name the population it is over and prove the
   parser sees all of it.
+- **A total is a claim about WHOSE, not just how much** (D-132, from the
+  adversarial review B-28.7 requires). Rule 144 aggregates sales across a group
+  of related persons, and each `securitiesSoldInPast3Months` row names its own
+  seller. Summing the table gave Brian Chesky's Airbnb notice a
+  prior-sale total of 1,190,000 shares / $159.7M when 1,000,000 / $134.1M were
+  his -- 40,000 belong to "Brian Chesky Legacy Trust B" and 150,000 to "Mka
+  Charitable Fund". A named person was credited with $25.6M of other entities'
+  selling. Match on a token SET, never a subset: "Brian Chesky Legacy Trust B"
+  contains every token of "Chesky Brian" and is a different legal person.
+  Two more of the same family, both live: a filing-total share count printed
+  beside a SINGLE-ROW percentage (`stake now 4,635 shares (+12.1%)`, where the
+  12.1% was the second lot alone), and `Math.round(x * 10000) / 100`
+  publishing `pctOfOutstanding: 0` for six notices whose true values run from
+  0.0004% to 0.0036% -- **a rounded zero is the rounding losing the number,
+  and printing it asserts a zero the filing does not contain.**
 - **Endpoint verification is law:** never trust a remembered URL. Every
   feed/API endpoint gets live-verified during its chunk; the PR notes what
   was verified and when. Records live in docs/verification/.

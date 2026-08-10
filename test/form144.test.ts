@@ -16,6 +16,8 @@ import {
   scoreForm144,
   SOURCE,
   usDateToIso,
+  priorSaleTotals,
+  sameSeller,
 } from "../src/ingesters/form144";
 import { newTickBudget } from "../src/lib/budget";
 import { SCORE_LOG_ONLY, SCORE_POSTABLE, SCORE_AUTO_ALERT } from "../src/lib/db";
@@ -339,5 +341,64 @@ describe("pollForm144 end-to-end", () => {
       .bind(SOURCE)
       .all<{ status: string }>();
     expect(statuses.results.map((r) => r.status)).toEqual(["logged"]);
+  });
+});
+
+// D-132, from the adversarial review of the exemplar pack.
+describe("prior-sale attribution (D-132)", () => {
+  const doc = (sellerName: string, rows: Array<[string | null, number, number]>) =>
+    ({
+      sellerName,
+      priorSales: rows.map(([sellerName, shares, grossProceeds]) => ({
+        saleDate: "07/28/2026",
+        shares,
+        grossProceeds,
+        sellerName,
+      })),
+    }) as unknown as Parameters<typeof priorSaleTotals>[0];
+
+  // Brian Chesky's Airbnb notice: 16 rows, 1,190,000 shares. Only 1,000,000
+  // are his; 40,000 belong to "Brian Chesky Legacy Trust B" and 150,000 to
+  // "Mka Charitable Fund". The old sum put $25.6M of other entities' selling
+  // under his name.
+  it("totals only the rows naming the notice's own seller", () => {
+    const t = priorSaleTotals(
+      doc("Chesky Brian", [
+        ["Brian Chesky", 1_000_000, 134_056_000.77],
+        ["Brian Chesky Legacy Trust B", 40_000, 5_388_928.7],
+        ["Mka Charitable Fund", 150_000, 20_209_441.72],
+      ]),
+    );
+    expect(t.priorSaleShares).toBe(1_000_000);
+    expect(t.priorSaleProceeds).toBeCloseTo(134_056_000.77, 2);
+    expect(t.priorSaleCountOwn).toBe(1);
+    expect(t.priorSaleOtherPersons).toBe(2);
+  });
+
+  // The two fields disagree on order and case, so the match is a token SET.
+  it("matches across the filed name's word order", () => {
+    expect(sameSeller("SUSAN L BOSTROM", "BOSTROM SUSAN L")).toBe(true);
+    expect(sameSeller("Brian Chesky", "Chesky Brian")).toBe(true);
+  });
+
+  // The trap a subset match would fall into: every token of the shorter name
+  // is present in the longer, and they are different legal persons.
+  it("refuses a name carrying EXTRA tokens", () => {
+    expect(sameSeller("Brian Chesky Legacy Trust B", "Chesky Brian")).toBe(false);
+    expect(sameSeller("Mka Charitable Fund", "Chesky Brian")).toBe(false);
+  });
+
+  it("sums nothing when a row does not name its seller", () => {
+    const t = priorSaleTotals(doc("Chesky Brian", [["Brian Chesky", 100, 1000], [null, 50, 500]]));
+    expect("priorSaleShares" in t).toBe(false);
+    expect("priorSaleProceeds" in t).toBe(false);
+  });
+
+  // Two Rees entities file separately off the same two-row table; neither may
+  // claim both rows.
+  it("reports the other-person count when none of the rows are the seller's", () => {
+    const t = priorSaleTotals(doc("THE REES FAMILY FOUNDATION, INC", [["Rees Family Living Trust", 37_688, 4_398_700.82]]));
+    expect("priorSaleShares" in t).toBe(false);
+    expect(t.priorSaleOtherPersons).toBe(1);
   });
 });

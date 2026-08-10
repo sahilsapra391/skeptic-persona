@@ -124,6 +124,34 @@ export interface Form144PriorSale {
   saleDate: string | null;
   shares: number | null;
   grossProceeds: number | null;
+  /** The seller NAMED ON THIS ROW, which is not always the notice's seller. */
+  sellerName: string | null;
+}
+
+/**
+ * Do two name strings denote the same person?
+ *
+ * Token-set match because the two fields disagree on order and case: the
+ * prior-sale table writes "SUSAN L BOSTROM" against a filed
+ * "BOSTROM SUSAN L". Deliberately strict about EXTRA tokens -- "Brian Chesky"
+ * and "Brian Chesky Legacy Trust B" share every token of the shorter name and
+ * are different legal persons, so a subset match would be exactly wrong.
+ */
+export function sameSeller(a: string | null, b: string | null): boolean {
+  const toks = (s: string) =>
+    new Set(
+      s
+        .toUpperCase()
+        .replace(/[.,]/g, " ")
+        .split(/\s+/)
+        .filter((t) => t !== ""),
+    );
+  if (!a || !b) return false;
+  const x = toks(a);
+  const y = toks(b);
+  if (x.size !== y.size) return false;
+  for (const t of x) if (!y.has(t)) return false;
+  return true;
 }
 
 export interface Form144Doc {
@@ -168,6 +196,36 @@ export interface Form144Doc {
    *  Same doctrine as Form 4's flag (B-10.1): present licenses a claim,
    *  absent licenses NOTHING. */
   planAdoptionDate: string | null;
+}
+
+/**
+ * Prior-sale totals attributed ONLY to the notice's own seller (D-132).
+ *
+ * Rows naming a different legal person are counted separately and never
+ * folded in. Where the split cannot be made cleanly -- a row with no seller
+ * name, or a row whose figures did not parse -- NOTHING is summed, because a
+ * partial total presented as the whole is the fabrication class and a total
+ * mixing entities is worse.
+ */
+export function priorSaleTotals(doc: Form144Doc): Record<string, unknown> {
+  const rows = doc.priorSales;
+  if (rows.length === 0) return {};
+  const mine = rows.filter((r) => sameSeller(r.sellerName, doc.sellerName));
+  const others = rows.length - mine.length;
+  const base = others > 0 ? { priorSaleOtherPersons: others } : {};
+  // Every row must name a seller, or we cannot know whose sales these are.
+  if (rows.some((r) => r.sellerName === null)) return base;
+  if (mine.length === 0) return base;
+  return {
+    ...base,
+    priorSaleCountOwn: mine.length,
+    ...(mine.every((x) => typeof x.shares === "number")
+      ? { priorSaleShares: mine.reduce((n, x) => n + (x.shares ?? 0), 0) }
+      : {}),
+    ...(mine.every((x) => typeof x.grossProceeds === "number")
+      ? { priorSaleProceeds: mine.reduce((n, x) => n + (x.grossProceeds ?? 0), 0) }
+      : {}),
+  };
 }
 
 function num(v: string | null): number | null {
@@ -244,13 +302,29 @@ export function parseForm144Xml(xml: string): Form144Doc | null {
   // publishing "10,000,000% of shares outstanding" and auto-alerting on it.
   let pctOfOutstanding: number | null = null;
   if (unitsSold !== null && unitsOutstanding !== null && unitsOutstanding > 0 && unitsSold <= unitsOutstanding) {
-    pctOfOutstanding = Math.round((unitsSold / unitsOutstanding) * 10000) / 100;
+    const pct = Math.round((unitsSold / unitsOutstanding) * 10000) / 100;
+    // D-132: a rounded ZERO is not a measurement, it is the rounding losing
+    // the number. 6 of 25 live notices land here -- 2,163 of 514,000,000 is
+    // 0.000421% and stored as `0`, and "0% of shares outstanding" asserts a
+    // zero no filing contains. Two decimals is simply the wrong precision for
+    // a field whose live range runs from 0.0004% to 1.2%, so a value that
+    // rounds away is suppressed rather than published as nothing-sold.
+    pctOfOutstanding = pct > 0 ? pct : null;
   }
 
+  // EACH ROW NAMES ITS OWN SELLER, and they are not all the notice's seller
+  // (D-132). Rule 144 aggregates sales across a group of related persons, so
+  // one notice's table can carry a trust's and a foundation's sales beside the
+  // filer's own. Brian Chesky's Airbnb notice lists 16 rows totalling 1,190,000
+  // shares: 1,000,000 are his, 40,000 are "Brian Chesky Legacy Trust B" and
+  // 150,000 are "Mka Charitable Fund". Summing all 16 under his name attributes
+  // $25.6M of other entities' selling to a named person.
   const priorSales: Form144PriorSale[] = extractAllNs(clean, "securitiesSoldInPast3Months").map((b) => ({
     saleDate: (extractFirstNs(b, "saleDate") ?? "").trim() || null,
     shares: num(extractFirstNs(b, "amountOfSecuritiesSold")),
     grossProceeds: num(extractFirstNs(b, "grossProceeds")),
+    sellerName:
+      decodeEntities((extractFirstNs(extractFirstNs(b, "sellerDetails") ?? "", "name") ?? "").trim()) || null,
   }));
 
   return {
@@ -502,18 +576,7 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
             // quoting it is quoting the document. See Form144Doc.priorSales.
             priorSales: doc.priorSales,
             priorSaleCount: doc.priorSales.length,
-            ...(doc.priorSales.length > 0
-              ? {
-                  priorSaleShares: doc.priorSales.every((x) => typeof x.shares === "number")
-                    ? doc.priorSales.reduce((n, x) => n + (x.shares ?? 0), 0)
-                    : null,
-                  // Only summed when EVERY row parsed a figure. A partial sum
-                  // presented as the whole is the fabrication class.
-                  priorSaleProceeds: doc.priorSales.every((x) => typeof x.grossProceeds === "number")
-                    ? doc.priorSales.reduce((n, x) => n + (x.grossProceeds ?? 0), 0)
-                    : null,
-                }
-              : {}),
+            ...priorSaleTotals(doc),
             // Present licenses a claim; absent licenses NOTHING (B-10.1).
             ...(doc.planAdoptionDate ? { planAdoptionDate: doc.planAdoptionDate } : {}),
             relationships: doc.relationships,

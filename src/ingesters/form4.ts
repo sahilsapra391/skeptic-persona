@@ -394,9 +394,24 @@ export function draftForm4(doc: Form4Doc, totals: Form4Totals, now: Date = new D
     // Stake/pct only when the priced subset IS the whole buy picture and the
     // latest-dated buy carries a parsed post-transaction balance.
     const last = buys.slice().sort((a, b) => (a.date < b.date ? -1 : 1)).at(-1);
+    // D-131: the share total is the FILING's, so the percentage beside it has
+    // to be the filing's too. `pctChange` is a SINGLE ROW's, and pairing them
+    // is the composite this function's own header forbids. Jean-Luc Servat's
+    // FNRN filing has two P rows (500 -> 4,135, then 500 -> 4,635) and printed
+    // "bought 1,000 ... stake now 4,635 shares (+12.1%)", where 12.1% is
+    // 500/4,135, the second lot alone. Against the 3,635 he held before the
+    // filing, 1,000 bought is +27.5%. One live case, wrong.
+    //
+    // Recomputed over the same priced subset the share total came from, and
+    // omitted rather than approximated when the prior balance is not positive.
+    const priorBalance = last && last.sharesAfter !== null ? last.sharesAfter - totals.buyShares : null;
+    const buyPct =
+      priorBalance !== null && priorBalance > 0
+        ? Math.round((totals.buyShares / priorBalance) * 1000) / 10
+        : null;
     const stake =
       buys.length === allBuys.length && last && last.sharesAfter !== null
-        ? `, stake now ${fmtNum(last.sharesAfter)} shares${last.pctChange !== null ? ` (+${last.pctChange}%)` : ""}`
+        ? `, stake now ${fmtNum(last.sharesAfter)} shares${buyPct !== null ? ` (+${buyPct}%)` : ""}`
         : "";
     lines.push(
       `Form 4: ${who} bought ${fmtNum(totals.buyShares)} ${sym} at ~$${avg.toFixed(2)} (${fmtUsd(totals.buyValue)})${span(buys)}${stake}`,

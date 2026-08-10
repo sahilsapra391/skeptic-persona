@@ -263,6 +263,11 @@
       "name": "D-131 a derived figure must be scoped to what it measures",
       "file": "CLAUDE.md",
       "contains": "name the population it is over"
+    },
+    {
+      "name": "D-132 a total is a claim about whose",
+      "file": "CLAUDE.md",
+      "contains": "A total is a claim about WHOSE"
     }
   ]
 }
