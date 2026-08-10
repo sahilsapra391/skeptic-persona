@@ -21,6 +21,7 @@ import { isWellFormedSymbol } from "../lib/symbol";
 import { isNonCommonSymbol } from "./issuers";
 import { deriveDisplayName } from "../lib/names";
 import { insiderFactsOf, planLanguage } from "../pipeline/insiderFacts";
+import { insiderLakeContextFor, lakeContextFields } from "../pipeline/insiderLake";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -531,6 +532,26 @@ async function processDetail(
     const fresh = isFreshAtIngest(row.event_at ?? "", now);
     const draft = draftForm4(doc, totals, now);
 
+    // p6-03 (B-32.6): this insider's prior selling at this issuer, from our own
+    // lake, under the coverage guard. Every count is OMITTED while the window
+    // is uncovered, and today it always is: we opened on edgar_form4 two weeks
+    // ago, so no year-to-date claim is ours to make. p6-07's backfill is what
+    // turns these on. See insiderLake.ts for why MIN(transaction_date) is not
+    // coverage.
+    const lake = owner
+      ? await insiderLakeContextFor(
+          env.DB,
+          {
+            insiderCik: owner.cik,
+            issuerCik: doc.issuerCik,
+            since: `${now.getUTCFullYear()}-01-01T00:00:00.000Z`,
+            excludeItemId: row.id,
+            source: SOURCE,
+          },
+          now,
+        )
+      : null;
+
     // ONE atomic batch: the pending_detail-guarded flip plus every trade row
     // (OR IGNORE on the (item_id, txn_index) key). A crash can't strand an
     // item detailed-but-rowless, and an overlapping run that loses the flip
@@ -591,6 +612,10 @@ async function processDetail(
             // p6-03 (B2): the derived fields. Every one omitted rather than
             // approximated when its inputs are absent.
             ...insiderFactsOf(doc.nonDerivative, doc.derivatives, doc.planFlag),
+            // Lake context. The count keys are absent unless the window is
+            // covered; the coverage numbers themselves always ride along so
+            // the ledger can say why a card was thin.
+            ...(lake ? lakeContextFields(lake) : {}),
             // The licensed PHRASE, or absent. B-10.1: a false flag licenses
             // nothing, so there is no negative form of this key.
             ...(planLanguage(doc.planFlag) ? { planLanguage: planLanguage(doc.planFlag) } : {}),

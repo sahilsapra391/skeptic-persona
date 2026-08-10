@@ -9,6 +9,7 @@ import { fmtNum, fmtUsd, isFreshAtIngest } from "./shared";
 import { displayDate } from "../lib/dates";
 import { deriveDisplayName } from "../lib/names";
 import { resolveSymbol } from "../lib/symbol";
+import { notice144LinkFor } from "../pipeline/insiderLake";
 import { iso } from "../lib/time";
 import { log } from "../lib/log";
 
@@ -129,6 +130,8 @@ export interface Form144Doc {
   issuerCik: string;
   issuerName: string;
   sellerName: string;
+  /** The seller's own CIK, joining this notice to their Form 4 record. */
+  sellerCik: string | null;
   relationships: string[];
   securitiesClass: string | null;
   broker: string | null;
@@ -203,6 +206,20 @@ export function parseForm144Xml(xml: string): Form144Doc | null {
   );
   if (!issuerCik || !issuerName || !sellerName) return null;
 
+  // The SELLER's CIK, and the join key to their Form 4 record (see
+  // notice144LinkFor). Verified 2026-08-08: exactly one <cik> in each of 25
+  // live filings, at filerInfo > filer > filerCredentials.
+  //
+  // SCOPED THROUGH THAT PATH ON PURPOSE. Its sibling in the same block is
+  // <ccc>, an EDGAR access credential. It arrives redacted as XXXXXXXX in the
+  // public copy, and this parser must never reach for it, store it, or put it
+  // on a payload if a filing ever carries a real one.
+  const sellerCik =
+    (extractFirstNs(
+      extractFirstNs(extractFirstNs(extractFirstNs(clean, "filerInfo") ?? "", "filer") ?? "", "filerCredentials") ?? "",
+      "cik",
+    ) ?? "").trim() || null;
+
   const relBlock = extractFirstNs(clean, "relationshipsToIssuer") ?? "";
   const relationships = extractAllNs(relBlock, "relationshipToIssuer")
     .map((r) => decodeEntities(r.trim()))
@@ -239,6 +256,7 @@ export function parseForm144Xml(xml: string): Form144Doc | null {
   return {
     issuerCik,
     issuerName,
+    sellerCik,
     priorSales,
     planAdoptionDate:
       (extractFirstNs(extractFirstNs(clean, "planAdoptionDates") ?? "", "planAdoptionDate") ?? "").trim() || null,
@@ -445,6 +463,12 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
         securitiesClass: doc.securitiesClass,
         issuerName: doc.issuerName,
       });
+      // p6-03 (B-32.6): the seller's Form 4 record at this issuer. NOT
+      // coverage-guarded -- it reports rows we hold, it does not claim a count
+      // over a window. See notice144LinkFor.
+      const link = doc.sellerCik
+        ? await notice144LinkFor(env.DB, { sellerCik: doc.sellerCik, issuerCik: doc.issuerCik })
+        : null;
       const fresh = isFreshAtIngest(row.event_at ?? "", now);
       await env.DB.prepare(
         `UPDATE items SET payload = ?1, score = ?2, status = ?3 WHERE id = ?4 AND status = 'pending_detail'`,
@@ -467,6 +491,11 @@ async function processDetails(env: Env, userAgent: string, now: Date, budget: Ti
             sellerName: sellerDisplayName(doc, stub.conformedSeller),
             sellerNameFiled: doc.sellerName,
             sellerNameConformed: stub.conformedSeller ?? null,
+            // The seller's Form 4 record at this issuer, when we hold one.
+            // Absent rather than zero: "no prior Form 4 sales" and "we have
+            // not been watching long enough to have any" are not the same
+            // claim, and only one of them is ours to make.
+            ...(link ?? {}),
             // B-10.2: the filer's OWN prior-3-months sales, and the derived
             // counts over them. NOT coverage-guarded -- the window is the
             // filer's statutory three months and the count is theirs, so
